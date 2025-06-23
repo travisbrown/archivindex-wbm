@@ -114,13 +114,15 @@ impl<'a> SnapshotLine<'a> {
         {
             None
         } else {
-            Some(
-                content
-                    .chars()
-                    .rev()
-                    .take_while(|ch| *ch == '\r' || *ch == '\n')
-                    .collect::<Vec<_>>(),
-            )
+            let mut closing_whitespace = content
+                .chars()
+                .rev()
+                .take_while(|ch| *ch == '\r' || *ch == '\n')
+                .collect::<Vec<_>>();
+
+            closing_whitespace.reverse();
+
+            Some(closing_whitespace)
         };
 
         let content = &content[0..content.len()
