@@ -16,6 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 cli-helpers = "0.1"
 csv = "1"
 globwalk = "0.9"
+itertools = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"

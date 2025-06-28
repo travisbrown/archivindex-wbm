@@ -4,7 +4,9 @@ use archivindex_wbm::{
 };
 use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{data, flat};
+use chrono::DateTime;
 use cli_helpers::prelude::*;
+use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -192,6 +194,68 @@ async fn main() -> Result<(), Error> {
 
             log::info!("Good: {success_count}; bad: {failure_count}");
         }
+        Command::TweetDoc { input, id } => {
+            let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
+            let mut found = vec![];
+
+            for line in lines {
+                let line = line?;
+                let mut snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+
+                if let Some(mut tweets) = snapshot.content.includes.tweets.take() {
+                    tweets.retain(|tweet| tweet.author_id == id);
+
+                    if !tweets.is_empty() {
+                        if let Some(((timestamp, user), url)) =
+                            snapshot
+                                .timestamp
+                                .zip(snapshot.content.lookup_user(id))
+                                .zip(
+                                    snapshot.url.as_ref().map(|url| url.to_string()).or_else(
+                                        || wxj::data_canonical_url(&snapshot.content, false),
+                                    ),
+                                )
+                        {
+                            found.extend(tweets.into_iter().map(|tweet| {
+                                (
+                                    timestamp,
+                                    url.clone(),
+                                    tweet.into_owned(),
+                                    user.clone().into_owned(),
+                                )
+                            }));
+                        }
+                    }
+                }
+            }
+
+            found.sort_by_key(|(_, _, tweet, _)| std::cmp::Reverse(tweet.created_at));
+
+            for (as_os_str, tweets) in &found
+                .into_iter()
+                .chunk_by(|(_, _, tweet, _)| tweet.created_at)
+            {
+                // We choose the most recent snapshot indexed under the user's screen name (or just most recent, if there are none).
+                if let Some((timestamp, url, tweet, user)) =
+                    tweets.max_by_key(|(timestamp, url, _, user)| {
+                        (
+                            url.to_lowercase().contains(&user.username.to_lowercase()),
+                            *timestamp,
+                        )
+                    })
+                {
+                    println!(
+                        "* {} (@{}) at [{}](https://web.archive.org/web/{}/{}): {}",
+                        user.name,
+                        user.username,
+                        DateTime::from(timestamp).format("%e %B %Y"),
+                        timestamp,
+                        url,
+                        tweet.text.replace("\n", " ")
+                    );
+                }
+            }
+        }
     }
 
     Ok(())
@@ -259,6 +323,12 @@ enum Command {
     CdxList {
         #[clap(long)]
         base: PathBuf,
+    },
+    TweetDoc {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        id: u64,
     },
 }
 

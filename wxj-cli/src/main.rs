@@ -1,7 +1,9 @@
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
+use chrono::DateTime;
 use cli_helpers::prelude::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -223,6 +225,78 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::UserObservations {
+            input,
+            flat,
+            range_only,
+        } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+            let mut observations = HashMap::<(u64, String), Vec<i64>>::new();
+
+            for line in reader.lines() {
+                let line = line?;
+
+                if flat {
+                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+                    if let Some(timestamp) = snapshot.timestamp {
+                        let entry = observations
+                            .entry((
+                                snapshot.content.user.id,
+                                snapshot.content.user.screen_name.to_string(),
+                            ))
+                            .or_default();
+
+                        entry.push(DateTime::from(timestamp).timestamp());
+                    }
+                } else {
+                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    if let Some(timestamp) = snapshot.timestamp {
+                        for user in snapshot.content.includes.users {
+                            let entry = observations
+                                .entry((user.id, user.username.to_string()))
+                                .or_default();
+
+                            entry.push(DateTime::from(timestamp).timestamp());
+                        }
+                    }
+                };
+            }
+
+            let mut observations = observations.into_iter().collect::<Vec<_>>();
+            observations.sort_by_key(|((id, _), _)| *id);
+
+            for ((id, screen_name), mut timestamps) in observations {
+                timestamps.sort();
+                timestamps.dedup();
+
+                let timestamps = if range_only {
+                    let mut new_timestamps = Vec::with_capacity(2);
+
+                    if let Some(first) = timestamps.first() {
+                        new_timestamps.push(*first);
+                    }
+
+                    if let Some(last) = timestamps.last() {
+                        new_timestamps.push(*last);
+                    }
+
+                    new_timestamps
+                } else {
+                    timestamps
+                };
+
+                println!(
+                    "{},{},{}",
+                    id,
+                    screen_name,
+                    timestamps
+                        .into_iter()
+                        .map(|timestamp| timestamp.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+        }
     }
 
     Ok(())
@@ -282,5 +356,13 @@ enum Command {
         input: PathBuf,
         #[clap(long)]
         flat: bool,
+    },
+    UserObservations {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        flat: bool,
+        #[clap(long)]
+        range_only: bool,
     },
 }
