@@ -225,6 +225,61 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::Withheld { input, flat } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+
+            for line in reader.lines() {
+                let line = line?;
+
+                let withheld = if flat {
+                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+
+                    snapshot
+                        .content
+                        .withheld_in_countries
+                        .and_then(|country_codes| {
+                            if country_codes.is_empty() {
+                                None
+                            } else {
+                                Some((
+                                    snapshot.content.user.id,
+                                    snapshot.content.user.screen_name.to_string(),
+                                    country_codes,
+                                ))
+                            }
+                        })
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                } else {
+                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+
+                    snapshot
+                        .content
+                        .includes
+                        .users
+                        .into_iter()
+                        .filter_map(|user| {
+                            user.withheld.map(|withheld| {
+                                (user.id, user.username.to_string(), withheld.country_codes)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                for (id, screen_name, country_codes) in withheld {
+                    println!(
+                        "{},{},{}",
+                        id,
+                        screen_name,
+                        country_codes
+                            .iter()
+                            .map(|country_code| country_code.to_string())
+                            .collect::<Vec<_>>()
+                            .join(";")
+                    );
+                }
+            }
+        }
         Command::UserObservations {
             input,
             flat,
@@ -352,6 +407,12 @@ enum Command {
         compression: u16,
     },
     TweetIds {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        flat: bool,
+    },
+    Withheld {
         #[clap(long)]
         input: PathBuf,
         #[clap(long)]
