@@ -3,7 +3,7 @@ use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -352,6 +352,43 @@ async fn main() -> Result<(), Error> {
                 );
             }
         }
+
+        Command::MediaUrls {
+            input,
+            flat,
+            photos_only,
+            id,
+        } => {
+            let ids = id.into_iter().collect::<BTreeSet<_>>();
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+
+            for line in reader.lines() {
+                let line = line?;
+
+                if flat {
+                } else {
+                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    if let Some(media) = snapshot.content.includes.media {
+                        if snapshot
+                            .content
+                            .includes
+                            .users
+                            .iter()
+                            .any(|user| ids.contains(&user.id))
+                        {
+                            for media in media {
+                                if !photos_only
+                                    || media.media_type
+                                        == birdsite::model::wxj::data::MediaType::Photo
+                                {
+                                    println!("{}", media.url);
+                                }
+                            }
+                        }
+                    }
+                };
+            }
+        }
     }
 
     Ok(())
@@ -425,5 +462,15 @@ enum Command {
         flat: bool,
         #[clap(long)]
         range_only: bool,
+    },
+    MediaUrls {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        flat: bool,
+        #[clap(long)]
+        photos_only: bool,
+        #[clap(long)]
+        id: Vec<u64>,
     },
 }
