@@ -45,7 +45,7 @@ impl<W: Write> SnapshotWriter<W> {
             let content = std::io::read_to_string(reader)?;
             let snapshot_line = SnapshotLine::new(digest, &content);
 
-            writeln!(self.underlying, "{}", snapshot_line)?;
+            writeln!(self.underlying, "{snapshot_line}")?;
             self.last_written = Some(digest);
 
             Ok(true)
@@ -57,7 +57,7 @@ impl<W: Write> SnapshotWriter<W> {
         if Some(snapshot_line.digest) == self.last_written {
             Ok(false)
         } else {
-            writeln!(self.underlying, "{}", snapshot_line)?;
+            writeln!(self.underlying, "{snapshot_line}")?;
             self.last_written = Some(snapshot_line.digest);
 
             Ok(true)

@@ -50,7 +50,7 @@ async fn main() -> Result<(), Error> {
                 }
             }
 
-            log::info!("{} valid", count);
+            log::info!("{count} valid");
         }
         Command::Incomplete { input } => {
             let mut count = 0;
@@ -72,7 +72,7 @@ async fn main() -> Result<(), Error> {
                 }
             }
 
-            log::info!("{} incomplete", count);
+            log::info!("{count} incomplete");
         }
         Command::Merge {
             input,
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Error> {
             }
 
             for (expected, found) in invalid_digests {
-                log::warn!("Invalid digest: {} instead of {}", found, expected);
+                log::warn!("Invalid digest: {found} instead of {expected}");
             }
 
             log::info!("Prepared {} files", paths.len());
@@ -177,14 +177,14 @@ async fn main() -> Result<(), Error> {
                                 } else if content.starts_with("{\"data\":") {
                                     data_output.write(digest, bytes)?;
                                 } else {
-                                    log::info!("Skipped: {}", digest);
+                                    log::info!("Skipped: {digest}");
                                 }
                             } else {
-                                log::info!("Skipped because not single line: {}", digest);
+                                log::info!("Skipped because not single line: {digest}");
                             }
                         }
                         Err(error) => {
-                            log::info!("File I/O error: {:?}", error);
+                            log::info!("File I/O error: {error:?}");
                         }
                     }
                 }
