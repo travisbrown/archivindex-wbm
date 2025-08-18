@@ -216,7 +216,7 @@ async fn main() -> Result<(), Error> {
                 };
 
                 let metadata =
-                    birdsite::model::metadata::tweet::TweetMetadata::from_tweet_snapshot(
+                    birdsite::model::wxj::metadata::tweet::TweetMetadata::from_tweet_snapshot(
                         &snapshot.content,
                     )?;
 
@@ -378,10 +378,11 @@ async fn main() -> Result<(), Error> {
                         {
                             for media in media {
                                 if !photos_only
-                                    || media.media_type
-                                        == birdsite::model::wxj::data::MediaType::Photo
+                                    || media.media_type()
+                                        == birdsite::model::media::MediaType::Photo
                                 {
-                                    println!("{}", media.url);
+                                    // Safe because photos always have a URL.
+                                    println!("{}", media.url().unwrap());
                                 }
                             }
                         }
