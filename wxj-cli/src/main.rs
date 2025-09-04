@@ -280,6 +280,84 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::Interesting { input, flat } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+
+            for line in reader.lines() {
+                let line = line?;
+                let mut output = vec![];
+
+                if flat {
+                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+                    let user = snapshot.content.user;
+
+                    if let Some(withheld) = user.withheld_in_countries {
+                        if !withheld.is_empty() {
+                            output.push(format!(
+                                "{},{},W:{}",
+                                user.id,
+                                user.screen_name,
+                                withheld
+                                    .iter()
+                                    .map(|country_code| country_code.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(";")
+                            ));
+                        }
+                    }
+
+                    if let Some(followers_count) = user.followers_count {
+                        if followers_count >= 10000 {
+                            output.push(format!(
+                                "{},{},T:{}",
+                                user.id, user.screen_name, followers_count
+                            ));
+                        }
+                    }
+
+                    if user.verified {
+                        output.push(format!("{},{},P", user.id, user.screen_name));
+                    }
+                } else {
+                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+
+                    for user in snapshot.content.includes.users {
+                        if let Some(withheld) = user.withheld {
+                            if !withheld.country_codes.is_empty() {
+                                output.push(format!(
+                                    "{},{},W:{}",
+                                    user.id,
+                                    user.username,
+                                    withheld
+                                        .country_codes
+                                        .iter()
+                                        .map(|country_code| country_code.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(";")
+                                ));
+                            }
+                        }
+
+                        if let Some(followers_count) = user.public_metrics.followers_count {
+                            if followers_count >= 10000 {
+                                output.push(format!(
+                                    "{},{},T:{}",
+                                    user.id, user.username, followers_count
+                                ));
+                            }
+                        }
+
+                        if user.verified {
+                            output.push(format!("{},{},P", user.id, user.username));
+                        }
+                    }
+                }
+
+                for line in output {
+                    println!("{}", line);
+                }
+            }
+        }
         Command::UserObservations {
             input,
             flat,
@@ -451,6 +529,12 @@ enum Command {
         flat: bool,
     },
     Withheld {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        flat: bool,
+    },
+    Interesting {
         #[clap(long)]
         input: PathBuf,
         #[clap(long)]
