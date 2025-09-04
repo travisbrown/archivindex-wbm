@@ -291,28 +291,28 @@ async fn main() -> Result<(), Error> {
                     let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
                     let user = snapshot.content.user;
 
-                    if let Some(withheld) = user.withheld_in_countries {
-                        if !withheld.is_empty() {
-                            output.push(format!(
-                                "{},{},W:{}",
-                                user.id,
-                                user.screen_name,
-                                withheld
-                                    .iter()
-                                    .map(|country_code| country_code.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(";")
-                            ));
-                        }
+                    if let Some(withheld) = user.withheld_in_countries
+                        && !withheld.is_empty()
+                    {
+                        output.push(format!(
+                            "{},{},W:{}",
+                            user.id,
+                            user.screen_name,
+                            withheld
+                                .iter()
+                                .map(|country_code| country_code.to_string())
+                                .collect::<Vec<_>>()
+                                .join(";")
+                        ));
                     }
 
-                    if let Some(followers_count) = user.followers_count {
-                        if followers_count >= 10000 {
-                            output.push(format!(
-                                "{},{},T:{}",
-                                user.id, user.screen_name, followers_count
-                            ));
-                        }
+                    if let Some(followers_count) = user.followers_count
+                        && followers_count >= 10000
+                    {
+                        output.push(format!(
+                            "{},{},T:{}",
+                            user.id, user.screen_name, followers_count
+                        ));
                     }
 
                     if user.verified {
@@ -322,29 +322,29 @@ async fn main() -> Result<(), Error> {
                     let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
 
                     for user in snapshot.content.includes.users {
-                        if let Some(withheld) = user.withheld {
-                            if !withheld.country_codes.is_empty() {
-                                output.push(format!(
-                                    "{},{},W:{}",
-                                    user.id,
-                                    user.username,
-                                    withheld
-                                        .country_codes
-                                        .iter()
-                                        .map(|country_code| country_code.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join(";")
-                                ));
-                            }
+                        if let Some(withheld) = user.withheld
+                            && !withheld.country_codes.is_empty()
+                        {
+                            output.push(format!(
+                                "{},{},W:{}",
+                                user.id,
+                                user.username,
+                                withheld
+                                    .country_codes
+                                    .iter()
+                                    .map(|country_code| country_code.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(";")
+                            ));
                         }
 
-                        if let Some(followers_count) = user.public_metrics.followers_count {
-                            if followers_count >= 10000 {
-                                output.push(format!(
-                                    "{},{},T:{}",
-                                    user.id, user.username, followers_count
-                                ));
-                            }
+                        if let Some(followers_count) = user.public_metrics.followers_count
+                            && followers_count >= 10000
+                        {
+                            output.push(format!(
+                                "{},{},T:{}",
+                                user.id, user.username, followers_count
+                            ));
                         }
 
                         if user.verified {
@@ -446,22 +446,20 @@ async fn main() -> Result<(), Error> {
                 if flat {
                 } else {
                     let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
-                    if let Some(media) = snapshot.content.includes.media {
-                        if snapshot
+                    if let Some(media) = snapshot.content.includes.media
+                        && snapshot
                             .content
                             .includes
                             .users
                             .iter()
                             .any(|user| ids.contains(&user.id))
-                        {
-                            for media in media {
-                                if !photos_only
-                                    || media.media_type()
-                                        == birdsite::model::media::MediaType::Photo
-                                {
-                                    // Safe because photos always have a URL.
-                                    println!("{}", media.url().unwrap());
-                                }
+                    {
+                        for media in media {
+                            if !photos_only
+                                || media.media_type() == birdsite::model::media::MediaType::Photo
+                            {
+                                // Safe because photos always have a URL.
+                                println!("{}", media.url().unwrap());
                             }
                         }
                     }
