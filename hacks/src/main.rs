@@ -26,7 +26,8 @@ async fn main() -> Result<(), Error> {
         } => {
             let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
-            for line in lines {
+            for (i, line) in lines.enumerate() {
+                let line_number = i + 1;
                 let line = line?;
 
                 let snapshot_line = SnapshotLine::parse(&line)?;
@@ -36,12 +37,16 @@ async fn main() -> Result<(), Error> {
                 {
                     let url = if flat {
                         Some(wxj::flat_canonical_url(
-                            &serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?.content,
+                            &serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)
+                                .map_err(|error| Error::JsonLine(error, line_number))?
+                                .content,
                             false,
                         ))
                     } else {
                         wxj::data_canonical_url(
-                            &serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?.content,
+                            &serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)
+                                .map_err(|error| Error::JsonLine(error, line_number))?
+                                .content,
                             false,
                         )
                     };
@@ -231,7 +236,7 @@ async fn main() -> Result<(), Error> {
 
             found.sort_by_key(|(_, _, tweet, _)| std::cmp::Reverse(tweet.created_at));
 
-            for (as_os_str, tweets) in &found
+            for (_as_os_str, tweets) in &found
                 .into_iter()
                 .chunk_by(|(_, _, tweet, _)| tweet.created_at)
             {
@@ -271,6 +276,8 @@ pub enum Error {
     Csv(#[from] csv::Error),
     #[error("JSON error")]
     Json(#[from] serde_json::Error),
+    #[error("JSON file parsing error")]
+    JsonLine(serde_json::Error, usize),
     #[error("SURT error")]
     Surt(#[from] archivindex_wbm::surt::Error),
     #[error("WXJ lines error")]
