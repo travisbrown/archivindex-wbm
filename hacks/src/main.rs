@@ -7,6 +7,7 @@ use archivindex_wbm::{
 };
 use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{data, flat};
+use bounded_static::IntoBoundedStatic;
 use chrono::DateTime;
 use cli_helpers::prelude::*;
 use itertools::Itertools;
@@ -228,8 +229,8 @@ async fn main() -> Result<(), Error> {
                             (
                                 timestamp,
                                 url.clone(),
-                                tweet.into_owned(),
-                                user.clone().into_owned(),
+                                tweet.into_static(),
+                                user.clone().into_static(),
                             )
                         }));
                     }

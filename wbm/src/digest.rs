@@ -137,12 +137,26 @@ impl<'a> Digest<'a> {
             Ok(Self::Invalid(input.into()))
         }
     }
+}
 
-    #[must_use]
-    pub fn into_owned(self) -> Digest<'static> {
+impl bounded_static::IntoBoundedStatic for Digest<'_> {
+    type Static = Digest<'static>;
+
+    fn into_static(self) -> Self::Static {
         match self {
-            Self::Valid(digest) => Digest::Valid(digest),
-            Self::Invalid(digest) => Digest::Invalid(digest.into_owned().into()),
+            Self::Valid(digest) => Self::Static::Valid(digest),
+            Self::Invalid(digest) => Self::Static::Invalid(digest.into_static()),
+        }
+    }
+}
+
+impl bounded_static::ToBoundedStatic for Digest<'_> {
+    type Static = Digest<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        match self {
+            Self::Valid(digest) => Self::Static::Valid(*digest),
+            Self::Invalid(digest) => Self::Static::Invalid(digest.to_static()),
         }
     }
 }
@@ -151,7 +165,7 @@ impl FromStr for Digest<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Digest::parse_str(s).map(Digest::into_owned)
+        Digest::parse_str(s).map(bounded_static::IntoBoundedStatic::into_static)
     }
 }
 

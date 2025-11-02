@@ -1,10 +1,5 @@
 use crate::cdx::{mime_type::MimeType, status_code::StatusCode};
-use crate::{
-    digest::Digest,
-    item::{ItemInfo, UrlParts},
-    surt::Surt,
-    timestamp::Timestamp,
-};
+use crate::{digest::Digest, surt::Surt, timestamp::Timestamp};
 use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 use std::borrow::Cow;
 
@@ -30,7 +25,7 @@ pub enum Error {
     InvalidMimeType(#[from] crate::cdx::mime_type::Error),
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
 pub struct Item<'a> {
     pub key: Surt<'a>,
     pub timestamp: Timestamp,
@@ -39,32 +34,6 @@ pub struct Item<'a> {
     pub status_code: StatusCode,
     pub digest: Digest<'a>,
     pub length: Option<u32>,
-}
-
-impl<'a> Item<'a> {
-    #[must_use]
-    pub fn into_owned(self) -> Item<'static> {
-        Item {
-            key: self.key.into_owned(),
-            timestamp: self.timestamp,
-            original: self.original.into_owned().into(),
-            mime_type: self.mime_type.into_owned(),
-            status_code: self.status_code,
-            digest: self.digest.into_owned(),
-            length: self.length,
-        }
-    }
-
-    #[must_use]
-    pub fn entry_info(&self) -> ItemInfo<'a> {
-        ItemInfo {
-            url_parts: UrlParts {
-                url: self.original.clone(),
-                timestamp: self.timestamp,
-            },
-            expected_digest: self.digest.clone(),
-        }
-    }
 }
 
 // This is an internal representation that we need because of the way resumption keys are given.

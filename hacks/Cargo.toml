@@ -12,6 +12,7 @@ version = "0.1.0"
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wxj = { path = "../wxj/" }
 birdsite = { git = "https://github.com/travisbrown/birdsite.git" }
+bounded-static = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 cli-helpers = "0.1"
 csv = "1"

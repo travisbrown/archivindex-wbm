@@ -16,6 +16,30 @@ pub enum MimeType<'a> {
     Other(Cow<'a, str>),
 }
 
+impl bounded_static::IntoBoundedStatic for MimeType<'_> {
+    type Static = MimeType<'static>;
+
+    fn into_static(self) -> Self::Static {
+        match self {
+            Self::TextHtml => Self::Static::TextHtml,
+            Self::ApplicationJson => Self::Static::ApplicationJson,
+            Self::Other(value) => Self::Static::Other(value.into_static()),
+        }
+    }
+}
+
+impl bounded_static::ToBoundedStatic for MimeType<'_> {
+    type Static = MimeType<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        match self {
+            Self::TextHtml => Self::Static::TextHtml,
+            Self::ApplicationJson => Self::Static::ApplicationJson,
+            Self::Other(value) => Self::Static::Other(value.to_static()),
+        }
+    }
+}
+
 impl<'a> MimeType<'a> {
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -34,15 +58,6 @@ impl<'a> MimeType<'a> {
             other => Ok(Self::Other(other.into())),
         }
     }
-
-    #[must_use]
-    pub fn into_owned(self) -> MimeType<'static> {
-        match self {
-            Self::TextHtml => MimeType::TextHtml,
-            Self::ApplicationJson => MimeType::ApplicationJson,
-            Self::Other(other) => MimeType::Other(other.into_owned().into()),
-        }
-    }
 }
 
 impl Display for MimeType<'_> {
@@ -54,7 +69,7 @@ impl Display for MimeType<'_> {
 impl FromStr for MimeType<'static> {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        MimeType::parse_str(s).map(MimeType::into_owned)
+        MimeType::parse_str(s).map(bounded_static::IntoBoundedStatic::into_static)
     }
 }
 

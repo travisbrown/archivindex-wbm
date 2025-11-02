@@ -21,7 +21,9 @@ pub enum Error {
 /// Simplified Sort-friendly URI Reordering Transform representation.
 ///
 /// Currently only implements features necessary to handle Wayback Machine CDX results.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic,
+)]
 pub struct Surt<'a> {
     source: Cow<'a, str>,
     domain_name_part_lens: Vec<u8>,
@@ -74,14 +76,6 @@ impl<'a> Surt<'a> {
             source: input.into(),
             domain_name_part_lens,
         })
-    }
-
-    #[must_use]
-    pub fn into_owned(self) -> Surt<'static> {
-        Surt {
-            source: self.source.into_owned().into(),
-            domain_name_part_lens: self.domain_name_part_lens,
-        }
     }
 
     #[must_use]
@@ -187,7 +181,7 @@ impl FromStr for Surt<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Surt::parse_str(s).map(Surt::into_owned)
+        Surt::parse_str(s).map(bounded_static::IntoBoundedStatic::into_static)
     }
 }
 

@@ -11,6 +11,8 @@ version = "0.1.0"
 
 [workspace.dependencies]
 birdsite = { git = "https://github.com/travisbrown/birdsite.git" }
+bounded-static = "0.8"
+bounded-static-derive-more = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 csv = "1"
 data-encoding = "2"

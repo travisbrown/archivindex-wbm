@@ -8,6 +8,8 @@ version = { workspace = true }
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
+bounded-static = { workspace = true }
+bounded-static-derive-more = { workspace = true }
 birdsite = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }

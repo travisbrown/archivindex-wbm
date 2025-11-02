@@ -18,28 +18,13 @@ const ITEM_LIST_HEADER: [&str; 11] = [
     "filename",
 ];
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
 pub struct ExtendedItem<'a> {
     pub item: super::Item<'a>,
     pub redirect: Option<Cow<'a, str>>,
     pub robot_flags: Option<Cow<'a, str>>,
     pub offset: u64,
     pub file_name: Cow<'a, str>,
-}
-
-impl ExtendedItem<'_> {
-    #[must_use]
-    pub fn into_owned(self) -> ExtendedItem<'static> {
-        ExtendedItem {
-            item: self.item.into_owned(),
-            redirect: self.redirect.map(|redirect| redirect.into_owned().into()),
-            robot_flags: self
-                .robot_flags
-                .map(|robot_flags| robot_flags.into_owned().into()),
-            offset: self.offset,
-            file_name: self.file_name.into_owned().into(),
-        }
-    }
 }
 
 // This is an internal representation that we need because of the way resumption keys are given.

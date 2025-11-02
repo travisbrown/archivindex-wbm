@@ -21,9 +21,9 @@ impl<R: Read> Iterator for SnapshotReader<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.underlying.next().map(|result| {
-            result
-                .map_err(super::Error::from)
-                .and_then(|line| SnapshotLine::parse(&line).map(super::SnapshotLine::into_owned))
+            result.map_err(super::Error::from).and_then(|line| {
+                SnapshotLine::parse(&line).map(bounded_static::IntoBoundedStatic::into_static)
+            })
         })
     }
 }

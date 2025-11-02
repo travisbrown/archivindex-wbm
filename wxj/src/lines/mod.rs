@@ -16,7 +16,15 @@ pub enum Error {
     InvalidClosingWhitespace(String),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    serde::Deserialize,
+    serde::Serialize,
+    bounded_static_derive_more::ToStatic,
+)]
 pub struct Snapshot<'a, S> {
     pub digest: Sha1Digest,
     pub expected_digest: Option<Sha1Digest>,
@@ -44,7 +52,7 @@ impl<'a, S> Snapshot<'a, S> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic)]
 pub struct SnapshotLine<'a> {
     pub digest: Sha1Digest,
     pub expected_digest: Option<Sha1Digest>,
@@ -138,18 +146,6 @@ impl<'a> SnapshotLine<'a> {
             timestamp: None,
             url: None,
             content: content.into(),
-        }
-    }
-
-    #[must_use]
-    pub fn into_owned(self) -> SnapshotLine<'static> {
-        SnapshotLine {
-            digest: self.digest,
-            expected_digest: self.expected_digest,
-            closing_whitespace: self.closing_whitespace,
-            timestamp: self.timestamp,
-            url: self.url.map(|url| url.into_owned().into()),
-            content: self.content.into_owned().into(),
         }
     }
 
