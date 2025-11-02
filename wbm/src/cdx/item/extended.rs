@@ -27,7 +27,8 @@ pub struct ExtendedItem<'a> {
     pub file_name: Cow<'a, str>,
 }
 
-impl<'a> ExtendedItem<'a> {
+impl ExtendedItem<'_> {
+    #[must_use]
     pub fn into_owned(self) -> ExtendedItem<'static> {
         ExtendedItem {
             item: self.item.into_owned(),
@@ -54,12 +55,12 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
         impl<'de> Visitor<'de> for ItemOrEmptyVisitor {
             type Value = ItemOrEmpty<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("enum ItemOrEmpty")
             }
 
             fn visit_seq<V: SeqAccess<'de>>(self, mut seq: V) -> Result<Self::Value, V::Error> {
-                match seq.next_element::<Surt>()? {
+                match seq.next_element::<Surt<'_>>()? {
                     None => Ok(Self::Value::Empty),
                     Some(key) => {
                         let timestamp = seq.next_element()?.ok_or_else(|| {
@@ -78,7 +79,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             serde::de::Error::invalid_length(5, &INVALID_LENGTH_MESSAGE)
                         })?;
 
-                        let redirect_str: Cow<str> = seq.next_element()?.ok_or_else(|| {
+                        let redirect_str: Cow<'_, str> = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
                         })?;
 
@@ -88,9 +89,10 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             Some(redirect_str)
                         };
 
-                        let robot_flags_str: Cow<str> = seq.next_element()?.ok_or_else(|| {
-                            serde::de::Error::invalid_length(7, &INVALID_LENGTH_MESSAGE)
-                        })?;
+                        let robot_flags_str: Cow<'_, str> =
+                            seq.next_element()?.ok_or_else(|| {
+                                serde::de::Error::invalid_length(7, &INVALID_LENGTH_MESSAGE)
+                            })?;
 
                         let robot_flags = if robot_flags_str == "-" {
                             None
@@ -162,7 +164,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ExtendedItemList<'a> {
         impl<'de> Visitor<'de> for EntryListVisitor {
             type Value = ExtendedItemList<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("struct ExtendedItemList")
             }
 
@@ -174,7 +176,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ExtendedItemList<'a> {
 
                             let mut expect_resume_key = false;
 
-                            while let Some(next) = seq.next_element::<ItemOrEmpty>()? {
+                            while let Some(next) = seq.next_element::<ItemOrEmpty<'_>>()? {
                                 match next {
                                     ItemOrEmpty::Item(item) => {
                                         values.push(*item);
@@ -222,7 +224,7 @@ mod tests {
     #[test]
     fn deserialize_empty() {
         let contents = "[]";
-        let items = serde_json::from_str::<super::ExtendedItemList>(contents).unwrap();
+        let items = serde_json::from_str::<super::ExtendedItemList<'_>>(contents).unwrap();
 
         assert_eq!(items.values.len(), 0);
     }
@@ -230,7 +232,7 @@ mod tests {
     #[test]
     fn deserialize() {
         let contents = include_str!("../../../../examples/cdx/1702374488385081.json");
-        let items = serde_json::from_str::<super::ExtendedItemList>(contents).unwrap();
+        let items = serde_json::from_str::<super::ExtendedItemList<'_>>(contents).unwrap();
 
         assert_eq!(items.values.len(), 8838);
     }

@@ -28,7 +28,7 @@ pub struct Timestamp(DateTime<Utc>);
 
 impl Timestamp {
     pub fn new_validate_round_trip(input: &str) -> Result<Option<Self>, Error> {
-        let value: Timestamp = input.parse()?;
+        let value: Self = input.parse()?;
 
         Ok(if value.to_string() == input {
             Some(value)
@@ -85,7 +85,7 @@ impl FromStr for Timestamp {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() == 14 {
             let date_time = NaiveDateTime::parse_from_str(s, TIMESTAMP_FMT)?.and_utc();
-            let timestamp = Timestamp(date_time);
+            let timestamp = Self(date_time);
 
             // This validation confirms that the input can be round-tripped through our representation. I've never seen
             // an input where this fails, and the check is expensive enough that I think it deserves a feature flag
@@ -112,7 +112,7 @@ impl<'de> Deserialize<'de> for Timestamp {
         impl Visitor<'_> for TimestampVisitor {
             type Value = Timestamp;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("struct Timestamp")
             }
 

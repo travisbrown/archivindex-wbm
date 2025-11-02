@@ -17,6 +17,7 @@ pub enum MimeType<'a> {
 }
 
 impl<'a> MimeType<'a> {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match self {
             Self::TextHtml => "text/html",
@@ -34,6 +35,7 @@ impl<'a> MimeType<'a> {
         }
     }
 
+    #[must_use]
     pub fn into_owned(self) -> MimeType<'static> {
         match self {
             Self::TextHtml => MimeType::TextHtml,
@@ -43,7 +45,7 @@ impl<'a> MimeType<'a> {
     }
 }
 
-impl<'a> Display for MimeType<'a> {
+impl Display for MimeType<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -52,7 +54,7 @@ impl<'a> Display for MimeType<'a> {
 impl FromStr for MimeType<'static> {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        MimeType::parse_str(s).map(|mime_type| mime_type.into_owned())
+        MimeType::parse_str(s).map(MimeType::into_owned)
     }
 }
 
@@ -63,7 +65,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for MimeType<'a> {
         impl<'de> Visitor<'de> for MimeTypeVisitor {
             type Value = MimeType<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("enum MimeType")
             }
 

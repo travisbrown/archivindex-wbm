@@ -89,6 +89,7 @@ impl StatusCode {
     /// Note that this returns zero for an empty value, even though these typically indicate a
     /// `200` response. Use the `From` instance for `http::status::StatusCode` if you want a
     /// logical status code.
+    #[must_use]
     pub const fn value(&self) -> u16 {
         match self {
             Self::Empty => 0,
@@ -140,6 +141,7 @@ impl StatusCode {
         }
     }
 
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Empty => "-",
@@ -206,28 +208,25 @@ impl From<StatusCode> for http::status::StatusCode {
     /// Note that the Cloudflare error status codes are converted to the generic `500`.
     fn from(value: StatusCode) -> Self {
         match value {
-            StatusCode::Empty => http::status::StatusCode::OK,
-            StatusCode::Ok => http::status::StatusCode::OK,
-            StatusCode::MovedPermanently => http::status::StatusCode::MOVED_PERMANENTLY,
-            StatusCode::Found => http::status::StatusCode::FOUND,
-            StatusCode::SeeOther => http::status::StatusCode::SEE_OTHER,
-            StatusCode::TemporaryRedirest => http::status::StatusCode::TEMPORARY_REDIRECT,
-            StatusCode::BadRequest => http::status::StatusCode::BAD_REQUEST,
-            StatusCode::Unauthorized => http::status::StatusCode::UNAUTHORIZED,
-            StatusCode::Forbidden => http::status::StatusCode::FORBIDDEN,
-            StatusCode::NotFound => http::status::StatusCode::NOT_FOUND,
-            StatusCode::UpgradeRequired => http::status::StatusCode::UPGRADE_REQUIRED,
-            StatusCode::TooManyRequests => http::status::StatusCode::TOO_MANY_REQUESTS,
-            StatusCode::RequestHeaderFieldsTooLarge => {
-                http::status::StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE
-            }
-            StatusCode::InternalServerError => http::status::StatusCode::INTERNAL_SERVER_ERROR,
-            StatusCode::BadGateway => http::status::StatusCode::BAD_GATEWAY,
-            StatusCode::ServiceUnavailable => http::status::StatusCode::SERVICE_UNAVAILABLE,
-            StatusCode::GatewayTimeout => http::status::StatusCode::GATEWAY_TIMEOUT,
-            StatusCode::CloudflareUnknownError => http::status::StatusCode::INTERNAL_SERVER_ERROR,
-            StatusCode::CloudflareWebServerDown => http::status::StatusCode::INTERNAL_SERVER_ERROR,
-            StatusCode::CloudflareTimeout => http::status::StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::Ok | StatusCode::Empty => Self::OK,
+            StatusCode::MovedPermanently => Self::MOVED_PERMANENTLY,
+            StatusCode::Found => Self::FOUND,
+            StatusCode::SeeOther => Self::SEE_OTHER,
+            StatusCode::TemporaryRedirest => Self::TEMPORARY_REDIRECT,
+            StatusCode::BadRequest => Self::BAD_REQUEST,
+            StatusCode::Unauthorized => Self::UNAUTHORIZED,
+            StatusCode::Forbidden => Self::FORBIDDEN,
+            StatusCode::NotFound => Self::NOT_FOUND,
+            StatusCode::UpgradeRequired => Self::UPGRADE_REQUIRED,
+            StatusCode::TooManyRequests => Self::TOO_MANY_REQUESTS,
+            StatusCode::RequestHeaderFieldsTooLarge => Self::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            StatusCode::InternalServerError
+            | StatusCode::CloudflareUnknownError
+            | StatusCode::CloudflareWebServerDown
+            | StatusCode::CloudflareTimeout => Self::INTERNAL_SERVER_ERROR,
+            StatusCode::BadGateway => Self::BAD_GATEWAY,
+            StatusCode::ServiceUnavailable => Self::SERVICE_UNAVAILABLE,
+            StatusCode::GatewayTimeout => Self::GATEWAY_TIMEOUT,
         }
     }
 }

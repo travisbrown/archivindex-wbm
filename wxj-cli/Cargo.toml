@@ -15,6 +15,7 @@ cli-helpers = "0.1"
 csv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha1 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 zstd = { workspace = true }

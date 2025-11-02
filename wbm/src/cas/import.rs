@@ -73,14 +73,15 @@ impl File {
             )
     }
 
+    #[must_use]
     pub fn path(&self) -> &Path {
         match self {
-            Self::Valid { path, .. } => path,
-            Self::Skipped { path } => path,
+            Self::Valid { path, .. } | Self::Skipped { path } => path,
         }
     }
 
-    pub fn digest(&self) -> Option<Sha1Digest> {
+    #[must_use]
+    pub const fn digest(&self) -> Option<Sha1Digest> {
         match self {
             Self::Valid { digest, .. } => Some(*digest),
             Self::Skipped { .. } => None,
@@ -108,6 +109,7 @@ impl Importer {
         }
     }
 
+    #[must_use]
     pub fn validating(self) -> ValidatingImporter {
         ValidatingImporter {
             underlying: self,

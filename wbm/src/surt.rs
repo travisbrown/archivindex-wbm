@@ -28,6 +28,7 @@ pub struct Surt<'a> {
 }
 
 impl<'a> Surt<'a> {
+    #[must_use]
     pub fn as_str(&'a self) -> &'a str {
         &self.source
     }
@@ -36,6 +37,7 @@ impl<'a> Surt<'a> {
         self.domain_name_part_lens.len() + self.domain_name_part_lens.iter().sum::<u8>() as usize
     }
 
+    #[must_use]
     pub fn domain_name_parts(&'a self) -> DomainNamePartIter<'a> {
         DomainNamePartIter {
             source: &self.source[0..self.path_start() - 1],
@@ -43,6 +45,7 @@ impl<'a> Surt<'a> {
         }
     }
 
+    #[must_use]
     pub fn path(&'a self) -> &'a str {
         &self.source[self.path_start()..]
     }
@@ -73,6 +76,7 @@ impl<'a> Surt<'a> {
         })
     }
 
+    #[must_use]
     pub fn into_owned(self) -> Surt<'static> {
         Surt {
             source: self.source.into_owned().into(),
@@ -80,7 +84,8 @@ impl<'a> Surt<'a> {
         }
     }
 
-    pub fn canonical_url(&'a self) -> SurtCanonicalUrl<'a> {
+    #[must_use]
+    pub const fn canonical_url(&'a self) -> SurtCanonicalUrl<'a> {
         SurtCanonicalUrl { source: self }
     }
 }
@@ -111,7 +116,7 @@ impl Surt<'static> {
                 source.push(')');
                 source.push_str(&Self::decode_path(url.path()));
 
-                if source.ends_with("/") {
+                if source.ends_with('/') {
                     source.pop();
                 }
 
@@ -172,7 +177,7 @@ impl Surt<'static> {
     }
 }
 
-impl<'a> Display for Surt<'a> {
+impl Display for Surt<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -182,7 +187,7 @@ impl FromStr for Surt<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Surt::parse_str(s).map(|surt| surt.into_owned())
+        Surt::parse_str(s).map(Surt::into_owned)
     }
 }
 
@@ -193,7 +198,7 @@ impl<'de> Deserialize<'de> for Surt<'de> {
         impl<'de> Visitor<'de> for SurtVisitor {
             type Value = Surt<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("struct Surt")
             }
 
@@ -215,7 +220,7 @@ impl<'de> Deserialize<'de> for Surt<'de> {
     }
 }
 
-impl<'a> Serialize for Surt<'a> {
+impl Serialize for Surt<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())
     }
@@ -268,7 +273,7 @@ impl<'a> Iterator for DomainNamePartIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for DomainNamePartIter<'a> {
+impl DoubleEndedIterator for DomainNamePartIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.domain_name_part_lens.next_back().map(|len| {
             let len = *len as usize;
@@ -288,7 +293,7 @@ mod tests {
     #[test]
     fn round_trip() {
         let input = "com,twitter)/farleftwatch/status/999825423977639936";
-        let parsed = input.parse::<Surt>().unwrap();
+        let parsed = input.parse::<Surt<'_>>().unwrap();
 
         assert_eq!(parsed.domain_name_parts().count(), 2);
 
@@ -310,7 +315,7 @@ mod tests {
     fn canonical_url() {
         let input = "com,twitter)/farleftwatch/status/999825423977639936";
 
-        let parsed = input.parse::<Surt>().unwrap();
+        let parsed = input.parse::<Surt<'_>>().unwrap();
         let expected = "https://twitter.com/farleftwatch/status/999825423977639936";
 
         assert_eq!(parsed.canonical_url().to_string(), expected);
@@ -319,7 +324,7 @@ mod tests {
     #[test]
     fn from_url_examples() {
         let contents = include_str!("../../examples/cdx/1706619334645856.json");
-        let items = serde_json::from_str::<crate::cdx::item::ItemList>(contents).unwrap();
+        let items = serde_json::from_str::<crate::cdx::item::ItemList<'_>>(contents).unwrap();
 
         for item in items.values {
             let from_url = Surt::from_url(&item.original).unwrap();

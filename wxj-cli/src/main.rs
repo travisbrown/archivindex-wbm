@@ -1,8 +1,12 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
+#![allow(clippy::missing_errors_doc)]
+#![forbid(unsafe_code)]
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
+use sha1::digest::core_api::CoreWrapper;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -19,7 +23,7 @@ async fn main() -> Result<(), Error> {
     match opts.command {
         Command::Validate { input } => {
             let mut count = 0;
-            let mut hasher = Default::default();
+            let mut hasher = CoreWrapper::default();
 
             for path in input {
                 let reader = BufReader::new(zstd::Decoder::new(File::open(&path)?)?);
@@ -129,10 +133,7 @@ async fn main() -> Result<(), Error> {
                     .and_then(|result| result.as_ref().ok())
                     .map(|snapshot| snapshot.digest);
 
-                while flat_next
-                    .map(|flat_digest| flat_digest < digest)
-                    .unwrap_or(false)
-                {
+                while flat_next.is_some_and(|flat_digest| flat_digest < digest) {
                     // We can unwrap safely because of the peek.
                     let snapshot = flat_input.next().unwrap()?;
                     flat_output.write_snapshot(&snapshot)?;
@@ -142,10 +143,7 @@ async fn main() -> Result<(), Error> {
                         .map(|snapshot| snapshot.digest);
                 }
 
-                while data_next
-                    .map(|data_digest| data_digest < digest)
-                    .unwrap_or(false)
-                {
+                while data_next.is_some_and(|data_digest| data_digest < digest) {
                     // We can unwrap safely because of the peek.
                     let snapshot = data_input.next().unwrap()?;
                     data_output.write_snapshot(&snapshot)?;
@@ -171,16 +169,14 @@ async fn main() -> Result<(), Error> {
 
                             let trimmed = content.trim();
 
-                            if !trimmed.contains(['\n', '\r']) {
-                                if content.starts_with("{\"created_at\":") {
-                                    flat_output.write(digest, bytes)?;
-                                } else if content.starts_with("{\"data\":") {
-                                    data_output.write(digest, bytes)?;
-                                } else {
-                                    log::info!("Skipped: {digest}");
-                                }
-                            } else {
+                            if trimmed.contains(['\n', '\r']) {
                                 log::info!("Skipped because not single line: {digest}");
+                            } else if content.starts_with("{\"created_at\":") {
+                                flat_output.write(digest, bytes)?;
+                            } else if content.starts_with("{\"data\":") {
+                                data_output.write(digest, bytes)?;
+                            } else {
+                                log::info!("Skipped: {digest}");
                             }
                         }
                         Err(error) => {
@@ -208,10 +204,10 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 let snapshot = if flat {
-                    serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?
+                    serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?
                         .map_content(TweetSnapshot::Flat)
                 } else {
-                    serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?
+                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?
                         .map_content(TweetSnapshot::Data)
                 };
 
@@ -232,7 +228,8 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 let withheld = if flat {
-                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
 
                     snapshot
                         .content
@@ -251,7 +248,8 @@ async fn main() -> Result<(), Error> {
                         .into_iter()
                         .collect::<Vec<_>>()
                 } else {
-                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
 
                     snapshot
                         .content
@@ -273,7 +271,7 @@ async fn main() -> Result<(), Error> {
                         screen_name,
                         country_codes
                             .iter()
-                            .map(|country_code| country_code.to_string())
+                            .map(std::string::ToString::to_string)
                             .collect::<Vec<_>>()
                             .join(";")
                     );
@@ -288,7 +286,8 @@ async fn main() -> Result<(), Error> {
                 let mut output = vec![];
 
                 if flat {
-                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
                     let user = snapshot.content.user;
 
                     if let Some(withheld) = user.withheld_in_countries
@@ -300,7 +299,7 @@ async fn main() -> Result<(), Error> {
                             user.screen_name,
                             withheld
                                 .iter()
-                                .map(|country_code| country_code.to_string())
+                                .map(std::string::ToString::to_string)
                                 .collect::<Vec<_>>()
                                 .join(";")
                         ));
@@ -319,7 +318,8 @@ async fn main() -> Result<(), Error> {
                         output.push(format!("{},{},P", user.id, user.screen_name));
                     }
                 } else {
-                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
 
                     for user in snapshot.content.includes.users {
                         if let Some(withheld) = user.withheld
@@ -332,7 +332,7 @@ async fn main() -> Result<(), Error> {
                                 withheld
                                     .country_codes
                                     .iter()
-                                    .map(|country_code| country_code.to_string())
+                                    .map(std::string::ToString::to_string)
                                     .collect::<Vec<_>>()
                                     .join(";")
                             ));
@@ -354,7 +354,7 @@ async fn main() -> Result<(), Error> {
                 }
 
                 for line in output {
-                    println!("{}", line);
+                    println!("{line}");
                 }
             }
         }
@@ -370,7 +370,8 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 if flat {
-                    let snapshot = serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         let entry = observations
                             .entry((
@@ -382,7 +383,8 @@ async fn main() -> Result<(), Error> {
                         entry.push(DateTime::from(timestamp).timestamp());
                     }
                 } else {
-                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         for user in snapshot.content.includes.users {
                             let entry = observations
@@ -392,14 +394,14 @@ async fn main() -> Result<(), Error> {
                             entry.push(DateTime::from(timestamp).timestamp());
                         }
                     }
-                };
+                }
             }
 
             let mut observations = observations.into_iter().collect::<Vec<_>>();
             observations.sort_by_key(|((id, _), _)| *id);
 
             for ((id, screen_name), mut timestamps) in observations {
-                timestamps.sort();
+                timestamps.sort_unstable();
                 timestamps.dedup();
 
                 let timestamps = if range_only {
@@ -445,7 +447,8 @@ async fn main() -> Result<(), Error> {
 
                 if flat {
                 } else {
-                    let snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
                     if let Some(media) = snapshot.content.includes.media
                         && snapshot
                             .content
@@ -463,7 +466,7 @@ async fn main() -> Result<(), Error> {
                             }
                         }
                     }
-                };
+                }
             }
         }
     }

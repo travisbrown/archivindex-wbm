@@ -42,6 +42,7 @@ pub struct Item<'a> {
 }
 
 impl<'a> Item<'a> {
+    #[must_use]
     pub fn into_owned(self) -> Item<'static> {
         Item {
             key: self.key.into_owned(),
@@ -54,6 +55,7 @@ impl<'a> Item<'a> {
         }
     }
 
+    #[must_use]
     pub fn entry_info(&self) -> ItemInfo<'a> {
         ItemInfo {
             url_parts: UrlParts {
@@ -78,12 +80,12 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
         impl<'de> Visitor<'de> for ItemOrEmptyVisitor {
             type Value = ItemOrEmpty<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("enum ItemOrEmpty")
             }
 
             fn visit_seq<V: SeqAccess<'de>>(self, mut seq: V) -> Result<Self::Value, V::Error> {
-                match seq.next_element::<Surt>()? {
+                match seq.next_element::<Surt<'_>>()? {
                     None => Ok(Self::Value::Empty),
                     Some(key) => {
                         let timestamp = seq.next_element()?.ok_or_else(|| {
@@ -146,7 +148,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
         impl<'de> Visitor<'de> for EntryListVisitor {
             type Value = ItemList<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("struct ItemList")
             }
 
@@ -158,7 +160,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
 
                             let mut expect_resume_key = false;
 
-                            while let Some(next) = seq.next_element::<ItemOrEmpty>()? {
+                            while let Some(next) = seq.next_element::<ItemOrEmpty<'_>>()? {
                                 match next {
                                     ItemOrEmpty::Item(item) => {
                                         values.push(item);
@@ -200,6 +202,8 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
     }
 }
 
+// Simple internal function, so we don't care what Clippy says.
+#[allow(clippy::option_option)]
 fn parse_length(input: &str) -> Option<Option<u32>> {
     if input == "-" {
         Some(None)
@@ -214,7 +218,7 @@ mod tests {
     #[test]
     fn deserialize_empty() {
         let contents = "[]";
-        let items = serde_json::from_str::<super::ItemList>(contents).unwrap();
+        let items = serde_json::from_str::<super::ItemList<'_>>(contents).unwrap();
 
         assert_eq!(items.values.len(), 0);
     }
@@ -222,7 +226,7 @@ mod tests {
     #[test]
     fn deserialize() {
         let contents = include_str!("../../../../examples/cdx/1706619334645856.json");
-        let items = serde_json::from_str::<super::ItemList>(contents).unwrap();
+        let items = serde_json::from_str::<super::ItemList<'_>>(contents).unwrap();
 
         assert_eq!(items.values.len(), 37647);
     }
@@ -230,7 +234,7 @@ mod tests {
     #[test]
     fn deserialize_with_resume_key() {
         let contents = include_str!("../../../../examples/cdx/1740396642000000.json");
-        let items = serde_json::from_str::<super::ItemList>(contents).unwrap();
+        let items = serde_json::from_str::<super::ItemList<'_>>(contents).unwrap();
 
         let expected_resume_key = "eJwNxzEOgCAMAMCvuJqYtKViy3MIdGAgGqj6fb3tytk3f5u7jRVKvrw9VoflbkNgevZ7Amkilj0xBoqKCVWWgCH-FTyYWD9RQxSp";
 

@@ -1,3 +1,6 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
+#![allow(clippy::missing_errors_doc)]
+#![forbid(unsafe_code)]
 use archivindex_wbm::{
     cdx::{item::ItemList, mime_type::MimeType},
     surt::Surt,
@@ -37,28 +40,25 @@ async fn main() -> Result<(), Error> {
                 {
                     let url = if flat {
                         Some(wxj::flat_canonical_url(
-                            &serde_json::from_str::<Snapshot<flat::TweetSnapshot>>(&line)
+                            &serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)
                                 .map_err(|error| Error::JsonLine(error, line_number))?
                                 .content,
                             false,
                         ))
                     } else {
                         wxj::data_canonical_url(
-                            &serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)
+                            &serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)
                                 .map_err(|error| Error::JsonLine(error, line_number))?
                                 .content,
                             false,
                         )
                     };
 
-                    match url {
-                        Some(url) => {
-                            println!("{},{}", snapshot_line.digest, url);
-                        }
-                        None => {
-                            println!("{},", snapshot_line.digest);
-                            log::error!("No canonical URL: {}", snapshot_line.digest);
-                        }
+                    if let Some(url) = url {
+                        println!("{},{}", snapshot_line.digest, url);
+                    } else {
+                        println!("{},", snapshot_line.digest);
+                        log::error!("No canonical URL: {}", snapshot_line.digest);
                     }
                 }
             }
@@ -161,7 +161,7 @@ async fn main() -> Result<(), Error> {
         }
         Command::CdxList { base } => {
             for path in wxj::cdx_files(base).unwrap() {
-                println!("{path:?}");
+                println!("{}", path.display());
             }
         }
         Command::CheckSurts { input } => {
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Error> {
             for path in cdx_paths {
                 let contents = std::fs::read_to_string(&path)?;
 
-                match serde_json::from_str::<ItemList>(&contents) {
+                match serde_json::from_str::<ItemList<'_>>(&contents) {
                     Ok(items) => {
                         for item in items.values {
                             if item.mime_type == MimeType::ApplicationJson {
@@ -182,7 +182,8 @@ async fn main() -> Result<(), Error> {
                                     success_count += 1;
                                 } else {
                                     log::error!(
-                                        "Invalid conversion in {path:?}:\nConverted: {converted_surt}\nOriginal:  {}",
+                                        "Invalid conversion in {}:\nConverted: {converted_surt}\nOriginal:  {}",
+                                        path.display(),
                                         item.key
                                     );
 
@@ -192,7 +193,7 @@ async fn main() -> Result<(), Error> {
                         }
                     }
                     Err(error) => {
-                        log::error!("At {path:?}: {error:?}");
+                        log::error!("At {}: {error:?}", path.display());
                     }
                 }
             }
@@ -205,31 +206,32 @@ async fn main() -> Result<(), Error> {
 
             for line in lines {
                 let line = line?;
-                let mut snapshot = serde_json::from_str::<Snapshot<data::TweetSnapshot>>(&line)?;
+                let mut snapshot =
+                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
 
                 if let Some(mut tweets) = snapshot.content.includes.tweets.take() {
                     tweets.retain(|tweet| tweet.author_id == id);
 
-                    if !tweets.is_empty() {
-                        if let Some(((timestamp, user), url)) =
-                            snapshot
-                                .timestamp
-                                .zip(snapshot.content.lookup_user(id))
-                                .zip(
-                                    snapshot.url.as_ref().map(|url| url.to_string()).or_else(
-                                        || wxj::data_canonical_url(&snapshot.content, false),
-                                    ),
-                                )
-                        {
-                            found.extend(tweets.into_iter().map(|tweet| {
-                                (
-                                    timestamp,
-                                    url.clone(),
-                                    tweet.into_owned(),
-                                    user.clone().into_owned(),
-                                )
-                            }));
-                        }
+                    if !tweets.is_empty()
+                        && let Some(((timestamp, user), url)) = snapshot
+                            .timestamp
+                            .zip(snapshot.content.lookup_user(id))
+                            .zip(
+                                snapshot
+                                    .url
+                                    .as_ref()
+                                    .map(std::string::ToString::to_string)
+                                    .or_else(|| wxj::data_canonical_url(&snapshot.content, false)),
+                            )
+                    {
+                        found.extend(tweets.into_iter().map(|tweet| {
+                            (
+                                timestamp,
+                                url.clone(),
+                                tweet.into_owned(),
+                                user.clone().into_owned(),
+                            )
+                        }));
                     }
                 }
             }
@@ -256,7 +258,7 @@ async fn main() -> Result<(), Error> {
                         DateTime::from(timestamp).format("%e %B %Y"),
                         timestamp,
                         url,
-                        tweet.text.replace("\n", " ")
+                        tweet.text.replace('\n', " ")
                     );
                 }
             }
@@ -344,12 +346,12 @@ fn find_cdx_files<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
         .flat_map(|collection_entry| {
             collection_entry
                 .and_then(|entry| std::fs::read_dir(entry.path()))
-                .map_or_else(|error| vec![Err(error)], |paths| paths.collect())
+                .map_or_else(|error| vec![Err(error)], std::iter::Iterator::collect)
         })
         .flat_map(|screen_name_entry| {
             screen_name_entry
                 .and_then(|entry| std::fs::read_dir(entry.path().join("data")))
-                .map_or_else(|error| vec![Err(error)], |paths| paths.collect())
+                .map_or_else(|error| vec![Err(error)], std::iter::Iterator::collect)
         })
         .map(|entry| {
             entry.and_then(|entry| {

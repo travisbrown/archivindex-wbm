@@ -54,7 +54,7 @@ pub struct SnapshotLine<'a> {
     pub content: Cow<'a, str>,
 }
 
-impl<'a> std::fmt::Display for SnapshotLine<'a> {
+impl std::fmt::Display for SnapshotLine<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{\"{}\":\"{}\",", DIGEST_KEY, self.digest)?;
 
@@ -105,6 +105,7 @@ const CONTENT_KEY: &str = "content";
 const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 
 impl<'a> SnapshotLine<'a> {
+    #[must_use]
     pub fn new(digest: Sha1Digest, content: &'a str) -> Self {
         let bytes = content.as_bytes();
 
@@ -128,8 +129,7 @@ impl<'a> SnapshotLine<'a> {
         let content = &content[0..content.len()
             - closing_whitespace
                 .as_ref()
-                .map(|closing_whitespace| closing_whitespace.len())
-                .unwrap_or(DEFAULT_CLOSING_WHITESPACE.len())];
+                .map_or(DEFAULT_CLOSING_WHITESPACE.len(), std::vec::Vec::len)];
 
         Self {
             digest,
@@ -141,6 +141,7 @@ impl<'a> SnapshotLine<'a> {
         }
     }
 
+    #[must_use]
     pub fn into_owned(self) -> SnapshotLine<'static> {
         SnapshotLine {
             digest: self.digest,
@@ -212,7 +213,7 @@ impl<'a> SnapshotLine<'a> {
 
                 index += CLOSING_WHITESPACE_KEY_LEN + 3;
 
-                let mut next = &line[index..index + 1];
+                let mut next = &line[index..=index];
                 let mut failed = false;
                 let mut i = 0;
 
@@ -232,7 +233,7 @@ impl<'a> SnapshotLine<'a> {
                     }
 
                     i += 1;
-                    next = &line[index + i..index + i + 1];
+                    next = &line[(index + i)..=(index + i)];
                 }
 
                 if failed {
@@ -266,7 +267,7 @@ impl<'a> SnapshotLine<'a> {
                 let mut failed = false;
                 let mut i = 0;
 
-                while &line[index + i..index + i + 1] != "\"" {
+                while &line[(index + i)..=(index + i)] != "\"" {
                     i += 1;
 
                     if index + i >= line.len() {
@@ -345,7 +346,8 @@ pub struct SnapshotLineValidation {
 }
 
 impl SnapshotLineValidation {
-    pub fn is_successful(&self) -> bool {
+    #[must_use]
+    pub const fn is_successful(&self) -> bool {
         self.invalid_lines.is_empty()
             && self.unexpected_digests.is_empty()
             && self.out_of_order.is_empty()
@@ -370,18 +372,20 @@ mod closing_whitespace {
                     .filter(|whitespace| *whitespace == '\n' || *whitespace == '\r')
                     .collect::<Vec<_>>();
 
-                if closing_whitespace.len() != closing_whitespace_str.len() {
+                if closing_whitespace.len() == closing_whitespace_str.len() {
+                    Ok(closing_whitespace)
+                } else {
                     Err(serde::de::Error::invalid_value(
                         serde::de::Unexpected::Str(&closing_whitespace_str),
                         &"string of escaped whitespace characters",
                     ))
-                } else {
-                    Ok(closing_whitespace)
                 }
             })
             .map_or(Ok(None), |value| value.map(Some))
     }
 
+    // We are constrained by the requirements for attribute modules, so Clippy is wrong here.
+    #[allow(clippy::ref_option)]
     pub fn serialize<S: Serializer>(
         value: &Option<Vec<char>>,
         serializer: S,
@@ -462,8 +466,9 @@ mod tests {
         let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split("\n");
 
         for line in lines {
-            let _snapshot =
-                serde_json::from_str::<Snapshot<birdsite::model::wxj::data::TweetSnapshot>>(line)?;
+            let _snapshot = serde_json::from_str::<
+                Snapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
+            >(line)?;
         }
 
         Ok(())
@@ -475,8 +480,9 @@ mod tests {
 
         for line in lines {
             let snapshot_line = SnapshotLine::parse(line)?;
-            let snapshot =
-                serde_json::from_str::<Snapshot<birdsite::model::wxj::data::TweetSnapshot>>(line)?;
+            let snapshot = serde_json::from_str::<
+                Snapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
+            >(line)?;
 
             assert_eq!(snapshot_line.digest, snapshot.digest);
             assert_eq!(snapshot_line.expected_digest, snapshot.expected_digest);

@@ -8,7 +8,7 @@ pub struct SnapshotReader<R> {
     underlying: Lines<BufReader<R>>,
 }
 
-impl<'a> SnapshotReader<zstd::Decoder<'a, BufReader<File>>> {
+impl SnapshotReader<zstd::Decoder<'_, BufReader<File>>> {
     pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, std::io::Error> {
         Ok(Self {
             underlying: BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines(),
@@ -23,7 +23,7 @@ impl<R: Read> Iterator for SnapshotReader<R> {
         self.underlying.next().map(|result| {
             result
                 .map_err(super::Error::from)
-                .and_then(|line| SnapshotLine::parse(&line).map(|snapshot| snapshot.into_owned()))
+                .and_then(|line| SnapshotLine::parse(&line).map(super::SnapshotLine::into_owned))
         })
     }
 }
@@ -53,7 +53,10 @@ impl<W: Write> SnapshotWriter<W> {
     }
 
     /// Ignores consecutive values with the same digest.
-    pub fn write_snapshot(&mut self, snapshot_line: &SnapshotLine) -> Result<bool, std::io::Error> {
+    pub fn write_snapshot(
+        &mut self,
+        snapshot_line: &SnapshotLine<'_>,
+    ) -> Result<bool, std::io::Error> {
         if Some(snapshot_line.digest) == self.last_written {
             Ok(false)
         } else {
@@ -65,14 +68,17 @@ impl<W: Write> SnapshotWriter<W> {
     }
 }
 
-impl<'a> SnapshotWriter<zstd::Encoder<'a, File>> {
+impl SnapshotWriter<zstd::Encoder<'_, File>> {
     pub fn create<P: AsRef<Path>>(
         output: P,
         compression_level: u16,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
             last_written: None,
-            underlying: zstd::Encoder::new(File::create_new(output)?, compression_level as i32)?,
+            underlying: zstd::Encoder::new(
+                File::create_new(output)?,
+                i32::from(compression_level),
+            )?,
         })
     }
 

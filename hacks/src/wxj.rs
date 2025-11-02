@@ -45,7 +45,7 @@ impl Metadata {
         }
     }
 
-    fn with_expected_digest(mut self, expected_digest: Sha1Digest) -> Self {
+    const fn with_expected_digest(mut self, expected_digest: Sha1Digest) -> Self {
         self.expected_digest = Some(expected_digest);
         self
     }
@@ -81,7 +81,7 @@ pub fn read_url_paths<P: AsRef<Path>>(
                 let url = url
                     .map(|url| {
                         url.strip_prefix("https://twitter.com")
-                            .map(|path| path.to_string())
+                            .map(std::string::ToString::to_string)
                             .ok_or_else(|| <csv::Error as serde::ser::Error>::custom("Twitter URL"))
                     })
                     .map_or(Ok(None), |value| value.map(Some))?;
@@ -104,13 +104,15 @@ pub fn cdx_files<P: AsRef<Path>>(base: P) -> Result<Vec<PathBuf>, Error> {
                         .ok()
                         .and_then(|metadata| metadata.modified().ok()),
                 )
-                .map(|(a, b)| a.cmp(&b).reverse())
-                .unwrap_or_else(|| a.file_name().cmp(b.file_name()))
+                .map_or_else(
+                    || a.file_name().cmp(b.file_name()),
+                    |(a, b)| a.cmp(&b).reverse(),
+                )
         })
         .build()?;
 
     walker
-        .map(|entry| entry.map_err(Error::from).map(|entry| entry.into_path()))
+        .map(|entry| entry.map_err(Error::from).map(walkdir::DirEntry::into_path))
         .collect()
 }
 
@@ -122,7 +124,7 @@ pub fn read_cdx<P: AsRef<Path>>(
 
     for path in cdx_files(base)? {
         let content = std::fs::read_to_string(path)?;
-        let items = serde_json::from_str::<ItemList>(&content)?;
+        let items = serde_json::from_str::<ItemList<'_>>(&content)?;
 
         for item in items.values {
             if let Some((digest, inferred_url_path)) = item
@@ -197,7 +199,7 @@ pub fn read_invalid_digests<P: AsRef<Path>>(
 }
 
 pub fn data_canonical_url(
-    snapshot: &birdsite::model::wxj::data::TweetSnapshot,
+    snapshot: &birdsite::model::wxj::data::TweetSnapshot<'_>,
     use_x: bool,
 ) -> Option<String> {
     snapshot.lookup_user(snapshot.data.author_id).map(|user| {
@@ -211,7 +213,7 @@ pub fn data_canonical_url(
 }
 
 pub fn flat_canonical_url(
-    snapshot: &birdsite::model::wxj::flat::TweetSnapshot,
+    snapshot: &birdsite::model::wxj::flat::TweetSnapshot<'_>,
     use_x: bool,
 ) -> String {
     format!(

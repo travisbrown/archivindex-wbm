@@ -39,16 +39,19 @@ pub struct Sha1Computer {
 
 impl Sha1Computer {
     pub fn compute_digest<R: Read>(input: &mut R) -> std::io::Result<Sha1Digest> {
-        Sha1Computer::default().digest(input)
+        Self::default().digest(input)
     }
 
     /// Compute the SHA-1 hash for bytes read from a source.
     pub fn digest_bytes<R: Read>(&self, input: &mut R) -> std::io::Result<[u8; 20]> {
+        // Only panics on poisoning, so we don't care what Clippy says here.
+        #[allow(clippy::missing_panics_doc)]
         let mut writer = self.writer.lock().unwrap();
         std::io::copy(input, &mut writer.get_mut())?;
         writer.flush()?;
 
         let bytes = writer.get_mut().finalize_reset();
+        drop(writer);
 
         Ok(bytes.into())
     }
@@ -87,13 +90,15 @@ pub enum Digest<'a> {
 }
 
 impl<'a> Digest<'a> {
-    pub fn valid(&self) -> Option<Sha1Digest> {
+    #[must_use]
+    pub const fn valid(&self) -> Option<Sha1Digest> {
         match self {
             Self::Valid(digest) => Some(*digest),
             Self::Invalid(_) => None,
         }
     }
 
+    #[must_use]
     pub fn invalid(&self) -> Option<&str> {
         match self {
             Self::Valid(_) => None,
@@ -101,7 +106,8 @@ impl<'a> Digest<'a> {
         }
     }
 
-    pub fn is_valid(&self) -> bool {
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
         match self {
             Self::Valid(_) => true,
             Self::Invalid(_) => false,
@@ -132,6 +138,7 @@ impl<'a> Digest<'a> {
         }
     }
 
+    #[must_use]
     pub fn into_owned(self) -> Digest<'static> {
         match self {
             Self::Valid(digest) => Digest::Valid(digest),
@@ -144,11 +151,11 @@ impl FromStr for Digest<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Digest::parse_str(s).map(|digest| digest.into_owned())
+        Digest::parse_str(s).map(Digest::into_owned)
     }
 }
 
-impl<'a> Display for Digest<'a> {
+impl Display for Digest<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Valid(digest) => digest.fmt(f),
@@ -164,7 +171,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for Digest<'a> {
         impl<'de> Visitor<'de> for DigestVisitor {
             type Value = Digest<'de>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("enum Digest")
             }
 
@@ -178,13 +185,13 @@ impl<'a, 'de: 'a> Deserialize<'de> for Digest<'a> {
     }
 }
 
-impl<'a> Serialize for Digest<'a> {
+impl Serialize for Digest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
     }
 }
 
-impl<'a> From<Sha1Digest> for Digest<'a> {
+impl From<Sha1Digest> for Digest<'_> {
     fn from(value: Sha1Digest) -> Self {
         Self::Valid(value)
     }
@@ -256,7 +263,7 @@ impl<'de> Deserialize<'de> for Sha1Digest {
         impl Visitor<'_> for Sha1DigestVisitor {
             type Value = Sha1Digest;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("struct Sha1Digest")
             }
 
@@ -315,7 +322,7 @@ mod tests {
     fn round_trip_digest_valid() {
         let digest_str = "ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
 
-        let digest: super::Digest = digest_str.parse().unwrap();
+        let digest: super::Digest<'_> = digest_str.parse().unwrap();
         let digest_string = digest.to_string();
 
         assert!(digest.is_valid());
@@ -326,7 +333,7 @@ mod tests {
     fn round_trip_digest_invalid() {
         let digest_str = "HYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
 
-        let digest: super::Digest = digest_str.parse().unwrap();
+        let digest: super::Digest<'_> = digest_str.parse().unwrap();
         let digest_string = digest.to_string();
 
         assert!(!digest.is_valid());

@@ -29,6 +29,7 @@ impl<'a> UrlParts<'a> {
         }
     }
 
+    #[must_use]
     pub fn to_wb_url(&self, https: bool, original: bool) -> String {
         format!(
             "http{}://web.archive.org/web/{}{}/{}",
@@ -49,7 +50,7 @@ impl FromStr for UrlParts<'static> {
 
         let captures = WAYBACK_URL_RE
             .captures(s)
-            .ok_or(Error::InvalidUrl(s.to_string()))?;
+            .ok_or_else(|| Error::InvalidUrl(s.to_string()))?;
 
         Ok(Self::new(
             captures["url"].to_string(),
@@ -77,7 +78,7 @@ mod tests {
             "20160508215503".parse().unwrap(),
         );
 
-        let parsed: UrlParts = url.parse().unwrap();
+        let parsed: UrlParts<'_> = url.parse().unwrap();
 
         assert_eq!(parsed, expected);
     }
