@@ -261,18 +261,13 @@ impl<'a> SnapshotLine<'a> {
             let url = if line[index..].starts_with(URL_KEY) {
                 index += URL_KEY_LEN + 3;
 
-                let mut failed = false;
                 let mut i = 0;
 
-                while !failed && &line[(index + i)..=(index + i)] != "\"" {
+                while index + i < line.len() && &line[(index + i)..=(index + i)] != "\"" {
                     i += 1;
-
-                    if index + i >= line.len() {
-                        failed = true;
-                    }
                 }
 
-                if failed {
+                if index + i >= line.len() {
                     Err(Error::InvalidLine)
                 } else {
                     let url = line[index..index + i].into();
@@ -493,5 +488,63 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    // Bug #1: Test buffer underflow protection in SnapshotLine::new()
+    #[test]
+    fn new_with_short_content() {
+        // Test with content shorter than 4 bytes
+        let digest = Sha1Digest::MIN;
+
+        // Empty string
+        let snapshot = SnapshotLine::new(digest, "");
+        assert_eq!(snapshot.content, "");
+
+        // 1 byte
+        let snapshot = SnapshotLine::new(digest, "a");
+        assert_eq!(snapshot.content, "a");
+
+        // 2 bytes
+        let snapshot = SnapshotLine::new(digest, "ab");
+        assert_eq!(snapshot.content, "ab");
+
+        // 3 bytes
+        let snapshot = SnapshotLine::new(digest, "abc");
+        assert_eq!(snapshot.content, "abc");
+
+        // Exactly 4 bytes (boundary case)
+        let snapshot = SnapshotLine::new(digest, "abcd");
+        assert_eq!(snapshot.content, "abcd");
+    }
+
+    // Bug #2: Test infinite loop protection in SnapshotLine::parse()
+    #[test]
+    fn parse_with_missing_quote_in_url() {
+        // Malformed line with URL field but missing closing quote before end of string
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com/no/closing/quote"#;
+
+        // Should return an error, not panic or loop infinitely
+        let result = SnapshotLine::parse(line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_with_truncated_url() {
+        // Line that ends before the URL field is complete
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com"#;
+
+        // Should return an error, not panic
+        let result = SnapshotLine::parse(line);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_with_url_at_end_of_line() {
+        // Edge case where we're near the end of the line
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":""#;
+
+        // Should return an error, not panic
+        let result = SnapshotLine::parse(line);
+        assert!(result.is_err());
     }
 }

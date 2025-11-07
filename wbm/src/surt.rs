@@ -67,7 +67,10 @@ impl<'a> Surt<'a> {
             let mut len = 0;
 
             for ch in input.chars() {
-                if ch.is_ascii_alphanumeric() || ch == '-' && len < u8::MAX {
+                if ch.is_ascii_alphanumeric() || ch == '-' {
+                    if len == u8::MAX {
+                        return Err(Error::InvalidSurt(input.to_string()));
+                    }
                     len += 1;
                 } else if ch == ',' {
                     domain_name_part_lens.push(len);
@@ -275,7 +278,12 @@ impl<'a> Iterator for DomainNamePartIter<'a> {
             let len = *len as usize;
             let part = &self.source[0..len];
 
-            self.source = &self.source[len..];
+            // Skip past the domain part and the comma separator
+            self.source = if self.source.len() > len {
+                &self.source[len + 1..]
+            } else {
+                &self.source[len..]
+            };
 
             part
         })
@@ -288,7 +296,13 @@ impl DoubleEndedIterator for DomainNamePartIter<'_> {
             let len = *len as usize;
             let part = &self.source[self.source.len() - len..];
 
-            self.source = &self.source[0..self.source.len() - len];
+            // Skip back past the domain part and the comma separator
+            let new_len = self.source.len() - len;
+            self.source = if new_len > 0 {
+                &self.source[0..new_len - 1]
+            } else {
+                &self.source[0..new_len]
+            };
 
             part
         })
@@ -340,5 +354,92 @@ mod tests {
 
             assert_eq!(item.key, from_url);
         }
+    }
+
+    // Bug #3: Test bidirectional iteration of DomainNamePartIter
+    #[test]
+    fn domain_name_parts_bidirectional_iteration() {
+        let input = "com,twitter,api)/v1/endpoint";
+        let parsed = input.parse::<Surt<'_>>().unwrap();
+
+        // Test forward iteration
+        let parts_forward: Vec<_> = parsed.domain_name_parts().collect();
+        assert_eq!(parts_forward, vec!["com", "twitter", "api"]);
+
+        // Test backward iteration
+        let parts_backward: Vec<_> = parsed.domain_name_parts().rev().collect();
+        assert_eq!(parts_backward, vec!["api", "twitter", "com"]);
+
+        // Test mixed iteration (forward then backward)
+        let mut iter = parsed.domain_name_parts();
+        assert_eq!(iter.next(), Some("com"));
+        assert_eq!(iter.next_back(), Some("api"));
+        assert_eq!(iter.next(), Some("twitter"));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+    }
+
+    #[test]
+    fn domain_name_parts_single_part() {
+        let input = "com)/path";
+        let parsed = input.parse::<Surt<'_>>().unwrap();
+
+        let parts: Vec<_> = parsed.domain_name_parts().collect();
+        assert_eq!(parts, vec!["com"]);
+
+        // Test reverse iteration with single element
+        let parts_rev: Vec<_> = parsed.domain_name_parts().rev().collect();
+        assert_eq!(parts_rev, vec!["com"]);
+    }
+
+    // Bug #4: Test integer overflow protection in parse_str()
+    #[test]
+    fn parse_str_with_very_long_domain_part() {
+        // Create a domain part longer than u8::MAX (255 characters)
+        let long_part = "a".repeat(300);
+        let input = format!("{long_part})path");
+
+        let result = Surt::parse_str(&input);
+        // Should return an error, not panic or overflow
+        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::InvalidSurt(_))));
+    }
+
+    #[test]
+    fn parse_str_exactly_255_chars() {
+        // Domain part with exactly u8::MAX characters
+        let part = "a".repeat(255);
+        let input = format!("{part})path");
+
+        let result = Surt::parse_str(&input);
+        assert!(result.is_ok());
+    }
+
+    // Bug #5: Test empty input protection
+    #[test]
+    fn parse_str_empty_input() {
+        let result = Surt::parse_str("");
+        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::InvalidSurt(_))));
+    }
+
+    #[test]
+    fn from_url_with_no_domain_parts() {
+        // URL that results in no domain parts (e.g., after filtering "www")
+        let result = Surt::from_url("https://www/path");
+        // Should return an error, not panic from underflow
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_url_with_domain_part_too_long() {
+        // Domain with a part longer than 255 characters
+        let long_part = "a".repeat(300);
+        let url = format!("https://{long_part}.com/path");
+
+        let result = Surt::from_url(&url);
+        // Should return an error due to domain part length check
+        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::InvalidDomainPart(_))));
     }
 }
