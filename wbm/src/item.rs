@@ -1,5 +1,4 @@
 use crate::{digest::Digest, timestamp::Timestamp};
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -15,7 +14,17 @@ pub enum Error {
     InvalidTimestamp(#[from] crate::timestamp::Error),
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    bounded_static_derive_more::ToStatic,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct UrlParts<'a> {
     pub url: Cow<'a, str>,
     pub timestamp: Timestamp,
@@ -59,11 +68,31 @@ impl FromStr for UrlParts<'static> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    bounded_static_derive_more::ToStatic,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct ItemInfo<'a> {
-    pub url_parts: UrlParts<'a>,
     #[serde(borrow)]
+    pub url_parts: UrlParts<'a>,
     pub expected_digest: Digest<'a>,
+}
+
+impl<'a> ItemInfo<'a> {
+    #[must_use]
+    pub const fn new(url_parts: UrlParts<'a>, expected_digest: Digest<'a>) -> Self {
+        Self {
+            url_parts,
+            expected_digest,
+        }
+    }
 }
 
 #[cfg(test)]

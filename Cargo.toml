@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["wbm", "wxj", "wxj-cli"]
+members = ["wbm", "wbm-invalid-log", "wxj", "wxj-cli"]
 
 [workspace.package]
 authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
