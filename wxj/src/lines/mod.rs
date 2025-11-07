@@ -117,7 +117,8 @@ impl<'a> SnapshotLine<'a> {
     pub fn new(digest: Sha1Digest, content: &'a str) -> Self {
         let bytes = content.as_bytes();
 
-        let closing_whitespace = if bytes[bytes.len() - 3..] == DEFAULT_CLOSING_WHITESPACE
+        let closing_whitespace = if bytes.len() > 3
+            && bytes[bytes.len() - 3..] == DEFAULT_CLOSING_WHITESPACE
             && bytes[bytes.len() - 4] != b'\r'
             && bytes[bytes.len() - 4] != b'\n'
         {
@@ -263,7 +264,7 @@ impl<'a> SnapshotLine<'a> {
                 let mut failed = false;
                 let mut i = 0;
 
-                while &line[(index + i)..=(index + i)] != "\"" {
+                while !failed && &line[(index + i)..=(index + i)] != "\"" {
                     i += 1;
 
                     if index + i >= line.len() {
@@ -411,6 +412,7 @@ mod closing_whitespace {
 
 #[cfg(test)]
 mod tests {
+    use sha1::digest::core_api::CoreWrapper;
     use std::io::BufRead;
 
     use super::*;
@@ -423,21 +425,21 @@ mod tests {
 
         assert_eq!(line, parsed.to_string());
 
-        assert_eq!(parsed.validate(&mut Default::default()), Ok(()));
+        assert_eq!(parsed.validate(&mut CoreWrapper::default()), Ok(()));
 
         Ok(())
     }
 
     #[test]
     fn parse_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split("\n");
+        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let parsed = SnapshotLine::parse(line)?;
 
             assert_eq!(line, parsed.to_string());
 
-            assert_eq!(parsed.validate(&mut Default::default()), Ok(()));
+            assert_eq!(parsed.validate(&mut CoreWrapper::default()), Ok(()));
         }
 
         Ok(())
@@ -445,9 +447,9 @@ mod tests {
 
     #[test]
     fn validate_all_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = std::io::BufReader::new(std::io::Cursor::new(
-            include_str!("../../../examples/wxj/lines-01.ndjson").as_bytes(),
-        ))
+        let lines = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
+            "../../../examples/wxj/lines-01.ndjson"
+        )))
         .lines();
 
         let validation = SnapshotLine::validate_lines(lines)?;
@@ -459,7 +461,7 @@ mod tests {
 
     #[test]
     fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split("\n");
+        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let _snapshot = serde_json::from_str::<
@@ -472,7 +474,7 @@ mod tests {
 
     #[test]
     fn snapshot_line_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split("\n");
+        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let snapshot_line = SnapshotLine::parse(line)?;

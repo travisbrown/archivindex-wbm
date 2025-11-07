@@ -21,6 +21,8 @@ pub enum Error {
 /// Simplified Sort-friendly URI Reordering Transform representation.
 ///
 /// Currently only implements features necessary to handle Wayback Machine CDX results.
+///
+/// By construction there will always be at least one domain name part length.
 #[derive(
     Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic,
 )]
@@ -36,7 +38,12 @@ impl<'a> Surt<'a> {
     }
 
     fn path_start(&'a self) -> usize {
-        self.domain_name_part_lens.len() + self.domain_name_part_lens.iter().sum::<u8>() as usize
+        self.domain_name_part_lens.len()
+            + self
+                .domain_name_part_lens
+                .iter()
+                .map(|len| usize::from(*len))
+                .sum::<usize>()
     }
 
     #[must_use]
@@ -53,29 +60,33 @@ impl<'a> Surt<'a> {
     }
 
     pub fn parse_str(input: &'a str) -> Result<Self, Error> {
-        let mut domain_name_part_lens = Vec::with_capacity(2);
-        let mut len = 0;
+        if input.is_empty() {
+            Err(Error::InvalidSurt(input.to_string()))
+        } else {
+            let mut domain_name_part_lens = Vec::with_capacity(2);
+            let mut len = 0;
 
-        for ch in input.chars() {
-            if ch.is_ascii_alphanumeric() || ch == '-' {
-                len += 1;
-            } else if ch == ',' {
-                domain_name_part_lens.push(len);
+            for ch in input.chars() {
+                if ch.is_ascii_alphanumeric() || ch == '-' && len < u8::MAX {
+                    len += 1;
+                } else if ch == ',' {
+                    domain_name_part_lens.push(len);
 
-                len = 0;
-            } else if ch == ')' {
-                domain_name_part_lens.push(len);
+                    len = 0;
+                } else if ch == ')' {
+                    domain_name_part_lens.push(len);
 
-                break;
-            } else {
-                return Err(Error::InvalidSurt(input.to_string()));
+                    break;
+                } else {
+                    return Err(Error::InvalidSurt(input.to_string()));
+                }
             }
-        }
 
-        Ok(Self {
-            source: input.into(),
-            domain_name_part_lens,
-        })
+            Ok(Self {
+                source: input.into(),
+                domain_name_part_lens,
+            })
+        }
     }
 
     #[must_use]
@@ -106,43 +117,47 @@ impl Surt<'static> {
                     }
                 }
 
-                source.pop();
-                source.push(')');
-                source.push_str(&Self::decode_path(url.path()));
-
-                if source.ends_with('/') {
+                if domain_name_part_lens.is_empty() {
+                    Err(Error::UnexpectedUrl(input.to_string()))
+                } else {
                     source.pop();
-                }
+                    source.push(')');
+                    source.push_str(&Self::decode_path(url.path()));
 
-                let mut query_pairs = url.query_pairs().collect::<Vec<_>>();
+                    if source.ends_with('/') {
+                        source.pop();
+                    }
 
-                if !query_pairs.is_empty() {
-                    query_pairs.sort_by_key(|(key, _)| key.clone());
+                    let mut query_pairs = url.query_pairs().collect::<Vec<_>>();
 
-                    source.push('?');
+                    if !query_pairs.is_empty() {
+                        query_pairs.sort_by_key(|(key, _)| key.clone());
 
-                    let mut first = true;
+                        source.push('?');
 
-                    for (key, value) in query_pairs {
-                        if first {
-                            first = false;
-                        } else {
-                            source.push('&');
-                        }
+                        let mut first = true;
 
-                        source.push_str(&key);
-                        source.push('=');
+                        for (key, value) in query_pairs {
+                            if first {
+                                first = false;
+                            } else {
+                                source.push('&');
+                            }
 
-                        if !value.is_empty() {
-                            source.push_str(&Self::decode_query_value(&value));
+                            source.push_str(&key);
+                            source.push('=');
+
+                            if !value.is_empty() {
+                                source.push_str(&Self::decode_query_value(&value));
+                            }
                         }
                     }
-                }
 
-                Ok(Self {
-                    source: source.into(),
-                    domain_name_part_lens,
-                })
+                    Ok(Self {
+                        source: source.into(),
+                        domain_name_part_lens,
+                    })
+                }
             }
             _ => Err(Error::UnexpectedUrl(input.to_string())),
         }
@@ -273,7 +288,7 @@ impl DoubleEndedIterator for DomainNamePartIter<'_> {
             let len = *len as usize;
             let part = &self.source[self.source.len() - len..];
 
-            self.source = &self.source[0..self.source.len()];
+            self.source = &self.source[0..self.source.len() - len];
 
             part
         })

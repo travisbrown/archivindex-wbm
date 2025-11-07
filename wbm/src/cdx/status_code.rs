@@ -247,7 +247,7 @@ mod test {
         values.sort();
         assert_eq!(values, super::STATUS_CODE_VALUES);
 
-        values.sort_by_key(|status_code| status_code.value());
+        values.sort_by_key(super::StatusCode::value);
         assert_eq!(values, super::STATUS_CODE_VALUES);
     }
 
