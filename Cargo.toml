@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["wbm", "wbm-invalid-log", "wxj", "wxj-cli"]
+members = ["wbm", "wbm-downloader", "wbm-invalid-log", "wxj", "wxj-cli"]
 
 [workspace.package]
 authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
@@ -13,14 +13,17 @@ version = "0.1.0"
 birdsite = { git = "https://github.com/travisbrown/birdsite.git" }
 bounded-static = "0.8"
 bounded-static-derive-more = "0.1"
+bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 csv = "1"
+futures = "0.3"
 data-encoding = "2"
 flate2 = "1"
 http = "1"
 log = "0.4"
 quickcheck = "1"
 regex = "1"
+reqwest = { version = "0.12", features = ["json"] }
 rusqlite = "0.37"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
