@@ -132,17 +132,84 @@ impl Serialize for Timestamp {
     }
 }
 
+#[cfg(feature = "sqlite")]
+impl rusqlite::types::FromSql for Timestamp {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let timestamp_s = value.as_i64()?;
+
+        DateTime::from_timestamp(timestamp_s, 0)
+            .map(Timestamp)
+            .ok_or_else(|| rusqlite::types::FromSqlError::OutOfRange(timestamp_s))
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl rusqlite::ToSql for Timestamp {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(self.0.timestamp()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::Timestamp;
     use chrono::{SubsecRound, Utc};
 
     #[test]
     fn round_trip() {
-        let timestamp = super::Timestamp(Utc::now().trunc_subsecs(0));
+        let timestamp = Timestamp(Utc::now().trunc_subsecs(0));
 
         let timestamp_str = timestamp.to_string();
         let timestamp_parsed = timestamp_str.parse().unwrap();
 
         assert_eq!(timestamp, timestamp_parsed);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_timestamp_round_trip() -> Result<(), rusqlite::Error> {
+        let conn = rusqlite::Connection::open_in_memory()?;
+
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL)",
+            [],
+        )?;
+
+        let now = Utc::now();
+        let timestamp = Timestamp(now);
+
+        // Test ToSql implementation
+        conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
+
+        // Test FromSql implementation
+        let retrieved: Timestamp =
+            conn.query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))?;
+
+        // Compare timestamps (seconds only, as we don't store nanoseconds)
+        assert_eq!(retrieved.0.timestamp(), now.timestamp());
+        assert_eq!(timestamp.0.timestamp(), retrieved.0.timestamp());
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_timestamp_from_sql_valid() {
+        let value = rusqlite::types::ValueRef::Integer(1704067200); // 2024-01-01 00:00:00 UTC
+        let result = <Timestamp as rusqlite::types::FromSql>::column_result(value);
+
+        assert!(result.is_ok());
+        let timestamp = result.unwrap();
+        assert_eq!(timestamp.0.timestamp(), 1704067200);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_timestamp_from_sql_out_of_range() {
+        // Test with a value that's out of range for `DateTime`
+        let value = rusqlite::types::ValueRef::Integer(i64::MAX);
+        let result = <Timestamp as rusqlite::types::FromSql>::column_result(value);
+
+        assert!(result.is_err());
     }
 }

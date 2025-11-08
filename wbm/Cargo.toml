@@ -7,6 +7,8 @@ license = { workspace = true }
 version = { workspace = true }
 
 [features]
+default = ["sqlite", "validation"]
+sqlite = ["dep:rusqlite"]
 validation = []
 
 [dependencies]
@@ -17,6 +19,7 @@ data-encoding = { workspace = true }
 http = { workspace = true }
 flate2 = { workspace = true }
 regex = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha1 = { workspace = true }

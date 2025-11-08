@@ -14,7 +14,7 @@ archivindex-wbm = { path = "../wbm/" }
 bounded-static = { workspace = true }
 bounded-static-derive-more = { workspace = true }
 chrono = { workspace = true }
-rusqlite = "0.37"
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

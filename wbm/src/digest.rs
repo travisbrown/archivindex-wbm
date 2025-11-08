@@ -211,6 +211,22 @@ impl From<Sha1Digest> for Digest<'_> {
     }
 }
 
+#[cfg(feature = "sqlite")]
+impl rusqlite::types::ToSql for Digest<'_> {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(self.to_string()))
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl rusqlite::types::FromSql for Digest<'static> {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let s = value.as_str()?.to_string();
+        s.parse()
+            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Sha1Digest(pub [u8; 20]);
 
@@ -297,6 +313,21 @@ impl Serialize for Sha1Digest {
     }
 }
 
+#[cfg(feature = "sqlite")]
+impl rusqlite::types::ToSql for Sha1Digest {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::from(self.0.as_slice()))
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl rusqlite::types::FromSql for Sha1Digest {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        let bytes = value.as_blob()?;
+        Self::try_from(bytes).map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))
+    }
+}
+
 pub mod sha1_base32 {
     use super::Sha1Digest;
     use serde::{
@@ -352,5 +383,84 @@ mod tests {
 
         assert!(!digest.is_valid());
         assert_eq!(digest_str, digest_string);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_sha1_digest_sql_round_trip() {
+        use rusqlite::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, digest BLOB NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        let original = super::Sha1Digest([
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB,
+            0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67,
+        ]);
+
+        conn.execute("INSERT INTO test (digest) VALUES (?1)", [&original])
+            .unwrap();
+
+        let retrieved: super::Sha1Digest = conn
+            .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(original, retrieved);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_digest_sql_round_trip_valid() {
+        use rusqlite::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, digest TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        let digest_str = "ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
+        let original: super::Digest<'static> = digest_str.parse().unwrap();
+
+        conn.execute("INSERT INTO test (digest) VALUES (?1)", [&original])
+            .unwrap();
+
+        let retrieved: super::Digest<'static> = conn
+            .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        assert!(retrieved.is_valid());
+        assert_eq!(original, retrieved);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_digest_sql_round_trip_invalid() {
+        use rusqlite::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, digest TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        let digest_str = "HYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
+        let original: super::Digest<'static> = digest_str.parse().unwrap();
+
+        conn.execute("INSERT INTO test (digest) VALUES (?1)", [&original])
+            .unwrap();
+
+        let retrieved: super::Digest<'static> = conn
+            .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        assert!(!retrieved.is_valid());
+        assert_eq!(original, retrieved);
     }
 }

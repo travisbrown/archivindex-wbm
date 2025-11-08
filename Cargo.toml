@@ -21,6 +21,7 @@ http = "1"
 log = "0.4"
 quickcheck = "1"
 regex = "1"
+rusqlite = "0.37"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
