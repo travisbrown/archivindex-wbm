@@ -345,13 +345,11 @@ mod tests {
         let timestamp_01 = Utc::now();
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
-        assert_eq!(
-            database.insert_invalid_digest(&example_entry_01(), timestamp_01)?,
-            true
+        assert!(
+            database.insert_invalid_digest(&example_entry_01(), timestamp_01)?
         );
-        assert_eq!(
-            database.insert_invalid_digest(&example_entry_01(), timestamp_02)?,
-            false
+        assert!(
+            !(database.insert_invalid_digest(&example_entry_01(), timestamp_02)?)
         );
 
         Ok(())
@@ -368,9 +366,9 @@ mod tests {
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
         // First insert should succeed
-        assert_eq!(database.insert_withheld(url, timestamp_01)?, true);
+        assert!(database.insert_withheld(url, timestamp_01)?);
         // Second insert of same URL should be skipped (returns false)
-        assert_eq!(database.insert_withheld(url, timestamp_02)?, false);
+        assert!(!(database.insert_withheld(url, timestamp_02)?));
 
         Ok(())
     }

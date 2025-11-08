@@ -353,6 +353,63 @@ pub mod sha1_base32 {
 
 #[cfg(test)]
 mod tests {
+    use quickcheck::{Arbitrary, Gen};
+
+    impl Arbitrary for super::Sha1Digest {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let mut bytes = [0u8; 20];
+            for byte in &mut bytes {
+                *byte = u8::arbitrary(g);
+            }
+            Self(bytes)
+        }
+    }
+
+    impl Arbitrary for super::Digest<'static> {
+        fn arbitrary(g: &mut Gen) -> Self {
+            // Generate either a valid or invalid digest
+            // For valid: convert random Sha1Digest to string and parse
+            // For invalid: generate wrong length string with valid Base32 chars
+            if bool::arbitrary(g) {
+                // Valid digest
+                let digest = super::Sha1Digest::arbitrary(g);
+                Self::Valid(digest)
+            } else {
+                // Invalid digest: wrong length but valid Base32 characters
+                let len = (1..100)
+                    .filter(|&x| x != 32)
+                    .nth(usize::arbitrary(g) % 98)
+                    .unwrap_or(10);
+                let s: String = (0..len)
+                    .map(|_| {
+                        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+                        chars[usize::arbitrary(g) % chars.len()] as char
+                    })
+                    .collect();
+                Self::Invalid(std::borrow::Cow::Owned(s))
+            }
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            match self {
+                Self::Valid(_) => {
+                    // Don't shrink valid digests, since they're already minimal
+                    Box::new(std::iter::empty())
+                }
+                Self::Invalid(s) => {
+                    // Shrink invalid digests by shortening the string
+                    let s = s.to_string();
+                    Box::new(
+                        (1..s.len())
+                            .rev()
+                            .filter(|&len| len != 32) // Skip length 32 to avoid creating valid digests
+                            .map(move |len| Self::Invalid(std::borrow::Cow::Owned(s[..len].to_string())))
+                    )
+                }
+            }
+        }
+    }
+
     #[test]
     fn round_trip_sha1_digest() {
         let digest_str = "ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
@@ -462,5 +519,64 @@ mod tests {
 
         assert!(!retrieved.is_valid());
         assert_eq!(original, retrieved);
+    }
+
+    #[quickcheck_macros::quickcheck]
+    fn prop_sha1_digest_display_parse_round_trip(digest: super::Sha1Digest) -> bool {
+        let s = digest.to_string();
+        let parsed: Result<super::Sha1Digest, _> = s.parse();
+        parsed.map(|d| d == digest).unwrap_or(false)
+    }
+
+    #[quickcheck_macros::quickcheck]
+    fn prop_sha1_digest_bytes_round_trip(digest: super::Sha1Digest) -> bool {
+        let bytes: [u8; 20] = digest.into();
+        let reconstructed = super::Sha1Digest::from(bytes);
+        reconstructed == digest
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[quickcheck_macros::quickcheck]
+    fn prop_sha1_digest_sql_round_trip(digest: super::Sha1Digest) -> bool {
+        use rusqlite::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, digest BLOB NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("INSERT INTO test (digest) VALUES (?1)", [&digest])
+            .unwrap();
+
+        let retrieved: super::Sha1Digest = conn
+            .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        retrieved == digest
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[quickcheck_macros::quickcheck]
+    #[allow(clippy::needless_pass_by_value)]
+    fn prop_digest_sql_round_trip(digest: super::Digest<'static>) -> bool {
+        use rusqlite::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, digest TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("INSERT INTO test (digest) VALUES (?1)", [&digest])
+            .unwrap();
+
+        let retrieved: super::Digest<'static> = conn
+            .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        retrieved == digest
     }
 }

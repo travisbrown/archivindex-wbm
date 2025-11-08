@@ -14,8 +14,10 @@ pub enum Error {
     InvalidLength(String),
     #[error("Invalid timestamp input")]
     InvalidDateTime(#[from] chrono::format::ParseError),
-    #[error("Invalid timestamp")]
-    InvalidTimestamp(i64),
+    #[error("Invalid i64 timestamp")]
+    InvalidTimestampI64(i64),
+    #[error("Invalid u32 timestamp")]
+    InvalidTimestampU32(u32),
     #[error("Subsecond timestamp input")]
     SubsecondDateTime(DateTime<Utc>),
     #[error("Invalid value")]
@@ -68,7 +70,7 @@ impl TryFrom<i64> for Timestamp {
     type Error = Error;
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         Ok(Self(
-            DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestamp(value))?,
+            DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
         ))
     }
 }
@@ -76,6 +78,15 @@ impl TryFrom<i64> for Timestamp {
 impl From<Timestamp> for i64 {
     fn from(value: Timestamp) -> Self {
         DateTime::<Utc>::from(value).timestamp()
+    }
+}
+
+impl TryFrom<u32> for Timestamp {
+    type Error = Error;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        DateTime::from_timestamp(i64::from(value), 0)
+            .map(Self)
+            .ok_or(Self::Error::InvalidTimestampU32(value))
     }
 }
 
@@ -154,6 +165,20 @@ impl rusqlite::ToSql for Timestamp {
 mod tests {
     use super::Timestamp;
     use chrono::{SubsecRound, Utc};
+    use quickcheck::{Arbitrary, Gen};
+
+    impl Arbitrary for Timestamp {
+        fn arbitrary(g: &mut Gen) -> Self {
+            Self::try_from(u32::arbitrary(g)).unwrap()
+        }
+
+        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
+            let timestamp_s = self.0.timestamp();
+            Box::new(
+                (0..timestamp_s).filter_map(|timestamp_s| Self::try_from(timestamp_s).ok()),
+            )
+        }
+    }
 
     #[test]
     fn round_trip() {
@@ -195,12 +220,12 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_timestamp_from_sql_valid() {
-        let value = rusqlite::types::ValueRef::Integer(1704067200); // 2024-01-01 00:00:00 UTC
+        let value = rusqlite::types::ValueRef::Integer(1_704_067_200); // 2024-01-01 00:00:00 UTC
         let result = <Timestamp as rusqlite::types::FromSql>::column_result(value);
 
         assert!(result.is_ok());
         let timestamp = result.unwrap();
-        assert_eq!(timestamp.0.timestamp(), 1704067200);
+        assert_eq!(timestamp.0.timestamp(), 1_704_067_200);
     }
 
     #[cfg(feature = "sqlite")]
@@ -211,5 +236,39 @@ mod tests {
         let result = <Timestamp as rusqlite::types::FromSql>::column_result(value);
 
         assert!(result.is_err());
+    }
+
+    #[quickcheck_macros::quickcheck]
+    fn prop_timestamp_display_parse_round_trip(timestamp: Timestamp) -> bool {
+        let s = timestamp.to_string();
+        let parsed: Result<Timestamp, _> = s.parse();
+        parsed.map(|t| t == timestamp).unwrap_or(false)
+    }
+
+    #[quickcheck_macros::quickcheck]
+    fn prop_timestamp_i64_round_trip(timestamp: Timestamp) -> bool {
+        let timestamp_s: i64 = timestamp.into();
+        let reconstructed = Timestamp::try_from(timestamp_s);
+        reconstructed.map(|t| t == timestamp).unwrap_or(false)
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[quickcheck_macros::quickcheck]
+    fn prop_timestamp_sql_round_trip(timestamp: Timestamp) -> bool {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE test (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL)",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])
+            .unwrap();
+
+        let retrieved: Timestamp = conn
+            .query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+
+        retrieved == timestamp
     }
 }

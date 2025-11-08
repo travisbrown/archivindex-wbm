@@ -29,3 +29,4 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
+quickcheck_macros = "1"

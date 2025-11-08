@@ -75,12 +75,12 @@ mod tests {
 
     #[test]
     fn test_timestamp_from_sql_valid() {
-        let value = ValueRef::Integer(1704067200); // 2024-01-01 00:00:00 UTC
+        let value = ValueRef::Integer(1_704_067_200); // 2024-01-01 00:00:00 UTC
         let result = TimestampSecond::column_result(value);
 
         assert!(result.is_ok());
         let timestamp = result.unwrap();
-        assert_eq!(timestamp.0.timestamp(), 1704067200);
+        assert_eq!(timestamp.0.timestamp(), 1_704_067_200);
     }
 
     #[test]
@@ -101,14 +101,14 @@ mod tests {
             [],
         )?;
 
-        let timestamp = TimestampSecond::from(DateTime::from_timestamp(1704067200, 0).unwrap());
+        let timestamp = TimestampSecond::from(DateTime::from_timestamp(1_704_067_200, 0).unwrap());
 
         conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
 
         let stored_value: i64 =
             conn.query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))?;
 
-        assert_eq!(stored_value, 1704067200);
+        assert_eq!(stored_value, 1_704_067_200);
 
         Ok(())
     }
