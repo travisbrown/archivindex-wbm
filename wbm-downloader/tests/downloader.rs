@@ -2,7 +2,7 @@ use archivindex_wbm::{
     item::{ItemInfo, UrlParts},
     timestamp::Timestamp,
 };
-use archivindex_wbm_downloader::{Downloader, client::Client};
+use archivindex_wbm_downloader::{client::Client, downloader::Downloader};
 use archivindex_wbm_invalid_log::{Database, Entry};
 
 /// Test basic download and validation of a known archived page.
@@ -10,7 +10,6 @@ use archivindex_wbm_invalid_log::{Database, Entry};
 async fn test_downloader_basic() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
-    invalid_log_database.initialize().unwrap();
 
     let downloader = Downloader::new(client, invalid_log_database);
 
@@ -45,7 +44,6 @@ async fn test_downloader_basic() {
 async fn test_downloader_withheld_url_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
-    invalid_log_database.initialize().unwrap();
 
     let downloader = Downloader::new(client, invalid_log_database.clone());
 
@@ -85,7 +83,6 @@ async fn test_downloader_withheld_url_logging() {
 async fn test_downloader_invalid_digest_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
-    invalid_log_database.initialize().unwrap();
 
     let downloader = Downloader::new(client, invalid_log_database.clone());
 

@@ -3,13 +3,16 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::{
     cdx::{item::ItemList, mime_type::MimeType},
+    item::{ItemInfo, UrlParts},
     surt::Surt,
 };
+use archivindex_wbm_downloader::DownloadResult;
 use archivindex_wxj::lines::{Snapshot, SnapshotLine};
 use birdsite::model::wxj::{data, flat};
 use bounded_static::IntoBoundedStatic;
 use chrono::DateTime;
 use cli_helpers::prelude::*;
+use futures::stream::StreamExt;
 use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -264,6 +267,74 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::Download {
+            output,
+            invalid_db,
+            n,
+        } => {
+            let items = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .from_reader(std::io::stdin())
+                .deserialize::<TodoItem>()
+                .map(|result| {
+                    result.map(|item| {
+                        ItemInfo::new(
+                            UrlParts::new(item.url, item.timestamp),
+                            item.expected_digest.into(),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let client_configuration = archivindex_wbm_downloader::client::Configuration::default();
+            let mut manager = archivindex_wbm_downloader::Manager::new(
+                &output,
+                client_configuration,
+                &invalid_db,
+                n,
+                4096,
+                items,
+            );
+
+            if let Some(receiver) = manager.take_receiver() {
+                let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
+
+                stream
+                    .for_each(|result| async move {
+                        match result {
+                            DownloadResult::Success {
+                                url,
+                                actual_digest: Some(actual_digest),
+                                ..
+                            } => {
+                                log::warn!(
+                                    "Downloaded {} (invalid digest: {})",
+                                    url,
+                                    actual_digest
+                                );
+                            }
+                            DownloadResult::Success {
+                                url,
+                                actual_digest: None,
+                                ..
+                            } => {
+                                log::info!("Downloaded {}", url,);
+                            }
+                            DownloadResult::NotFound { url, .. } => {
+                                log::warn!("Not found: {}", url,);
+                            }
+                            DownloadResult::Error {
+                                url, error_type, ..
+                            } => {
+                                log::error!("Error: {} ({:?})", url, error_type);
+                            }
+                        }
+                    })
+                    .await;
+            }
+
+            manager.close().await?;
+        }
     }
 
     Ok(())
@@ -287,6 +358,8 @@ pub enum Error {
     WxjLines(#[from] archivindex_wxj::lines::Error),
     #[error("WXJ hacking error")]
     Wxj(#[from] wxj::Error),
+    #[error("WBM downloader error")]
+    Downloader(#[from] archivindex_wbm_downloader::Error),
 }
 
 #[derive(Debug, Parser)]
@@ -340,6 +413,14 @@ enum Command {
         #[clap(long)]
         id: u64,
     },
+    Download {
+        #[clap(long)]
+        output: PathBuf,
+        #[clap(long)]
+        invalid_db: PathBuf,
+        #[clap(long, default_value = "3")]
+        n: usize,
+    },
 }
 
 fn find_cdx_files<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
@@ -366,4 +447,11 @@ fn find_cdx_files<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
     cdx_paths.sort_by_key(|(timestamp, _)| std::cmp::Reverse(*timestamp));
 
     Ok(cdx_paths.into_iter().map(|(_, path)| path).collect())
+}
+
+#[derive(serde::Deserialize)]
+struct TodoItem {
+    url: String,
+    timestamp: archivindex_wbm::timestamp::Timestamp,
+    expected_digest: archivindex_wbm::digest::Sha1Digest,
 }

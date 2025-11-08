@@ -1,0 +1,263 @@
+use crate::SaveResult;
+use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use prefix_file_tree::{Tree, scheme::encoding::Base32};
+use std::fs::File;
+use std::io::{BufReader, Read, Write};
+use std::path::Path;
+
+pub mod entry;
+
+type Scheme = Base32<20>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum IterationError {
+    #[error("I/O error")]
+    Io(#[from] std::io::Error),
+    #[error("Prefix file tree iteration error")]
+    PrefixFileTree(#[from] prefix_file_tree::iter::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StructureInferenceError {
+    #[error("Empty tree error")]
+    EmptyTree,
+    #[error("Prefix file tree error")]
+    PrefixFileTree(#[from] prefix_file_tree::Error),
+    #[error("Prefix file tree builder error")]
+    PrefixFileTreeBuilder(#[from] prefix_file_tree::builder::Error),
+}
+
+pub struct Store<C> {
+    tree: Tree<Scheme>,
+    configuration: C,
+    sha1_computer: Sha1Computer,
+}
+
+impl<C> Store<C> {
+    fn tree<P: AsRef<Path>>(
+        base: P,
+        prefix_part_lengths: Vec<usize>,
+    ) -> Result<Tree<Scheme>, prefix_file_tree::builder::Error> {
+        let scheme = Base32::default();
+
+        Tree::builder(base)
+            .with_prefix_part_lengths(prefix_part_lengths)
+            .with_scheme(scheme)
+            .build()
+    }
+}
+
+impl Store<entry::Buffered> {
+    pub fn new<P: AsRef<Path>>(
+        base: P,
+        prefix_part_lengths: Vec<usize>,
+    ) -> Result<Self, prefix_file_tree::builder::Error> {
+        let tree = Self::tree(base, prefix_part_lengths)?;
+
+        Ok(Self {
+            tree,
+            configuration: entry::Buffered::default(),
+            sha1_computer: Sha1Computer::default(),
+        })
+    }
+
+    pub fn flat<P: AsRef<Path>>(base: P) -> Self {
+        // Safe because the builder will never fail on empty prefix part lengths.
+        Self::new(base, vec![]).expect("Unexpected prefix file tree builder error")
+    }
+
+    pub fn inferred_structure<P: AsRef<Path>>(base: P) -> Result<Self, StructureInferenceError> {
+        let prefix_part_lengths = prefix_file_tree::Tree::infer_prefix_part_lengths(&base)?
+            .ok_or(StructureInferenceError::EmptyTree)?;
+
+        Ok(Self::new(base, prefix_part_lengths)?)
+    }
+}
+
+impl crate::Store for Store<entry::Buffered> {
+    type Error = std::io::Error;
+    type Entry = entry::Entry<entry::Buffered>;
+    type IterationError = IterationError;
+    type Iterator<'a> = Iter<'a, entry::Buffered>;
+
+    fn iter(&self) -> Self::Iterator<'_> {
+        Iter {
+            underlying: self.tree.entries(),
+            configuration: self.configuration,
+        }
+    }
+
+    fn save(
+        &self,
+        digest: Sha1Digest,
+        bytes: &[u8],
+        validate: bool,
+    ) -> Result<SaveResult, Self::Error> {
+        // Safe by construction (since we were able to build the tree).
+        let path = self.tree.path(&digest.0).expect("Invalid name");
+
+        match File::create_new(path) {
+            Ok(mut file) => {
+                let actual_digest = if validate {
+                    let actual_digest = self
+                        .sha1_computer
+                        .digest(&mut std::io::Cursor::new(&bytes))?;
+
+                    if actual_digest == digest {
+                        None
+                    } else {
+                        Some(actual_digest)
+                    }
+                } else {
+                    None
+                };
+
+                file.write_all(bytes)?;
+
+                Ok(SaveResult::Success { actual_digest })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Ok(SaveResult::AlreadyPresent)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn get(&self, digest: Sha1Digest) -> Result<Option<bytes::Bytes>, Self::Error> {
+        // Safe by construction (since we were able to build the tree).
+        let path = self.tree.path(&digest.0).expect("Invalid name");
+
+        match File::open(path) {
+            Ok(file) => {
+                let mut reader = BufReader::with_capacity(self.configuration.capacity, file);
+
+                let mut bytes = vec![];
+
+                reader.read_to_end(&mut bytes)?;
+
+                Ok(Some(bytes::Bytes::from(bytes)))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn sha1_computer(&self) -> &Sha1Computer {
+        &self.sha1_computer
+    }
+}
+
+#[cfg(feature = "zstd")]
+impl Store<entry::zstd::Compressed> {
+    pub fn new<P: AsRef<Path>>(
+        base: P,
+        prefix_part_lengths: Vec<usize>,
+    ) -> Result<Self, prefix_file_tree::builder::Error> {
+        let tree = Self::tree(base, prefix_part_lengths)?;
+
+        Ok(Self {
+            tree,
+            configuration: entry::zstd::Compressed::default(),
+            sha1_computer: Sha1Computer::default(),
+        })
+    }
+}
+
+#[cfg(feature = "zstd")]
+impl crate::Store for Store<entry::zstd::Compressed> {
+    type Error = std::io::Error;
+    type Entry = entry::Entry<entry::zstd::Compressed>;
+    type IterationError = IterationError;
+    type Iterator<'a> = Iter<'a, entry::zstd::Compressed>;
+
+    fn iter(&self) -> Self::Iterator<'_> {
+        Iter {
+            underlying: self.tree.entries(),
+            configuration: self.configuration,
+        }
+    }
+
+    fn save(
+        &self,
+        digest: Sha1Digest,
+        bytes: &[u8],
+        validate: bool,
+    ) -> Result<SaveResult, Self::Error> {
+        // Safe by construction (since we were able to build the tree).
+        let path = self.tree.path(&digest.0).expect("Invalid name");
+
+        match File::create_new(path) {
+            Ok(file) => {
+                let mut writer = zstd::stream::write::Encoder::new(file, self.configuration.level)?;
+
+                let actual_digest = if validate {
+                    let actual_digest = self
+                        .sha1_computer
+                        .digest(&mut std::io::Cursor::new(&bytes))?;
+
+                    if actual_digest == digest {
+                        None
+                    } else {
+                        Some(actual_digest)
+                    }
+                } else {
+                    None
+                };
+
+                writer.write_all(bytes)?;
+
+                Ok(SaveResult::Success { actual_digest })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Ok(SaveResult::AlreadyPresent)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn get(&self, digest: Sha1Digest) -> Result<Option<bytes::Bytes>, Self::Error> {
+        // Safe by construction (since we were able to build the tree).
+        let path = self.tree.path(&digest.0).expect("Invalid name");
+
+        match File::open(path) {
+            Ok(file) => {
+                let mut reader = zstd::stream::read::Decoder::with_buffer(
+                    BufReader::with_capacity(self.configuration.capacity, file),
+                )?;
+
+                let mut bytes = vec![];
+
+                reader.read_to_end(&mut bytes)?;
+
+                Ok(Some(bytes::Bytes::from(bytes)))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn sha1_computer(&self) -> &Sha1Computer {
+        &self.sha1_computer
+    }
+}
+
+pub struct Iter<'a, C> {
+    underlying: prefix_file_tree::iter::Entries<'a, Scheme>,
+    configuration: C,
+}
+
+impl<C: Copy> Iterator for Iter<'_, C> {
+    type Item = Result<entry::Entry<C>, IterationError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.underlying.next().map(|result| {
+            let entry = result?;
+
+            Ok(entry::Entry {
+                digest: entry.name.into(),
+                path: entry.path,
+                configuration: self.configuration,
+            })
+        })
+    }
+}

@@ -10,17 +10,20 @@ version = "0.1.0"
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-downloader = { path = "../wbm-downloader/" }
 archivindex-wxj = { path = "../wxj/" }
 birdsite = { git = "https://github.com/travisbrown/birdsite.git" }
 bounded-static = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 cli-helpers = "0.1"
 csv = "1"
+futures = "0.3"
 globwalk = "0.9"
 itertools = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
 walkdir = "2"
 zstd = "0.13"

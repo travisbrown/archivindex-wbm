@@ -23,7 +23,7 @@ use archivindex_wbm::{digest::Sha1Digest, item::ItemInfo};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 pub mod types;
 
@@ -97,15 +97,17 @@ const SELECT_WITHHELD_URLS_FROM: &str = "
 /// A SQLite database for logging Wayback Machine download failures and withheld URLs.
 #[derive(Clone, Debug)]
 pub struct Database {
-    connection: Rc<Connection>,
+    connection: Arc<Mutex<Connection>>,
 }
 
 impl Database {
     /// Creates a new database from an existing SQLite connection.
-    pub fn new(connection: Connection) -> Self {
-        Self {
-            connection: Rc::new(connection),
-        }
+    pub fn new(connection: Connection) -> Result<Self, rusqlite::Error> {
+        Self::initialize(&connection)?;
+
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
     }
 
     /// Opens a database at the specified file path.
@@ -113,7 +115,7 @@ impl Database {
     /// Creates the database file if it doesn't exist. Call [`initialize`](Self::initialize)
     /// after opening to create the required tables.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, rusqlite::Error> {
-        Ok(Self::new(Connection::open(path)?))
+        Self::new(Connection::open(path)?)
     }
 
     /// Creates an in-memory database.
@@ -121,16 +123,15 @@ impl Database {
     /// Useful for testing or temporary storage. Call [`initialize`](Self::initialize)
     /// after creation to create the required tables.
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
-        Ok(Self::new(Connection::open_in_memory()?))
+        Self::new(Connection::open_in_memory()?)
     }
 
     /// Initializes the database schema.
     ///
     /// Creates the `invalid_digest` and `withheld_url` tables along with their
     /// indices. Safe to call multiple times.
-    pub fn initialize(&self) -> Result<(), rusqlite::Error> {
-        self.connection
-            .execute_batch(include_str!("schemas/db.sql"))
+    fn initialize(connection: &Connection) -> Result<(), rusqlite::Error> {
+        connection.execute_batch(include_str!("schemas/db.sql"))
     }
 
     /// Inserts an invalid digest entry into the database.
@@ -154,7 +155,9 @@ impl Database {
         entry: &Entry<'_>,
         timestamp: DateTime<Utc>,
     ) -> Result<bool, rusqlite::Error> {
-        let mut statement = self.connection.prepare_cached(INSERT_INVALID_DIGEST)?;
+        let connection = self.connection.lock().unwrap();
+
+        let mut statement = connection.prepare_cached(INSERT_INVALID_DIGEST)?;
 
         let result = statement.execute(params![
             timestamp.timestamp(),
@@ -187,7 +190,9 @@ impl Database {
         url: &str,
         timestamp: DateTime<Utc>,
     ) -> Result<bool, rusqlite::Error> {
-        let mut statement = self.connection.prepare_cached(INSERT_WITHHELD)?;
+        let connection = self.connection.lock().unwrap();
+
+        let mut statement = connection.prepare_cached(INSERT_WITHHELD)?;
 
         let result = statement.execute(params![timestamp.timestamp(), url])?;
 
@@ -209,8 +214,10 @@ impl Database {
         &self,
         from: Option<DateTime<Utc>>,
     ) -> Result<InvalidDigestIterator, rusqlite::Error> {
+        let connection = self.connection.lock().unwrap();
+
         let entries = if let Some(ts) = from {
-            let mut statement = self.connection.prepare(SELECT_INVALID_DIGESTS_FROM)?;
+            let mut statement = connection.prepare(SELECT_INVALID_DIGESTS_FROM)?;
             statement
                 .query_map([ts.timestamp()], |row| {
                     let timestamp: types::TimestampSecond = row.get(0)?;
@@ -226,7 +233,7 @@ impl Database {
                 })?
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut statement = self.connection.prepare(SELECT_ALL_INVALID_DIGESTS)?;
+            let mut statement = connection.prepare(SELECT_ALL_INVALID_DIGESTS)?;
             statement
                 .query_map([], |row| {
                     let timestamp: types::TimestampSecond = row.get(0)?;
@@ -263,8 +270,10 @@ impl Database {
         &self,
         from: Option<DateTime<Utc>>,
     ) -> Result<WithheldUrlIterator, rusqlite::Error> {
+        let connection = self.connection.lock().unwrap();
+
         let entries = if let Some(ts) = from {
-            let mut statement = self.connection.prepare_cached(SELECT_WITHHELD_URLS_FROM)?;
+            let mut statement = connection.prepare_cached(SELECT_WITHHELD_URLS_FROM)?;
             statement
                 .query_map([ts.timestamp()], |row| {
                     let timestamp: types::TimestampSecond = row.get(0)?;
@@ -274,7 +283,7 @@ impl Database {
                 })?
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut statement = self.connection.prepare_cached(SELECT_ALL_WITHHELD_URLS)?;
+            let mut statement = connection.prepare_cached(SELECT_ALL_WITHHELD_URLS)?;
             statement
                 .query_map([], |row| {
                     let timestamp: types::TimestampSecond = row.get(0)?;
@@ -307,7 +316,8 @@ impl Database {
     /// * `Ok(())` - Merge completed successfully
     /// * `Err(_)` - Database error occurred
     pub fn merge(&self, other: &Self) -> Result<(), rusqlite::Error> {
-        let transaction = self.connection.unchecked_transaction()?;
+        let mut connection = self.connection.lock().unwrap();
+        let transaction = connection.transaction()?;
 
         // Merge invalid digests.
         for result in other.invalid_digests(None)? {
@@ -316,7 +326,7 @@ impl Database {
             // Check if entry exists.
             let mut check_statement = transaction.prepare_cached(
                 "SELECT timestamp FROM invalid_digest
-                 WHERE url = ?1 AND archive_timestamp = ?2 AND expected_digest = ?3 AND actual_digest = ?4"
+                    WHERE url = ?1 AND archive_timestamp = ?2 AND expected_digest = ?3 AND actual_digest = ?4"
             )?;
 
             let existing_timestamp: Option<i64> = check_statement
@@ -336,7 +346,7 @@ impl Database {
                 if timestamp.timestamp() < existing_ts {
                     let mut update_statement = transaction.prepare_cached(
                         "UPDATE invalid_digest SET timestamp = ?1
-                         WHERE url = ?2 AND archive_timestamp = ?3 AND expected_digest = ?4 AND actual_digest = ?5"
+                            WHERE url = ?2 AND archive_timestamp = ?3 AND expected_digest = ?4 AND actual_digest = ?5"
                     )?;
                     update_statement.execute(params![
                         timestamp.timestamp(),
@@ -386,6 +396,7 @@ impl Database {
         }
 
         transaction.commit()?;
+
         Ok(())
     }
 }
@@ -458,8 +469,6 @@ mod tests {
     fn test_insert_invalid_digest() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        database.initialize()?;
-
         let timestamp_01 = Utc::now();
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
@@ -472,8 +481,6 @@ mod tests {
     #[test]
     fn test_insert_withheld() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-
-        database.initialize()?;
 
         let url = "https://twitter.com/example/status/1234567890";
         let timestamp_01 = Utc::now();
@@ -490,7 +497,6 @@ mod tests {
     #[test]
     fn test_invalid_digests_iterator() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        database.initialize()?;
 
         let base_time = Utc::now();
         let timestamp_01 = base_time;
@@ -529,7 +535,6 @@ mod tests {
     #[test]
     fn test_invalid_digests_empty() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        database.initialize()?;
 
         let entries: Vec<_> = database
             .invalid_digests(None)?
@@ -543,7 +548,6 @@ mod tests {
     #[test]
     fn test_withheld_urls_iterator() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        database.initialize()?;
 
         let base_time = Utc::now();
         let timestamp_01 = base_time;
@@ -586,7 +590,6 @@ mod tests {
     #[test]
     fn test_withheld_urls_empty() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        database.initialize()?;
 
         let entries: Vec<_> = database
             .withheld_urls(None)?
@@ -600,10 +603,7 @@ mod tests {
     #[test]
     fn test_merge_from() -> Result<(), rusqlite::Error> {
         let db1 = Database::in_memory()?;
-        db1.initialize()?;
-
         let db2 = Database::in_memory()?;
-        db2.initialize()?;
 
         let base_time = Utc::now();
         let older_time = base_time - chrono::Duration::seconds(100);
@@ -666,10 +666,7 @@ mod tests {
     #[test]
     fn test_merge_from_keeps_older() -> Result<(), rusqlite::Error> {
         let db1 = Database::in_memory()?;
-        db1.initialize()?;
-
         let db2 = Database::in_memory()?;
-        db2.initialize()?;
 
         let base_time = Utc::now();
         let older_time = base_time - chrono::Duration::seconds(100);

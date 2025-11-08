@@ -1,0 +1,19 @@
+[package]
+name = "archivindex-wbm-cas"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[features]
+default = ["zstd"]
+zstd = ["dep:zstd"]
+
+[dependencies]
+archivindex-wbm = { path = "../wbm/" }
+bytes = { workspace = true }
+chrono = { workspace = true }
+prefix-file-tree = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true, optional = true }

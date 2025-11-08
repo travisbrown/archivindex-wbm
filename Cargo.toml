@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["wbm", "wbm-downloader", "wbm-invalid-log", "wxj", "wxj-cli"]
+members = [
+    "wbm",
+    "wbm-cas",
+    "wbm-downloader",
+    "wbm-downloader-cli",
+    "wbm-invalid-log",
+    "wxj",
+    "wxj-cli",
+]
 
 [workspace.package]
 authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
@@ -15,12 +23,14 @@ bounded-static = "0.8"
 bounded-static-derive-more = "0.1"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
+cli-helpers = "0.1"
 csv = "1"
 futures = "0.3"
 data-encoding = "2"
 flate2 = "1"
 http = "1"
 log = "0.4"
+prefix-file-tree = "0.1"
 quickcheck = "1"
 regex = "1"
 reqwest = { version = "0.12", features = ["json"] }
@@ -29,6 +39,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 url = "2"
 zstd = "0.13"

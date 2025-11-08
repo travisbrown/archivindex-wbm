@@ -8,6 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-cas = { path = "../wbm-cas/" }
 archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
 bounded-static = { workspace = true }
 bounded-static-derive-more = { workspace = true }
@@ -20,7 +21,5 @@ regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 thiserror = { workspace = true }
-tokio-retry = "0.3"
-
-[dev-dependencies]
 tokio = { workspace = true }
+tokio-retry = "0.3"
