@@ -174,9 +174,7 @@ mod tests {
 
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             let timestamp_s = self.0.timestamp();
-            Box::new(
-                (0..timestamp_s).filter_map(|timestamp_s| Self::try_from(timestamp_s).ok()),
-            )
+            Box::new((0..timestamp_s).filter_map(|timestamp_s| Self::try_from(timestamp_s).ok()))
         }
     }
 

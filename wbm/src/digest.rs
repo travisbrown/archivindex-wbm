@@ -403,7 +403,9 @@ mod tests {
                         (1..s.len())
                             .rev()
                             .filter(|&len| len != 32) // Skip length 32 to avoid creating valid digests
-                            .map(move |len| Self::Invalid(std::borrow::Cow::Owned(s[..len].to_string())))
+                            .map(move |len| {
+                                Self::Invalid(std::borrow::Cow::Owned(s[..len].to_string()))
+                            }),
                     )
                 }
             }

@@ -211,32 +211,36 @@ impl Database {
     ) -> Result<InvalidDigestIterator, rusqlite::Error> {
         let entries = if let Some(ts) = from {
             let mut statement = self.connection.prepare(SELECT_INVALID_DIGESTS_FROM)?;
-            statement.query_map([ts.timestamp()], |row| {
-                let timestamp: types::TimestampSecond = row.get(0)?;
-                let url: String = row.get(1)?;
-                let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
-                let expected_digest: Digest<'static> = row.get(3)?;
-                let actual_digest: Sha1Digest = row.get(4)?;
-                let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
-                let entry = Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
+            statement
+                .query_map([ts.timestamp()], |row| {
+                    let timestamp: types::TimestampSecond = row.get(0)?;
+                    let url: String = row.get(1)?;
+                    let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
+                    let expected_digest: Digest<'static> = row.get(3)?;
+                    let actual_digest: Sha1Digest = row.get(4)?;
+                    let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
+                    let entry =
+                        Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
 
-                Ok((timestamp.into(), entry))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
+                    Ok((timestamp.into(), entry))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut statement = self.connection.prepare(SELECT_ALL_INVALID_DIGESTS)?;
-            statement.query_map([], |row| {
-                let timestamp: types::TimestampSecond = row.get(0)?;
-                let url: String = row.get(1)?;
-                let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
-                let expected_digest: Digest<'static> = row.get(3)?;
-                let actual_digest: Sha1Digest = row.get(4)?;
-                let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
-                let entry = Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
+            statement
+                .query_map([], |row| {
+                    let timestamp: types::TimestampSecond = row.get(0)?;
+                    let url: String = row.get(1)?;
+                    let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
+                    let expected_digest: Digest<'static> = row.get(3)?;
+                    let actual_digest: Sha1Digest = row.get(4)?;
+                    let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
+                    let entry =
+                        Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
 
-                Ok((timestamp.into(), entry))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
+                    Ok((timestamp.into(), entry))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         Ok(InvalidDigestIterator {
@@ -261,22 +265,24 @@ impl Database {
     ) -> Result<WithheldUrlIterator, rusqlite::Error> {
         let entries = if let Some(ts) = from {
             let mut statement = self.connection.prepare_cached(SELECT_WITHHELD_URLS_FROM)?;
-            statement.query_map([ts.timestamp()], |row| {
-                let timestamp: types::TimestampSecond = row.get(0)?;
-                let url: String = row.get(1)?;
+            statement
+                .query_map([ts.timestamp()], |row| {
+                    let timestamp: types::TimestampSecond = row.get(0)?;
+                    let url: String = row.get(1)?;
 
-                Ok((timestamp.into(), url))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
+                    Ok((timestamp.into(), url))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
         } else {
             let mut statement = self.connection.prepare_cached(SELECT_ALL_WITHHELD_URLS)?;
-            statement.query_map([], |row| {
-                let timestamp: types::TimestampSecond = row.get(0)?;
-                let url: String = row.get(1)?;
+            statement
+                .query_map([], |row| {
+                    let timestamp: types::TimestampSecond = row.get(0)?;
+                    let url: String = row.get(1)?;
 
-                Ok((timestamp.into(), url))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
+                    Ok((timestamp.into(), url))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         Ok(WithheldUrlIterator {
@@ -345,12 +351,8 @@ mod tests {
         let timestamp_01 = Utc::now();
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
-        assert!(
-            database.insert_invalid_digest(&example_entry_01(), timestamp_01)?
-        );
-        assert!(
-            !(database.insert_invalid_digest(&example_entry_01(), timestamp_02)?)
-        );
+        assert!(database.insert_invalid_digest(&example_entry_01(), timestamp_01)?);
+        assert!(!(database.insert_invalid_digest(&example_entry_01(), timestamp_02)?));
 
         Ok(())
     }
