@@ -21,7 +21,7 @@
 use archivindex_wbm::digest::Digest;
 use archivindex_wbm::{digest::Sha1Digest, item::ItemInfo};
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -289,6 +289,105 @@ impl Database {
             entries: entries.into_iter(),
         })
     }
+
+    /// Merges entries from another database into this database.
+    ///
+    /// For each entry in the source database, if it doesn't exist in this database,
+    /// it will be inserted. If it already exists but the source has an older timestamp,
+    /// the entry in this database will be updated with the older timestamp.
+    ///
+    /// This operation is performed in a transaction for consistency.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The source database to merge from
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Merge completed successfully
+    /// * `Err(_)` - Database error occurred
+    pub fn merge(&self, other: &Self) -> Result<(), rusqlite::Error> {
+        let transaction = self.connection.unchecked_transaction()?;
+
+        // Merge invalid digests.
+        for result in other.invalid_digests(None)? {
+            let (timestamp, entry) = result?;
+
+            // Check if entry exists.
+            let mut check_statement = transaction.prepare_cached(
+                "SELECT timestamp FROM invalid_digest
+                 WHERE url = ?1 AND archive_timestamp = ?2 AND expected_digest = ?3 AND actual_digest = ?4"
+            )?;
+
+            let existing_timestamp: Option<i64> = check_statement
+                .query_row(
+                    params![
+                        entry.item_info.url_parts.url,
+                        entry.item_info.url_parts.timestamp,
+                        entry.item_info.expected_digest,
+                        entry.actual_digest,
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            if let Some(existing_ts) = existing_timestamp {
+                // Entry exists, update if source has older timestamp.
+                if timestamp.timestamp() < existing_ts {
+                    let mut update_statement = transaction.prepare_cached(
+                        "UPDATE invalid_digest SET timestamp = ?1
+                         WHERE url = ?2 AND archive_timestamp = ?3 AND expected_digest = ?4 AND actual_digest = ?5"
+                    )?;
+                    update_statement.execute(params![
+                        timestamp.timestamp(),
+                        entry.item_info.url_parts.url,
+                        entry.item_info.url_parts.timestamp,
+                        entry.item_info.expected_digest,
+                        entry.actual_digest,
+                    ])?;
+                }
+            } else {
+                // Entry doesn't exist, insert it.
+                let mut insert_statement = transaction.prepare_cached(INSERT_INVALID_DIGEST)?;
+                insert_statement.execute(params![
+                    timestamp.timestamp(),
+                    entry.item_info.url_parts.url,
+                    entry.item_info.url_parts.timestamp,
+                    entry.item_info.expected_digest,
+                    entry.actual_digest,
+                ])?;
+            }
+        }
+
+        // Merge withheld URLs.
+        for result in other.withheld_urls(None)? {
+            let (timestamp, url) = result?;
+
+            // Check if URL exists.
+            let mut check_statement =
+                transaction.prepare_cached("SELECT timestamp FROM withheld_url WHERE url = ?1")?;
+
+            let existing_timestamp: Option<i64> = check_statement
+                .query_row([&url], |row| row.get(0))
+                .optional()?;
+
+            if let Some(existing_ts) = existing_timestamp {
+                // URL exists, update if source has older timestamp.
+                if timestamp.timestamp() < existing_ts {
+                    let mut update_statement = transaction
+                        .prepare_cached("UPDATE withheld_url SET timestamp = ?1 WHERE url = ?2")?;
+                    update_statement.execute(params![timestamp.timestamp(), &url])?;
+                }
+            } else {
+                // URL doesn't exist, insert it.
+                let mut insert_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
+                insert_statement.execute(params![timestamp.timestamp(), &url])?;
+            }
+        }
+
+        transaction.commit()?;
+        Ok(())
+    }
 }
 
 /// Iterator over invalid digest entries in the database.
@@ -342,6 +441,19 @@ mod tests {
         )
     }
 
+    fn example_entry_02() -> Entry<'static> {
+        Entry::new(
+            ItemInfo::new(
+                UrlParts::new(
+                    "https://twitter.com/example/status/9999999999",
+                    "20250101120000".parse().unwrap(),
+                ),
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2".parse().unwrap(),
+            ),
+            "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB3".parse().unwrap(),
+        )
+    }
+
     #[test]
     fn test_insert_invalid_digest() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
@@ -367,25 +479,12 @@ mod tests {
         let timestamp_01 = Utc::now();
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
-        // First insert should succeed
+        // First insert should succeed.
         assert!(database.insert_withheld(url, timestamp_01)?);
-        // Second insert of same URL should be skipped (returns false)
+        // Second insert of same URL should be skipped (returns false).
         assert!(!(database.insert_withheld(url, timestamp_02)?));
 
         Ok(())
-    }
-
-    fn example_entry_02() -> Entry<'static> {
-        Entry::new(
-            ItemInfo::new(
-                UrlParts::new(
-                    "https://twitter.com/example/status/9999999999",
-                    "20250101120000".parse().unwrap(),
-                ),
-                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2".parse().unwrap(),
-            ),
-            "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB3".parse().unwrap(),
-        )
     }
 
     #[test]
@@ -398,22 +497,24 @@ mod tests {
         let timestamp_02 = base_time + chrono::Duration::seconds(10);
         let timestamp_03 = base_time + chrono::Duration::seconds(20);
 
-        // Insert three entries at different times
+        // Insert three entries at different times.
         database.insert_invalid_digest(&example_entry_01(), timestamp_01)?;
         database.insert_invalid_digest(&example_entry_02(), timestamp_02)?;
-        database.insert_invalid_digest(&example_entry_01(), timestamp_03)?; // Different timestamp, should insert
+        // Different timestamp, should insert.
+        database.insert_invalid_digest(&example_entry_01(), timestamp_03)?;
 
-        // Test iterating over all entries
+        // Test iterating over all entries.
         let all_entries: Vec<_> = database
             .invalid_digests(None)?
             .collect::<Result<Vec<_>, _>>()?;
 
-        assert_eq!(all_entries.len(), 2); // Only 2 unique entries (entry_01 appears twice but is deduplicated)
+        // Only two unique entries (`entry_01` is inserted twice but is deduplicated).
+        assert_eq!(all_entries.len(), 2);
 
-        // Verify entries are ordered by timestamp
+        // Verify entries are ordered by timestamp.
         assert!(all_entries[0].0 <= all_entries[1].0);
 
-        // Test iterating from a specific timestamp
+        // Test iterating from a specific timestamp.
         let from_timestamp = base_time + chrono::Duration::seconds(5);
         let filtered_entries: Vec<_> = database
             .invalid_digests(Some(from_timestamp))?
@@ -430,7 +531,6 @@ mod tests {
         let database = Database::in_memory()?;
         database.initialize()?;
 
-        // Should return empty iterator for empty database
         let entries: Vec<_> = database
             .invalid_digests(None)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -453,24 +553,25 @@ mod tests {
         let url_01 = "https://twitter.com/example1/status/1111111111";
         let url_02 = "https://twitter.com/example2/status/2222222222";
 
-        // Insert withheld URLs at different times
+        // Insert withheld URLs at different times.
         database.insert_withheld(url_01, timestamp_01)?;
         database.insert_withheld(url_02, timestamp_02)?;
-        database.insert_withheld(url_01, timestamp_03)?; // Duplicate URL, should be skipped
+        // Duplicate URL, should be skipped.
+        database.insert_withheld(url_01, timestamp_03)?;
 
-        // Test iterating over all entries
+        // Test iterating over all entries.
         let all_entries: Vec<_> = database
             .withheld_urls(None)?
             .collect::<Result<Vec<_>, _>>()?;
 
-        assert_eq!(all_entries.len(), 2); // Only 2 unique URLs
+        assert_eq!(all_entries.len(), 2);
         assert_eq!(all_entries[0].1, url_01);
         assert_eq!(all_entries[1].1, url_02);
 
-        // Verify entries are ordered by timestamp
+        // Verify entries are ordered by timestamp.
         assert!(all_entries[0].0 <= all_entries[1].0);
 
-        // Test iterating from a specific timestamp
+        // Test iterating from a specific timestamp.
         let from_timestamp = base_time + chrono::Duration::seconds(5);
         let filtered_entries: Vec<_> = database
             .withheld_urls(Some(from_timestamp))?
@@ -487,12 +588,107 @@ mod tests {
         let database = Database::in_memory()?;
         database.initialize()?;
 
-        // Should return empty iterator for empty database
         let entries: Vec<_> = database
             .withheld_urls(None)?
             .collect::<Result<Vec<_>, _>>()?;
 
         assert_eq!(entries.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_merge_from() -> Result<(), rusqlite::Error> {
+        let db1 = Database::in_memory()?;
+        db1.initialize()?;
+
+        let db2 = Database::in_memory()?;
+        db2.initialize()?;
+
+        let base_time = Utc::now();
+        let older_time = base_time - chrono::Duration::seconds(100);
+        let newer_time = base_time + chrono::Duration::seconds(100);
+
+        // Add entry to `db1` with base_time.
+        db1.insert_invalid_digest(&example_entry_01(), base_time)?;
+
+        // Add same entry to `db2` with older_time (should win when merged).
+        db2.insert_invalid_digest(&example_entry_01(), older_time)?;
+        db2.insert_invalid_digest(&example_entry_02(), newer_time)?;
+
+        let url1 = "https://twitter.com/test1/status/111";
+        db1.insert_withheld(url1, base_time)?;
+
+        // Add same withheld URL to `db2` with older timestamp (should win when merged).
+        db2.insert_withheld(url1, older_time)?;
+
+        // Add different withheld URL to `db2`.
+        let url2 = "https://twitter.com/test2/status/222";
+        db2.insert_withheld(url2, newer_time)?;
+
+        db1.merge(&db2)?;
+
+        let invalid_digests: Vec<_> = db1.invalid_digests(None)?.collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(invalid_digests.len(), 2);
+
+        // First entry should have the older timestamp from `db2`.
+        let entry_01_result = invalid_digests
+            .iter()
+            .find(|(_, e)| e == &example_entry_01());
+        assert!(entry_01_result.is_some());
+        let (ts, _) = entry_01_result.unwrap();
+        assert_eq!(ts.timestamp(), older_time.timestamp());
+
+        // Second entry should be present.
+        let entry_02_result = invalid_digests
+            .iter()
+            .find(|(_, e)| e == &example_entry_02());
+        assert!(entry_02_result.is_some());
+
+        let withheld_urls: Vec<_> = db1.withheld_urls(None)?.collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(withheld_urls.len(), 2);
+
+        // First URL should have the older timestamp from `db2`.
+        let url1_result = withheld_urls.iter().find(|(_, u)| u == url1);
+        assert!(url1_result.is_some());
+        let (ts, _) = url1_result.unwrap();
+        assert_eq!(ts.timestamp(), older_time.timestamp());
+
+        // Second URL should be present.
+        let url2_result = withheld_urls.iter().find(|(_, u)| u == url2);
+        assert!(url2_result.is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_merge_from_keeps_older() -> Result<(), rusqlite::Error> {
+        let db1 = Database::in_memory()?;
+        db1.initialize()?;
+
+        let db2 = Database::in_memory()?;
+        db2.initialize()?;
+
+        let base_time = Utc::now();
+        let older_time = base_time - chrono::Duration::seconds(100);
+        let newer_time = base_time + chrono::Duration::seconds(100);
+
+        // Add entry to `db1`` with older_time.
+        db1.insert_invalid_digest(&example_entry_01(), older_time)?;
+
+        // Add same entry to `db2` with newer_time (should not win when merged).
+        db2.insert_invalid_digest(&example_entry_01(), newer_time)?;
+
+        db1.merge(&db2)?;
+
+        // Check that `db1` kept the older timestamp.
+        let invalid_digests: Vec<_> = db1.invalid_digests(None)?.collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(invalid_digests.len(), 1);
+        let (ts, _) = &invalid_digests[0];
+        assert_eq!(ts.timestamp(), older_time.timestamp());
 
         Ok(())
     }
