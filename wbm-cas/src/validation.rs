@@ -1,7 +1,7 @@
 use archivindex_wbm::digest::Sha1Digest;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Result {
+pub struct Summary {
     pub valid_count: usize,
     pub errors: Vec<Error>,
 }

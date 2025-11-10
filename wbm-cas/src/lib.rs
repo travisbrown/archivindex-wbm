@@ -1,17 +1,27 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
+use std::io::Read;
+
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use bytes::Bytes;
+
+use crate::entry::Entry;
 
 pub mod entry;
 pub mod file;
 pub mod validation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SaveResult {
+pub enum SaveSummary {
     Success { actual_digest: Option<Sha1Digest> },
     AlreadyPresent,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CopySummary {
+    pub copied: usize,
+    pub skipped: usize,
 }
 
 /// A store for downloaded archive data, indexed by digest.
@@ -34,7 +44,7 @@ pub trait Store {
         digest: Sha1Digest,
         bytes: &[u8],
         validate: bool,
-    ) -> Result<SaveResult, Self::Error>;
+    ) -> Result<SaveSummary, Self::Error>;
 
     /// Look up a download in the store.
     fn get(&self, digest: Sha1Digest) -> Result<Option<Bytes>, Self::Error>;
@@ -42,7 +52,7 @@ pub trait Store {
     fn sha1_computer(&self) -> &Sha1Computer;
 
     /// Verify that the digest associated with each download matches the content.
-    fn validate(&self) -> Result<validation::Result, Self::IterationError> {
+    fn validate(&self) -> Result<validation::Summary, Self::IterationError> {
         use entry::Entry;
 
         let mut valid_count = 0;
@@ -70,9 +80,42 @@ pub trait Store {
             }
         }
 
-        Ok(validation::Result {
+        Ok(validation::Summary {
             valid_count,
             errors,
         })
+    }
+
+    /// Copy all downloads from one store to another.
+    fn copy<T: Store>(&self, target: T, validate: bool) -> Result<CopySummary, Self::Error>
+    where
+        Self::Error: From<Self::IterationError>,
+        Self::Error: From<<Self::Entry as entry::Entry>::Error>,
+        Self::Error: From<std::io::Error>,
+        Self::Error: From<T::Error>,
+    {
+        let mut copy_summary = CopySummary::default();
+
+        for result in self.iter() {
+            let entry = result?;
+            let digest = entry.digest();
+
+            let mut bytes = vec![];
+
+            entry.reader()?.read_to_end(&mut bytes)?;
+
+            let save_result = target.save(digest, &bytes, validate)?;
+
+            match save_result {
+                SaveSummary::Success { .. } => {
+                    copy_summary.copied += 1;
+                }
+                SaveSummary::AlreadyPresent => {
+                    copy_summary.skipped += 1;
+                }
+            }
+        }
+
+        Ok(copy_summary)
     }
 }

@@ -1,4 +1,4 @@
-use crate::SaveResult;
+use crate::SaveSummary;
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use prefix_file_tree::{Tree, scheme::encoding::Base32};
 use std::fs::File;
@@ -25,6 +25,8 @@ pub enum StructureInferenceError {
     PrefixFileTree(#[from] prefix_file_tree::Error),
     #[error("Prefix file tree builder error")]
     PrefixFileTreeBuilder(#[from] prefix_file_tree::builder::Error),
+    #[error("Prefix file tree iteration error")]
+    PrefixFileTreeIteration(#[from] prefix_file_tree::iter::Error),
 }
 
 pub struct Store<C> {
@@ -92,7 +94,7 @@ impl crate::Store for Store<entry::Buffered> {
         digest: Sha1Digest,
         bytes: &[u8],
         validate: bool,
-    ) -> Result<SaveResult, Self::Error> {
+    ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(&digest.0).expect("Invalid name");
 
@@ -114,10 +116,10 @@ impl crate::Store for Store<entry::Buffered> {
 
                 file.write_all(bytes)?;
 
-                Ok(SaveResult::Success { actual_digest })
+                Ok(SaveSummary::Success { actual_digest })
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                Ok(SaveResult::AlreadyPresent)
+                Ok(SaveSummary::AlreadyPresent)
             }
             Err(error) => Err(error),
         }
@@ -182,7 +184,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
         digest: Sha1Digest,
         bytes: &[u8],
         validate: bool,
-    ) -> Result<SaveResult, Self::Error> {
+    ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(&digest.0).expect("Invalid name");
 
@@ -206,10 +208,10 @@ impl crate::Store for Store<entry::zstd::Compressed> {
 
                 writer.write_all(bytes)?;
 
-                Ok(SaveResult::Success { actual_digest })
+                Ok(SaveSummary::Success { actual_digest })
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                Ok(SaveResult::AlreadyPresent)
+                Ok(SaveSummary::AlreadyPresent)
             }
             Err(error) => Err(error),
         }
