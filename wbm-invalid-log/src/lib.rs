@@ -31,7 +31,7 @@ pub mod types;
 ///
 /// Contains the item information (URL and expected digest) along with the
 /// actual digest computed from the downloaded content.
-#[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic)]
+#[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic, serde::Serialize)]
 pub struct Entry<'a> {
     /// The Wayback Machine item information, including URL and expected digest
     pub item_info: ItemInfo<'a>,
