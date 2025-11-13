@@ -14,6 +14,7 @@ archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
 chrono = { workspace = true }
 cli-helpers = { workspace = true }
 csv = { workspace = true }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
