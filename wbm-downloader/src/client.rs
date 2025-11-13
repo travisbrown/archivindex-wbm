@@ -67,7 +67,9 @@ impl Error {
         match self {
             Self::UnexpectedStatus(StatusCode::TOO_MANY_REQUESTS) => true,
             Self::UnexpectedStatus(status_code) if status_code.is_server_error() => true,
-            Self::Client(error) if error.is_timeout() || error.is_body() => true,
+            Self::Client(error) if error.is_timeout() || error.is_body() | error.is_connect() => {
+                true
+            }
             _ => false,
         }
     }
