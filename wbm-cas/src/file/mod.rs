@@ -96,7 +96,7 @@ impl crate::Store for Store<entry::Buffered> {
         validate: bool,
     ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
-        let path = self.tree.path(&digest.0).expect("Invalid name");
+        let path = self.tree.path(digest.0).expect("Invalid name");
 
         match File::create_new(path) {
             Ok(mut file) => {
@@ -127,7 +127,7 @@ impl crate::Store for Store<entry::Buffered> {
 
     fn get(&self, digest: Sha1Digest) -> Result<Option<bytes::Bytes>, Self::Error> {
         // Safe by construction (since we were able to build the tree).
-        let path = self.tree.path(&digest.0).expect("Invalid name");
+        let path = self.tree.path(digest.0).expect("Invalid name");
 
         match File::open(path) {
             Ok(file) => {
@@ -186,7 +186,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
         validate: bool,
     ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
-        let path = self.tree.path(&digest.0).expect("Invalid name");
+        let path = self.tree.path(digest.0).expect("Invalid name");
 
         match File::create_new(path) {
             Ok(file) => {
@@ -219,7 +219,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
 
     fn get(&self, digest: Sha1Digest) -> Result<Option<bytes::Bytes>, Self::Error> {
         // Safe by construction (since we were able to build the tree).
-        let path = self.tree.path(&digest.0).expect("Invalid name");
+        let path = self.tree.path(digest.0).expect("Invalid name");
 
         match File::open(path) {
             Ok(file) => {

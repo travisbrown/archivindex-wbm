@@ -30,7 +30,7 @@ data-encoding = "2"
 flate2 = "1"
 http = "1"
 log = "0.4"
-prefix-file-tree = "0.1"
+prefix-file-tree = "0.2"
 quickcheck = "1"
 regex = "1"
 reqwest = { version = "0.12", features = ["json"] }
