@@ -80,8 +80,8 @@ pub struct Manager {
 impl Manager {
     pub fn new<P: AsRef<Path>, D: AsRef<Path>>(
         output_path: P,
-        client_configuration: client::Configuration,
         invalid_log_path: D,
+        client_configuration: client::Configuration,
         worker_count: usize,
         buffer: usize,
         mut todo: Vec<ItemInfo<'static>>,
