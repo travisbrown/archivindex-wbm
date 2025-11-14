@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
-        let line = include_str!("../../../examples/wxj/inferred-url-01.json").trim();
+        let line = include_str!("../../../examples/wbm/wxj/inferred-url-01.json").trim();
 
         let parsed = SnapshotLine::parse(line)?;
 
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn parse_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let parsed = SnapshotLine::parse(line)?;
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn validate_all_examples() -> Result<(), Box<dyn std::error::Error>> {
         let lines = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
-            "../../../examples/wxj/lines-01.ndjson"
+            "../../../examples/wbm/wxj/lines-01.ndjson"
         )))
         .lines();
 
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let _snapshot = serde_json::from_str::<
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn snapshot_line_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../../examples/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
             let snapshot_line = SnapshotLine::parse(line)?;

@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn deserialize() {
-        let contents = include_str!("../../../../examples/cdx/1706619334645856.json");
+        let contents = include_str!("../../../../examples/wbm/cdx/1706619334645856.json");
         let items = serde_json::from_str::<super::ItemList<'_>>(contents).unwrap();
 
         assert_eq!(items.values.len(), 37647);
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn deserialize_with_resume_key() {
-        let contents = include_str!("../../../../examples/cdx/1740396642000000.json");
+        let contents = include_str!("../../../../examples/wbm/cdx/1740396642000000.json");
         let items = serde_json::from_str::<super::ItemList<'_>>(contents).unwrap();
 
         let expected_resume_key = "eJwNxzEOgCAMAMCvuJqYtKViy3MIdGAgGqj6fb3tytk3f5u7jRVKvrw9VoflbkNgevZ7Amkilj0xBoqKCVWWgCH-FTyYWD9RQxSp";
