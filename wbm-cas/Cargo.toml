@@ -17,3 +17,6 @@ chrono = { workspace = true }
 prefix-file-tree = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

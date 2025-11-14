@@ -39,13 +39,21 @@ impl<C> Store<C> {
     fn tree<P: AsRef<Path>>(
         base: P,
         prefix_part_lengths: Vec<usize>,
+        extension: Option<Option<String>>,
     ) -> Result<Tree<Scheme>, prefix_file_tree::builder::Error> {
         let scheme = Base32::default();
 
-        Tree::builder(base)
+        let builder = Tree::builder(base)
             .with_prefix_part_lengths(prefix_part_lengths)
-            .with_scheme(scheme)
-            .build()
+            .with_scheme(scheme);
+
+        let builder = match extension {
+            Some(None) => builder.with_no_extension(),
+            Some(Some(extension)) => builder.with_extension(extension),
+            None => builder,
+        };
+
+        builder.build()
     }
 }
 
@@ -54,7 +62,7 @@ impl Store<entry::Buffered> {
         base: P,
         prefix_part_lengths: Vec<usize>,
     ) -> Result<Self, prefix_file_tree::builder::Error> {
-        let tree = Self::tree(base, prefix_part_lengths)?;
+        let tree = Self::tree(base, prefix_part_lengths, Some(None))?;
 
         Ok(Self {
             tree,
@@ -97,6 +105,10 @@ impl crate::Store for Store<entry::Buffered> {
     ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(digest.0).expect("Invalid name");
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
         match File::create_new(path) {
             Ok(mut file) => {
@@ -154,12 +166,13 @@ impl Store<entry::zstd::Compressed> {
     pub fn new<P: AsRef<Path>>(
         base: P,
         prefix_part_lengths: Vec<usize>,
+        configuration: entry::zstd::Compressed,
     ) -> Result<Self, prefix_file_tree::builder::Error> {
-        let tree = Self::tree(base, prefix_part_lengths)?;
+        let tree = Self::tree(base, prefix_part_lengths, Some(Some("zst".to_string())))?;
 
         Ok(Self {
             tree,
-            configuration: entry::zstd::Compressed::default(),
+            configuration,
             sha1_computer: Sha1Computer::default(),
         })
     }
@@ -188,6 +201,10 @@ impl crate::Store for Store<entry::zstd::Compressed> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(digest.0).expect("Invalid name");
 
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         match File::create_new(path) {
             Ok(file) => {
                 let mut writer = zstd::stream::write::Encoder::new(file, self.configuration.level)?;
@@ -207,6 +224,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
                 };
 
                 writer.write_all(bytes)?;
+                writer.finish()?;
 
                 Ok(SaveSummary::Success { actual_digest })
             }

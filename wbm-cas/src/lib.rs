@@ -87,12 +87,16 @@ pub trait Store {
     }
 
     /// Copy all downloads from one store to another.
-    fn copy<T: Store>(&self, target: T, validate: bool) -> Result<CopySummary, Self::Error>
+    fn copy<T: Store>(
+        &self,
+        target: &T,
+        validate: bool,
+    ) -> Result<CopySummary, Self::IterationError>
     where
-        Self::Error: From<Self::IterationError>,
-        Self::Error: From<<Self::Entry as entry::Entry>::Error>,
-        Self::Error: From<std::io::Error>,
-        Self::Error: From<T::Error>,
+        Self::IterationError: From<Self::Error>
+            + From<<Self::Entry as entry::Entry>::Error>
+            + From<std::io::Error>
+            + From<T::Error>,
     {
         let mut copy_summary = CopySummary::default();
 
@@ -117,5 +121,56 @@ pub trait Store {
         }
 
         Ok(copy_summary)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{
+        Store as _,
+        file::{Store, entry::zstd::Compressed},
+    };
+
+    #[test]
+    fn test_copy() -> Result<(), Box<dyn std::error::Error>> {
+        let target_dir = tempfile::TempDir::new()?;
+
+        let source_store = Store::inferred_structure("../examples/wbm/cas/store-01")?;
+        let target_store =
+            Store::<Compressed>::new(&target_dir, vec![2, 2], Compressed::default())?;
+
+        source_store.copy(&target_store, true)?;
+
+        let file_01 = target_dir
+            .as_ref()
+            .join("AO")
+            .join("7G")
+            .join("AO7GI4B7MRAB47MYQZTVWNPFPRXG6XWY.zst");
+        let file_02 = target_dir
+            .as_ref()
+            .join("AY")
+            .join("FN")
+            .join("AYFN6PDWM7RHE3KASFYMNAGTYDXCTQEN.zst");
+        let file_03 = target_dir
+            .as_ref()
+            .join("QT")
+            .join("QC")
+            .join("QTQC5AMOPNFDT4IGOQ3SECOJWVCRD4OU.zst");
+
+        assert!(file_01.exists() && file_01.is_file());
+        assert!(file_02.exists() && file_02.is_file());
+        assert!(file_03.exists() && file_03.is_file());
+
+        let read_bytes = target_store.get("QTQC5AMOPNFDT4IGOQ3SECOJWVCRD4OU".parse()?)?;
+        let expected_bytes =
+            std::fs::read("../examples/wbm/cas/store-01/QTQC5AMOPNFDT4IGOQ3SECOJWVCRD4OU")?;
+
+        assert_eq!(
+            read_bytes.as_ref().map(|bytes| bytes.as_ref()),
+            Some(expected_bytes.as_slice())
+        );
+
+        Ok(())
     }
 }
