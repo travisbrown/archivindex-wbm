@@ -34,6 +34,12 @@ async fn main() -> Result<(), Error> {
 
             writer.flush()?;
         }
+        Command::MergeInvalidDigests { source, target } => {
+            let source_db = archivindex_wbm_invalid_log::Database::open(source)?;
+            let target_db = archivindex_wbm_invalid_log::Database::open(target)?;
+
+            target_db.merge(&source_db)?;
+        }
     }
 
     Ok(())
@@ -75,5 +81,11 @@ enum Command {
     ExportInvalidDigests {
         #[clap(long)]
         db: PathBuf,
+    },
+    MergeInvalidDigests {
+        #[clap(long)]
+        source: PathBuf,
+        #[clap(long)]
+        target: PathBuf,
     },
 }
