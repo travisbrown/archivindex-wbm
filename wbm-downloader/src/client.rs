@@ -9,11 +9,12 @@ use http::{StatusCode, header::LOCATION};
 use reqwest::Response;
 use std::time::Duration;
 
-const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(20);
+const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(18);
 const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(60);
 const DEFAULT_MAX_RETRIES: usize = 7;
 const DEFAULT_RETRY_BASE_DURATION_MS: u64 = 60_000;
 const DEFAULT_MAX_REDIRECT_DEPTH: usize = 10;
+const TEMPORARILY_OFFLINE_REDIRECT_URL: &str = "https://web.archive.org/sry";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Configuration {
@@ -65,6 +66,7 @@ pub enum Error {
 impl Error {
     fn can_retry(&self) -> bool {
         match self {
+            Self::UnexpectedRedirectUrl(url) if url == TEMPORARILY_OFFLINE_REDIRECT_URL => true,
             Self::UnexpectedStatus(StatusCode::TOO_MANY_REQUESTS) => true,
             Self::UnexpectedStatus(status_code) if status_code.is_server_error() => true,
             Self::Client(error) if error.is_timeout() || error.is_body() | error.is_connect() => {
@@ -255,62 +257,55 @@ impl Client {
         let initial_response = self.underlying.head(&initial_url).send().await?;
 
         match initial_response.status() {
-            StatusCode::FOUND => {
-                match initial_response
-                    .headers()
-                    .get(LOCATION)
-                    .and_then(|value| value.to_str().ok())
-                    .map(str::to_string)
-                {
-                    Some(location) => {
-                        let info = location
-                            .parse::<UrlParts<'_>>()
-                            .map_err(|_| Error::UnexpectedRedirectUrl(location))?;
+            StatusCode::FOUND => match redirect_location(&initial_response) {
+                Some(location) => {
+                    let info = location
+                        .parse::<UrlParts<'_>>()
+                        .map_err(|_| Error::UnexpectedRedirectUrl(location.to_string()))?;
 
-                        let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                        let mut guess_bytes = guess.as_bytes();
-                        let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes)?;
+                    let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
+                    let mut guess_bytes = guess.as_bytes();
+                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes)?;
 
-                        let mut valid_initial_content = true;
-                        let mut valid_digest = true;
+                    let mut valid_initial_content = true;
+                    let mut valid_digest = true;
 
-                        let content = if guess_digest == expected_digest {
-                            Bytes::from(guess)
-                        } else {
-                            let direct_bytes = self
-                                .underlying
-                                .get(&initial_url)
-                                .send()
-                                .await?
-                                .bytes()
-                                .await?;
-                            let direct_digest =
-                                Sha1Computer::compute_digest(&mut direct_bytes.as_ref())?;
-                            valid_initial_content = false;
-                            valid_digest = direct_digest == expected_digest;
-
-                            direct_bytes
-                        };
-
-                        let actual_url = self
-                            .direct_resolve_redirect(&info.url, info.timestamp)
+                    let content = if guess_digest == expected_digest {
+                        Bytes::from(guess)
+                    } else {
+                        let direct_bytes = self
+                            .underlying
+                            .get(&initial_url)
+                            .send()
+                            .await?
+                            .bytes()
                             .await?;
+                        let direct_digest =
+                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref())?;
+                        valid_initial_content = false;
+                        valid_digest = direct_digest == expected_digest;
 
-                        let actual_info = actual_url
-                            .parse::<UrlParts<'_>>()
-                            .map_err(|_| Error::UnexpectedRedirectUrl(actual_url))?;
+                        direct_bytes
+                    };
 
-                        Ok(RedirectResolution {
-                            url: actual_info.url.into(),
-                            timestamp: actual_info.timestamp,
-                            content,
-                            valid_initial_content,
-                            valid_digest,
-                        })
-                    }
-                    None => Err(Error::UnexpectedRedirect(None)),
+                    let actual_url = self
+                        .direct_resolve_redirect(&info.url, info.timestamp)
+                        .await?;
+
+                    let actual_info = actual_url
+                        .parse::<UrlParts<'_>>()
+                        .map_err(|_| Error::UnexpectedRedirectUrl(actual_url))?;
+
+                    Ok(RedirectResolution {
+                        url: actual_info.url.into(),
+                        timestamp: actual_info.timestamp,
+                        content,
+                        valid_initial_content,
+                        valid_digest,
+                    })
                 }
-            }
+                None => Err(Error::UnexpectedRedirect(None)),
+            },
             other => Err(Error::UnexpectedStatus(other)),
         }
     }
