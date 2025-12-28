@@ -52,6 +52,22 @@ impl<'a, S> Snapshot<'a, S> {
     }
 }
 
+impl<'a> Snapshot<'a, birdsite::model::wxj::data::TweetSnapshot<'a>> {
+    #[must_use]
+    pub fn inferred_url(&self, use_x: bool) -> Option<String> {
+        self.content
+            .lookup_user(self.content.data.author_id)
+            .map(|user| {
+                format!(
+                    "https://{}.com/{}/status/{}",
+                    if use_x { "x" } else { "twitter" },
+                    user.username,
+                    self.content.data.id
+                )
+            })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic)]
 pub struct SnapshotLine<'a> {
     pub digest: Sha1Digest,

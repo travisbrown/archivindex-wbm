@@ -469,6 +469,43 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::UserTweets { input, id } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+            let mut writer = csv::Writer::from_writer(std::io::stdout());
+
+            for line in reader.lines() {
+                let line = line?;
+
+                let snapshot =
+                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+
+                if let Some(tweets) = &snapshot.content.includes.tweets {
+                    let url = snapshot
+                        .url
+                        .clone()
+                        .or_else(|| snapshot.inferred_url(false).map(std::convert::Into::into));
+
+                    let user_tweets = tweets
+                        .iter()
+                        .filter(|tweet| tweet.author_id == id)
+                        .collect::<Vec<_>>();
+
+                    for tweet in user_tweets {
+                        writer.write_record([
+                            tweet.id.to_string(),
+                            tweet.author_id.to_string(),
+                            url.as_ref()
+                                .map(std::string::ToString::to_string)
+                                .unwrap_or_default(),
+                            tweet.created_at.to_string(),
+                            tweet.text.replace('\n', " "),
+                        ])?;
+                    }
+                }
+            }
+
+            writer.flush()?;
+        }
     }
 
     Ok(())
@@ -558,5 +595,11 @@ enum Command {
         photos_only: bool,
         #[clap(long)]
         id: Vec<u64>,
+    },
+    UserTweets {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        id: u64,
     },
 }
