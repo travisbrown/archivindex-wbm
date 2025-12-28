@@ -93,10 +93,7 @@ pub trait Store {
         validate: bool,
     ) -> Result<CopySummary, Self::IterationError>
     where
-        Self::IterationError: From<Self::Error>
-            + From<<Self::Entry as entry::Entry>::Error>
-            + From<std::io::Error>
-            + From<T::Error>,
+        Self::IterationError: From<Self::Error> + From<T::Error>,
     {
         let mut copy_summary = CopySummary::default();
 
