@@ -373,14 +373,13 @@ async fn main() -> Result<(), Error> {
                     let snapshot =
                         serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
-                        let entry = observations
-                            .entry((
-                                snapshot.content.user.id,
-                                snapshot.content.user.screen_name.to_string(),
-                            ))
-                            .or_default();
+                        for user in snapshot.content.users() {
+                            let entry = observations
+                                .entry((user.id, user.screen_name.to_string()))
+                                .or_default();
 
-                        entry.push(DateTime::from(timestamp).timestamp());
+                            entry.push(DateTime::from(timestamp).timestamp());
+                        }
                     }
                 } else {
                     let snapshot =
