@@ -33,7 +33,7 @@ log = "0.4"
 prefix-file-tree = "0.2"
 quickcheck = "1"
 regex = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 rusqlite = "0.38"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -41,5 +41,5 @@ sha1 = "0.10"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
-url = "2"
+url = { version = "2", features = ["serde"] }
 zstd = "0.13"
