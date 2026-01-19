@@ -38,8 +38,11 @@ pub struct Sha1Computer {
 }
 
 impl Sha1Computer {
-    pub fn compute_digest<R: Read>(input: &mut R) -> std::io::Result<Sha1Digest> {
-        Self::default().digest(input)
+    pub fn compute_digest<B: AsRef<[u8]>>(input: B) -> Sha1Digest {
+        let mut sha1 = sha1::Sha1::new();
+        sha1.update(input);
+
+        Sha1Digest(sha1.finalize().into())
     }
 
     /// Compute the SHA-1 hash for bytes read from a source.

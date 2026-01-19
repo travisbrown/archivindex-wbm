@@ -9,7 +9,7 @@ use http::{StatusCode, header::LOCATION};
 use reqwest::Response;
 use std::time::Duration;
 
-const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(18);
+const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(45);
 const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(60);
 const DEFAULT_MAX_RETRIES: usize = 7;
 const DEFAULT_RETRY_BASE_DURATION_MS: u64 = 60_000;
@@ -45,14 +45,10 @@ impl Default for Configuration {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
     #[error("HTTP client error: {0:?}")]
     Client(#[from] reqwest::Error),
     #[error("Unexpected redirect: {0:?}")]
     UnexpectedRedirect(Option<String>),
-    #[error("Unexpected redirect URL: {0:?}")]
-    UnexpectedRedirectUrl(String),
     #[error("Unexpected status code: {0:?}")]
     UnexpectedStatus(StatusCode),
     #[error("Invalid UTF-8: {0:?}")]
@@ -66,10 +62,13 @@ pub enum Error {
 impl Error {
     fn can_retry(&self) -> bool {
         match self {
-            Self::UnexpectedRedirectUrl(url) if url == TEMPORARILY_OFFLINE_REDIRECT_URL => true,
+            Self::UnexpectedRedirect(Some(url)) if url == TEMPORARILY_OFFLINE_REDIRECT_URL => true,
             Self::UnexpectedStatus(StatusCode::TOO_MANY_REQUESTS) => true,
             Self::UnexpectedStatus(status_code) if status_code.is_server_error() => true,
-            Self::Client(error) if error.is_timeout() || error.is_body() | error.is_connect() => {
+            Self::Client(error)
+                if error.is_timeout()
+                    || error.is_body() | error.is_connect() | error.is_request() =>
+            {
                 true
             }
             _ => false,
@@ -184,64 +183,64 @@ impl Client {
     ) -> BoxFuture<'a, Result<Result<Download<'a>, FailedDownload>, Error>> {
         async move {
             if depth > self.configuration.max_redirect_depth {
-                return Err(Error::TooManyRedirects(
+                Err(Error::TooManyRedirects(
                     self.configuration.max_redirect_depth,
-                ));
-            }
-
-            let response = self
-                .underlying
-                .get(Self::wayback_url(
-                    &url,
-                    timestamp,
-                    original,
-                    self.configuration.secure,
                 ))
-                .send()
-                .await?;
+            } else {
+                let response = self
+                    .underlying
+                    .get(Self::wayback_url(
+                        &url,
+                        timestamp,
+                        original,
+                        self.configuration.secure,
+                    ))
+                    .send()
+                    .await?;
 
-            match response.status() {
-                StatusCode::OK => Ok(Ok(Download {
-                    bytes: response.bytes().await?,
-                    redirects: vec![],
-                })),
-                StatusCode::NOT_FOUND => Ok(Err(FailedDownload::NotFound)),
-                StatusCode::FORBIDDEN => Ok(Err(FailedDownload::Forbidden)),
-                StatusCode::FOUND => match redirect_location(&response) {
-                    Some(location) => {
-                        let url_parts = location
-                            .parse::<UrlParts<'_>>()
-                            .map_err(|_| Error::UnexpectedRedirectUrl(location.to_string()))?;
+                match response.status() {
+                    StatusCode::OK => Ok(Ok(Download {
+                        bytes: response.bytes().await?,
+                        redirects: vec![],
+                    })),
+                    StatusCode::NOT_FOUND => Ok(Err(FailedDownload::NotFound)),
+                    StatusCode::FORBIDDEN => Ok(Err(FailedDownload::Forbidden)),
+                    StatusCode::FOUND => match redirect_location(&response) {
+                        Some(location) => {
+                            let url_parts = location.parse::<UrlParts<'_>>().map_err(|_| {
+                                Error::UnexpectedRedirect(Some(location.to_string()))
+                            })?;
 
-                        let redirect_timestamp = url_parts.timestamp;
+                            let redirect_timestamp = url_parts.timestamp;
 
-                        let mut result = self
-                            .download_once(
-                                url_parts.url.clone(),
-                                redirect_timestamp,
-                                original,
-                                depth + 1,
-                            )
-                            .await?;
+                            let mut result = self
+                                .download_once(
+                                    url_parts.url.clone(),
+                                    redirect_timestamp,
+                                    original,
+                                    depth + 1,
+                                )
+                                .await?;
 
-                        if let Ok(ref mut download) = result {
-                            // Check for redirect loops by seeing if this URL and timestamp are already in the chain.
-                            if download.redirects.iter().any(|redirect_url_parts| {
-                                redirect_url_parts.url == url_parts.url
-                                    && redirect_url_parts.timestamp == redirect_timestamp
-                            }) {
-                                return Err(Error::RedirectLoop);
+                            if let Ok(ref mut download) = result {
+                                // Check for redirect loops by seeing if this URL and timestamp are already in the chain.
+                                if download.redirects.iter().any(|redirect_url_parts| {
+                                    redirect_url_parts.url == url_parts.url
+                                        && redirect_url_parts.timestamp == redirect_timestamp
+                                }) {
+                                    return Err(Error::RedirectLoop);
+                                }
+
+                                // We will reverse these later.
+                                download.redirects.push(url_parts);
                             }
 
-                            // We will reverse these later.
-                            download.redirects.push(url_parts);
+                            Ok(result)
                         }
-
-                        Ok(result)
-                    }
-                    None => Err(Error::UnexpectedRedirect(None)),
-                },
-                other => Err(Error::UnexpectedStatus(other)),
+                        None => Err(Error::UnexpectedRedirect(None)),
+                    },
+                    other => Err(Error::UnexpectedStatus(other)),
+                }
             }
         }
         .boxed()
@@ -261,11 +260,11 @@ impl Client {
                 Some(location) => {
                     let info = location
                         .parse::<UrlParts<'_>>()
-                        .map_err(|_| Error::UnexpectedRedirectUrl(location.to_string()))?;
+                        .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
                     let mut guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes)?;
+                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes);
 
                     let mut valid_initial_content = true;
                     let mut valid_digest = true;
@@ -281,7 +280,8 @@ impl Client {
                             .bytes()
                             .await?;
                         let direct_digest =
-                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref())?;
+                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref());
+
                         valid_initial_content = false;
                         valid_digest = direct_digest == expected_digest;
 
@@ -294,7 +294,7 @@ impl Client {
 
                     let actual_info = actual_url
                         .parse::<UrlParts<'_>>()
-                        .map_err(|_| Error::UnexpectedRedirectUrl(actual_url))?;
+                        .map_err(|_| Error::UnexpectedRedirect(Some(actual_url)))?;
 
                     Ok(RedirectResolution {
                         url: actual_info.url.into(),
@@ -346,11 +346,11 @@ impl Client {
                 Some(location) => {
                     let info = location
                         .parse::<UrlParts<'_>>()
-                        .map_err(|_| Error::UnexpectedRedirectUrl(location.to_string()))?;
+                        .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
                     let mut guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes)?;
+                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes);
 
                     let (content, valid_digest) = if guess_digest == expected_digest {
                         (guess, true)
@@ -363,7 +363,8 @@ impl Client {
                             .bytes()
                             .await?;
                         let direct_digest =
-                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref())?;
+                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref());
+
                         (
                             std::str::from_utf8(&direct_bytes)?.to_string(),
                             direct_digest == expected_digest,
