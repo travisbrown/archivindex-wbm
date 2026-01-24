@@ -1,6 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-pub const STATUS_CODE_VALUES: [StatusCode; 20] = [
+pub const STATUS_CODE_VALUES: [StatusCode; 22] = [
     StatusCode::Empty,
     StatusCode::Ok,
     StatusCode::MovedPermanently,
@@ -21,6 +21,8 @@ pub const STATUS_CODE_VALUES: [StatusCode; 20] = [
     StatusCode::CloudflareUnknownError,
     StatusCode::CloudflareWebServerDown,
     StatusCode::CloudflareTimeout,
+    StatusCode::CloudflareSslHandshakeFailed,
+    StatusCode::CloudflareOriginDnsError,
 ];
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
@@ -81,6 +83,10 @@ pub enum StatusCode {
     CloudflareWebServerDown,
     #[serde(alias = "524")]
     CloudflareTimeout,
+    #[serde(alias = "525")]
+    CloudflareSslHandshakeFailed,
+    #[serde(alias = "530")]
+    CloudflareOriginDnsError,
 }
 
 impl StatusCode {
@@ -112,6 +118,8 @@ impl StatusCode {
             Self::CloudflareUnknownError => 520,
             Self::CloudflareWebServerDown => 521,
             Self::CloudflareTimeout => 524,
+            Self::CloudflareSslHandshakeFailed => 525,
+            Self::CloudflareOriginDnsError => 530,
         }
     }
 
@@ -137,6 +145,8 @@ impl StatusCode {
             520 => Ok(Self::CloudflareUnknownError),
             521 => Ok(Self::CloudflareWebServerDown),
             524 => Ok(Self::CloudflareTimeout),
+            525 => Ok(Self::CloudflareSslHandshakeFailed),
+            530 => Ok(Self::CloudflareOriginDnsError),
             _ => Err(Error::Unsupported),
         }
     }
@@ -164,6 +174,8 @@ impl StatusCode {
             Self::CloudflareUnknownError => "520",
             Self::CloudflareWebServerDown => "521",
             Self::CloudflareTimeout => "524",
+            Self::CloudflareSslHandshakeFailed => "525",
+            Self::CloudflareOriginDnsError => "530",
         }
     }
 }
@@ -199,6 +211,8 @@ impl FromStr for StatusCode {
             "520" => Ok(Self::CloudflareUnknownError),
             "521" => Ok(Self::CloudflareWebServerDown),
             "524" => Ok(Self::CloudflareTimeout),
+            "525" => Ok(Self::CloudflareSslHandshakeFailed),
+            "530" => Ok(Self::CloudflareOriginDnsError),
             _ => Err(Self::Err::Unsupported),
         }
     }
@@ -223,7 +237,9 @@ impl From<StatusCode> for http::status::StatusCode {
             StatusCode::InternalServerError
             | StatusCode::CloudflareUnknownError
             | StatusCode::CloudflareWebServerDown
-            | StatusCode::CloudflareTimeout => Self::INTERNAL_SERVER_ERROR,
+            | StatusCode::CloudflareTimeout
+            | StatusCode::CloudflareSslHandshakeFailed
+            | StatusCode::CloudflareOriginDnsError => Self::INTERNAL_SERVER_ERROR,
             StatusCode::BadGateway => Self::BAD_GATEWAY,
             StatusCode::ServiceUnavailable => Self::SERVICE_UNAVAILABLE,
             StatusCode::GatewayTimeout => Self::GATEWAY_TIMEOUT,
