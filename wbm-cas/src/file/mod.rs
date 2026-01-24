@@ -1,6 +1,6 @@
 use crate::SaveSummary;
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
-use prefix_file_tree::{Tree, scheme::encoding::Base32};
+use prefix_file_tree::{Tree, scheme::Case, scheme::encoding::Base32};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::path::Path;
@@ -41,7 +41,7 @@ impl<C> Store<C> {
         prefix_part_lengths: Vec<usize>,
         extension: Option<Option<String>>,
     ) -> Result<Tree<Scheme>, prefix_file_tree::builder::Error> {
-        let scheme = Base32::default();
+        let scheme = Base32::new(Case::Lower);
 
         let builder = Tree::builder(base)
             .with_prefix_part_lengths(prefix_part_lengths)
