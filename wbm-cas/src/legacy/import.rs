@@ -1,4 +1,4 @@
-use crate::digest::Sha1Digest;
+use archivindex_wbm::digest::Sha1Digest;
 use sha1::{Digest, Sha1};
 use std::fs::ReadDir;
 use std::io::{Read, Write};

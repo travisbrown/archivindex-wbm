@@ -523,7 +523,7 @@ pub enum Error {
     #[error("JSON error")]
     Json(#[from] serde_json::Error),
     #[error("WBM snapshot storage import error")]
-    WbmCas(#[from] archivindex_wbm::cas::import::Error),
+    WbmCas(#[from] archivindex_wbm_cas::legacy::import::Error),
     #[error("WXJ line parsing error")]
     WxjLine(#[from] archivindex_wxj::lines::Error),
     #[error("WXJ data format error")]

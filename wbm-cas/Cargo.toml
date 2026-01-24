@@ -13,8 +13,10 @@ zstd = ["dep:zstd"]
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 bytes = { workspace = true }
+flate2 = { workspace = true }
 chrono = { workspace = true }
 prefix-file-tree = { workspace = true }
+sha1 = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true, optional = true }
 

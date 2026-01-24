@@ -10,6 +10,7 @@ use crate::entry::Entry;
 
 pub mod entry;
 pub mod file;
+pub mod legacy;
 pub mod validation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

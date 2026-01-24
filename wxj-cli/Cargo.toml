@@ -8,6 +8,7 @@ license = { workspace = true }
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-cas = { path = "../wbm-cas/" }
 archivindex-wxj = { path = "../wxj/" }
 birdsite = { workspace = true }
 chrono = { workspace = true }
