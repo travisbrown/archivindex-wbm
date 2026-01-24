@@ -33,7 +33,8 @@ pub struct Item<'a> {
     pub mime_type: MimeType<'a>,
     pub status_code: StatusCode,
     pub digest: Digest<'a>,
-    pub length: Option<u32>,
+    /// In some cases the length may be negative, for unknown reasons.
+    pub length: Option<i64>,
 }
 
 // This is an internal representation that we need because of the way resumption keys are given.
@@ -173,11 +174,11 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
 
 // Simple internal function, so we don't care what Clippy says.
 #[allow(clippy::option_option)]
-fn parse_length(input: &str) -> Option<Option<u32>> {
+fn parse_length(input: &str) -> Option<Option<i64>> {
     if input == "-" {
         Some(None)
     } else {
-        input.parse::<u32>().ok().map(Some)
+        input.parse::<i64>().ok().map(Some)
     }
 }
 
