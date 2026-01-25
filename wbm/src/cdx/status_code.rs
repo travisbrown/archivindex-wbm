@@ -1,12 +1,13 @@
 use std::{fmt::Display, str::FromStr};
 
-pub const STATUS_CODE_VALUES: [StatusCode; 22] = [
+pub const STATUS_CODE_VALUES: [StatusCode; 23] = [
     StatusCode::Empty,
     StatusCode::Ok,
     StatusCode::MovedPermanently,
     StatusCode::Found,
     StatusCode::SeeOther,
-    StatusCode::TemporaryRedirest,
+    StatusCode::TemporaryRedirect,
+    StatusCode::PermanentRedirect,
     StatusCode::BadRequest,
     StatusCode::Unauthorized,
     StatusCode::Forbidden,
@@ -53,7 +54,9 @@ pub enum StatusCode {
     #[serde(alias = "303")]
     SeeOther,
     #[serde(alias = "307")]
-    TemporaryRedirest,
+    TemporaryRedirect,
+    #[serde(alias = "308")]
+    PermanentRedirect,
     #[serde(alias = "400")]
     BadRequest,
     #[serde(alias = "401")]
@@ -103,7 +106,8 @@ impl StatusCode {
             Self::MovedPermanently => 301,
             Self::Found => 302,
             Self::SeeOther => 303,
-            Self::TemporaryRedirest => 307,
+            Self::TemporaryRedirect => 307,
+            Self::PermanentRedirect => 308,
             Self::BadRequest => 400,
             Self::Unauthorized => 401,
             Self::Forbidden => 403,
@@ -130,7 +134,8 @@ impl StatusCode {
             301 => Ok(Self::MovedPermanently),
             302 => Ok(Self::Found),
             303 => Ok(Self::SeeOther),
-            307 => Ok(Self::TemporaryRedirest),
+            307 => Ok(Self::TemporaryRedirect),
+            308 => Ok(Self::PermanentRedirect),
             400 => Ok(Self::BadRequest),
             401 => Ok(Self::Unauthorized),
             403 => Ok(Self::Forbidden),
@@ -159,7 +164,8 @@ impl StatusCode {
             Self::MovedPermanently => "301",
             Self::Found => "302",
             Self::SeeOther => "303",
-            Self::TemporaryRedirest => "307",
+            Self::TemporaryRedirect => "307",
+            Self::PermanentRedirect => "308",
             Self::BadRequest => "400",
             Self::Unauthorized => "401",
             Self::Forbidden => "403",
@@ -196,7 +202,8 @@ impl FromStr for StatusCode {
             "301" => Ok(Self::MovedPermanently),
             "302" => Ok(Self::Found),
             "303" => Ok(Self::SeeOther),
-            "307" => Ok(Self::TemporaryRedirest),
+            "307" => Ok(Self::TemporaryRedirect),
+            "308" => Ok(Self::PermanentRedirect),
             "400" => Ok(Self::BadRequest),
             "401" => Ok(Self::Unauthorized),
             "403" => Ok(Self::Forbidden),
@@ -226,7 +233,8 @@ impl From<StatusCode> for http::status::StatusCode {
             StatusCode::MovedPermanently => Self::MOVED_PERMANENTLY,
             StatusCode::Found => Self::FOUND,
             StatusCode::SeeOther => Self::SEE_OTHER,
-            StatusCode::TemporaryRedirest => Self::TEMPORARY_REDIRECT,
+            StatusCode::TemporaryRedirect => Self::TEMPORARY_REDIRECT,
+            StatusCode::PermanentRedirect => Self::PERMANENT_REDIRECT,
             StatusCode::BadRequest => Self::BAD_REQUEST,
             StatusCode::Unauthorized => Self::UNAUTHORIZED,
             StatusCode::Forbidden => Self::FORBIDDEN,
