@@ -197,29 +197,3 @@ pub fn read_invalid_digests<P: AsRef<Path>>(
 
     Ok(())
 }
-
-pub fn data_canonical_url(
-    snapshot: &birdsite::model::wxj::data::TweetSnapshot<'_>,
-    use_x: bool,
-) -> Option<String> {
-    snapshot.lookup_user(snapshot.data.author_id).map(|user| {
-        format!(
-            "https://{}.com/{}/status/{}",
-            if use_x { "x" } else { "twitter" },
-            user.username,
-            snapshot.data.id
-        )
-    })
-}
-
-pub fn flat_canonical_url(
-    snapshot: &birdsite::model::wxj::flat::TweetSnapshot<'_>,
-    use_x: bool,
-) -> String {
-    format!(
-        "https://{}.com/{}/status/{}",
-        if use_x { "x" } else { "twitter" },
-        snapshot.user.screen_name,
-        snapshot.id
-    )
-}

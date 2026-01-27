@@ -143,6 +143,12 @@ impl<S, C: configuration::Configuration> Snapshot<'_, C, S> {
     }
 }
 
+impl<'a, C: configuration::Configuration> Snapshot<'a, C, C::S<'a>> {
+    pub fn infer_url(&self) -> Option<Cow<'_, str>> {
+        C::infer_url(&self.content)
+    }
+}
+
 impl<C> std::fmt::Display for Snapshot<'_, C, Cow<'_, str>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{\"{}\":\"{}\",", DIGEST_KEY, self.digest)?;
@@ -453,29 +459,11 @@ mod tests {
     use sha1::digest::core_api::CoreWrapper;
     use std::io::BufRead;
 
+    use crate::configuration::instances;
+
     use super::*;
 
-    struct WxjData;
-
-    impl configuration::Configuration for WxjData {
-        type S<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
-
-        fn default_closing_whitespace() -> &'static [char] {
-            &['\r', '\r', '\n']
-        }
-
-        fn infer_url<'a>(content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
-            content.lookup_user(content.data.author_id).map(|user| {
-                format!(
-                    "https://twitter.com/{}/status/{}",
-                    user.username, content.data.id
-                )
-                .into()
-            })
-        }
-    }
-
-    type WxjDataSnapshot<'a, S> = Snapshot<'a, WxjData, S>;
+    type WxjDataSnapshot<'a, S> = Snapshot<'a, instances::wxj::data::Configuration, S>;
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {

@@ -6,7 +6,7 @@ pub trait Configuration {
     type S<'a>;
 
     fn default_closing_whitespace() -> &'static [char];
-    fn infer_url<'a>(_content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
+    fn infer_url<'a>(_content: &Self::S<'a>) -> Option<Cow<'a, str>> {
         None
     }
 

@@ -1,23 +1,25 @@
 pub mod wts {
     use std::borrow::Cow;
 
+    pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+
     /// Configuration for Truth Social post snapshots.
     pub struct Configuration;
 
     impl crate::configuration::Configuration for Configuration {
-        type S<'a> = PostSnapshot<'a>;
+        type S<'a> = Content<'a>;
 
         fn default_closing_whitespace() -> &'static [char] {
             &['\r', '\r', '\n']
         }
 
-        fn infer_url<'a>(content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
+        fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
             Some(format!("https://truthsocial.com/api/v1/statuses/{}", content.id).into())
         }
     }
 
     #[derive(serde::Deserialize)]
-    pub struct PostSnapshot<'a> {
+    pub struct Content<'a> {
         id: Cow<'a, str>,
     }
 }
@@ -26,17 +28,19 @@ pub mod wxj {
     pub mod data {
         use std::borrow::Cow;
 
+        pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+
         /// Configuration for WXJ data format tweet snapshots.
         pub struct Configuration;
 
         impl crate::configuration::Configuration for Configuration {
-            type S<'a> = TweetSnapshot<'a>;
+            type S<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {
                 &['\r', '\r', '\n']
             }
 
-            fn infer_url<'a>(content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
+            fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
                 content.lookup_user(&content.data.author_id).map(|user| {
                     format!(
                         "https://twitter.com/{}/status/{}",
@@ -48,12 +52,12 @@ pub mod wxj {
         }
 
         #[derive(serde::Deserialize)]
-        pub struct TweetSnapshot<'a> {
+        pub struct Content<'a> {
             data: Data<'a>,
             includes: Includes<'a>,
         }
 
-        impl<'a> TweetSnapshot<'a> {
+        impl<'a> Content<'a> {
             fn lookup_user(&self, id: &'a str) -> Option<&User<'a>> {
                 self.includes.users.iter().find(|user| user.id == id)
             }
@@ -80,17 +84,19 @@ pub mod wxj {
     pub mod flat {
         use std::borrow::Cow;
 
+        pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+
         /// Configuration for WXJ flat format tweet snapshots.
         pub struct Configuration;
 
         impl crate::configuration::Configuration for Configuration {
-            type S<'a> = TweetSnapshot<'a>;
+            type S<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {
                 &['\r', '\r', '\n']
             }
 
-            fn infer_url<'a>(content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
+            fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
                 Some(
                     format!(
                         "https://twitter.com/{}/status/{}",
@@ -102,7 +108,7 @@ pub mod wxj {
         }
 
         #[derive(serde::Deserialize)]
-        pub struct TweetSnapshot<'a> {
+        pub struct Content<'a> {
             id: Cow<'a, str>,
             user: User<'a>,
         }
