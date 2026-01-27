@@ -31,6 +31,8 @@ pub mod configuration;
 pub mod io;
 pub mod validation;
 
+pub type GenericSnapshot<'a, S> = Snapshot<'a, (), S>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("I/O error")]

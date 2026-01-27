@@ -1,4 +1,4 @@
-use archivindex_wbm_json::Configuration;
+use archivindex_wbm_json::configuration::Configuration;
 use std::borrow::Cow;
 
 /// Configuration for WXJ data format (v2 API format).

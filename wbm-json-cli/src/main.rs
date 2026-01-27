@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
-    Snapshot,
+    GenericSnapshot, Snapshot,
     configuration::instances,
     io::{SnapshotReader, SnapshotWriter},
 };
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot = WxjDataSnapshot::<Cow<'_, str>>::parse(&line)?;
+                    let snapshot = GenericSnapshot::<Cow<'_, str>>::parse(&line)?;
 
                     if snapshot.digest <= last_digest {
                         log::error!("Out of order: {}", snapshot.digest);
