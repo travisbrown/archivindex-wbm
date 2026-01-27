@@ -519,18 +519,25 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_str_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
+    fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let snapshot_str = WxjDataSnapshot::parse(line)?;
-            let snapshot = serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
+            let snapshot_parse = WxjDataSnapshot::parse(line)?;
+            let snapshot_from_str =
+                serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
 
-            assert_eq!(snapshot_str.digest, snapshot.digest);
-            assert_eq!(snapshot_str.expected_digest, snapshot.expected_digest);
-            assert_eq!(snapshot_str.closing_whitespace, snapshot.closing_whitespace);
-            assert_eq!(snapshot_str.timestamp, snapshot.timestamp);
-            assert_eq!(snapshot_str.url, snapshot.url);
+            assert_eq!(snapshot_parse.digest, snapshot_from_str.digest);
+            assert_eq!(
+                snapshot_parse.expected_digest,
+                snapshot_from_str.expected_digest
+            );
+            assert_eq!(
+                snapshot_parse.closing_whitespace,
+                snapshot_from_str.closing_whitespace
+            );
+            assert_eq!(snapshot_parse.timestamp, snapshot_from_str.timestamp);
+            assert_eq!(snapshot_parse.url, snapshot_from_str.url);
         }
 
         Ok(())
