@@ -3,7 +3,8 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
-    Configuration, Snapshot,
+    Snapshot,
+    configuration::instances,
     io::{SnapshotReader, SnapshotWriter},
 };
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
@@ -17,15 +18,14 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 mod cdx;
-mod configuration;
 mod snapshot;
 
-type WxjDataSnapshot<'a, S> = Snapshot<'a, configuration::WxjDataConfig, S>;
-type WxjFlatSnapshot<'a, S> = Snapshot<'a, configuration::WxjFlatConfig, S>;
-type WxjDataSnapshotReader<R> = SnapshotReader<R, configuration::WxjDataConfig>;
-type WxjFlatSnapshotReader<R> = SnapshotReader<R, configuration::WxjFlatConfig>;
-type WxjDataSnapshotWriter<W> = SnapshotWriter<W, configuration::WxjDataConfig>;
-type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, configuration::WxjFlatConfig>;
+type WxjDataSnapshot<'a, S> = Snapshot<'a, instances::wxj::data::Configuration, S>;
+type WxjFlatSnapshot<'a, S> = Snapshot<'a, instances::wxj::flat::Configuration, S>;
+type WxjDataSnapshotReader<R> = SnapshotReader<R, instances::wxj::data::Configuration>;
+type WxjFlatSnapshotReader<R> = SnapshotReader<R, instances::wxj::flat::Configuration>;
+type WxjDataSnapshotWriter<W> = SnapshotWriter<W, instances::wxj::data::Configuration>;
+type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, instances::wxj::flat::Configuration>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -484,43 +484,6 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
-        Command::UserTweets { input, id } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-            let mut writer = csv::Writer::from_writer(std::io::stdout());
-
-            for line in reader.lines() {
-                let line = line?;
-
-                let snapshot =
-                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
-
-                if let Some(tweets) = &snapshot.content.includes.tweets {
-                    let url = snapshot
-                        .url
-                        .clone()
-                        .or_else(|| configuration::WxjDataConfig::infer_url(&snapshot.content));
-
-                    let user_tweets = tweets
-                        .iter()
-                        .filter(|tweet| tweet.author_id == id)
-                        .collect::<Vec<_>>();
-
-                    for tweet in user_tweets {
-                        writer.write_record([
-                            tweet.id.to_string(),
-                            tweet.author_id.to_string(),
-                            url.as_ref()
-                                .map(std::string::ToString::to_string)
-                                .unwrap_or_default(),
-                            tweet.created_at.to_string(),
-                            tweet.text.replace('\n', " "),
-                        ])?;
-                    }
-                }
-            }
-
-            writer.flush()?;
-        }
     }
 
     Ok(())
@@ -612,11 +575,5 @@ enum Command {
         photos_only: bool,
         #[clap(long)]
         id: Vec<u64>,
-    },
-    UserTweets {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        id: u64,
     },
 }

@@ -1,4 +1,4 @@
-use crate::{Configuration, Snapshot};
+use crate::{Snapshot, configuration::Configuration};
 use archivindex_wbm::digest::Sha1Digest;
 use std::borrow::Cow;
 use std::fs::File;

@@ -27,6 +27,7 @@ use std::fmt::Write;
 use std::marker::PhantomData;
 
 mod closing_whitespace;
+pub mod configuration;
 pub mod io;
 pub mod validation;
 
@@ -38,29 +39,6 @@ pub enum Error {
     InvalidLine,
     #[error("Invalid closing whitespace")]
     InvalidClosingWhitespace(String),
-}
-
-pub trait Configuration {
-    type S<'a>;
-
-    fn default_closing_whitespace() -> &'static [char];
-    fn infer_url<'a>(_content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    /// Return closing whitespace for the given line, if it is not the default.
-    #[must_use]
-    fn non_default_closing_whitespace(line: &str) -> Option<Vec<char>> {
-        closing_whitespace::check_closing_whitespace(Self::default_closing_whitespace(), line)
-    }
-}
-
-impl Configuration for () {
-    type S<'a> = serde_json::Value;
-
-    fn default_closing_whitespace() -> &'static [char] {
-        &[]
-    }
 }
 
 /// Metadata and content for a Wayback Machine snapshot.
@@ -155,7 +133,7 @@ impl<'a, C, S> Snapshot<'a, C, S> {
     }
 }
 
-impl<S, C: Configuration> Snapshot<'_, C, S> {
+impl<S, C: configuration::Configuration> Snapshot<'_, C, S> {
     pub fn closing_whitespace(&self) -> &[char] {
         self.closing_whitespace
             .as_deref()
@@ -215,7 +193,7 @@ const URL_KEY_LEN: usize = URL_KEY.len();
 const CONTENT_KEY: &str = "content";
 const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 
-impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
+impl<'a, C: configuration::Configuration> Snapshot<'a, C, Cow<'a, str>> {
     /// Create a minimal snapshot instance without CDX metadata.
     ///
     /// An empty value indicates that the content contained internal line breaks.
@@ -477,7 +455,7 @@ mod tests {
 
     struct WxjData;
 
-    impl Configuration for WxjData {
+    impl configuration::Configuration for WxjData {
         type S<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
 
         fn default_closing_whitespace() -> &'static [char] {
