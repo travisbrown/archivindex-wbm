@@ -6,6 +6,7 @@ members = [
     "wbm-downloader",
     "wbm-downloader-cli",
     "wbm-invalid-log",
+    "wbm-json",
     "wxj",
     "wxj-cli",
 ]
