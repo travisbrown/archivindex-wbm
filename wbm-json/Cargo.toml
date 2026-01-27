@@ -19,5 +19,4 @@ thiserror = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
-birdsite = { workspace = true }
 quickcheck = { workspace = true }

@@ -512,32 +512,25 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let _snapshot = serde_json::from_str::<
-                WxjDataSnapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
-            >(line)?;
+            let _snapshot = serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
         }
 
         Ok(())
     }
 
     #[test]
-    fn snapshot_line_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
+    fn snapshot_str_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let snapshot_line = WxjDataSnapshot::parse(line)?;
-            let snapshot = serde_json::from_str::<
-                WxjDataSnapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
-            >(line)?;
+            let snapshot_str = WxjDataSnapshot::parse(line)?;
+            let snapshot = serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
 
-            assert_eq!(snapshot_line.digest, snapshot.digest);
-            assert_eq!(snapshot_line.expected_digest, snapshot.expected_digest);
-            assert_eq!(
-                snapshot_line.closing_whitespace,
-                snapshot.closing_whitespace
-            );
-            assert_eq!(snapshot_line.timestamp, snapshot.timestamp);
-            assert_eq!(snapshot_line.url, snapshot.url);
+            assert_eq!(snapshot_str.digest, snapshot.digest);
+            assert_eq!(snapshot_str.expected_digest, snapshot.expected_digest);
+            assert_eq!(snapshot_str.closing_whitespace, snapshot.closing_whitespace);
+            assert_eq!(snapshot_str.timestamp, snapshot.timestamp);
+            assert_eq!(snapshot_str.url, snapshot.url);
         }
 
         Ok(())
