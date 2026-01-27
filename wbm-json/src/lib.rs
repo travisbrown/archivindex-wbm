@@ -27,8 +27,13 @@ use std::fmt::Write;
 use std::marker::PhantomData;
 
 mod closing_whitespace;
+pub mod configuration;
 pub mod io;
+pub mod process;
+pub mod stream;
 pub mod validation;
+
+pub type GenericSnapshot<'a, C> = Snapshot<'a, (), C>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -38,21 +43,6 @@ pub enum Error {
     InvalidLine,
     #[error("Invalid closing whitespace")]
     InvalidClosingWhitespace(String),
-}
-
-pub trait Configuration {
-    type S<'a>;
-
-    fn default_closing_whitespace() -> &'static [char];
-    fn infer_url<'a>(_content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    /// Return closing whitespace for the given line, if it is not the default.
-    #[must_use]
-    fn non_default_closing_whitespace(line: &str) -> Option<Vec<char>> {
-        closing_whitespace::check_closing_whitespace(Self::default_closing_whitespace(), line)
-    }
 }
 
 /// Metadata and content for a Wayback Machine snapshot.
@@ -88,7 +78,7 @@ pub trait Configuration {
 /// `timestamp` field present, and any value with a non-null `timestamp` field must have accurate
 /// `expected_digest` and `url` fields.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct Snapshot<'a, C, S> {
+pub struct Snapshot<'a, S, C> {
     pub digest: Sha1Digest,
     /// The digest indicated in the CDX entry for this snapshot.
     ///
@@ -122,19 +112,19 @@ pub struct Snapshot<'a, C, S> {
     /// infer the URL from the content, and that the inferred URL value exactly matches the CDX
     /// entry (including case).
     pub url: Option<Cow<'a, str>>,
-    pub content: S,
+    pub content: C,
     #[serde(skip_serializing, default)]
-    configuration: PhantomData<C>,
+    configuration: PhantomData<S>,
 }
 
-impl<'a, C, S> Snapshot<'a, C, S> {
+impl<'a, S, C> Snapshot<'a, S, C> {
     /// Indicates that the value is fully-processed.
     pub const fn has_metadata(&self) -> bool {
         self.timestamp.is_some()
     }
 
     /// Transform the content.
-    pub fn map_content<T, F: FnOnce(S) -> T>(self, f: F) -> Snapshot<'a, C, T> {
+    pub fn into_transformed<T, F: FnOnce(C) -> T>(self, f: F) -> Snapshot<'a, S, T> {
         Snapshot {
             digest: self.digest,
             expected_digest: self.expected_digest,
@@ -145,17 +135,49 @@ impl<'a, C, S> Snapshot<'a, C, S> {
             configuration: self.configuration,
         }
     }
-}
 
-impl<S, C: Configuration> Snapshot<'_, C, S> {
-    pub fn closing_whitespace(&self) -> &[char] {
-        self.closing_whitespace
-            .as_deref()
-            .unwrap_or_else(|| C::default_closing_whitespace())
+    pub fn into_reconfigured<T>(self) -> Snapshot<'a, T, C> {
+        Snapshot {
+            digest: self.digest,
+            expected_digest: self.expected_digest,
+            closing_whitespace: self.closing_whitespace,
+            timestamp: self.timestamp,
+            url: self.url,
+            content: self.content,
+            configuration: PhantomData,
+        }
     }
 }
 
-impl<C> std::fmt::Display for Snapshot<'_, C, Cow<'_, str>> {
+impl<C, S: configuration::Configuration> Snapshot<'_, S, C> {
+    pub fn closing_whitespace(&self) -> &[char] {
+        self.closing_whitespace
+            .as_deref()
+            .unwrap_or_else(|| S::default_closing_whitespace())
+    }
+}
+
+impl<'a, S: configuration::Configuration> Snapshot<'a, S, S::Content<'a>> {
+    pub fn infer_url(&self) -> Option<Cow<'_, str>> {
+        S::infer_url(&self.content)
+    }
+}
+
+impl<'a, S: configuration::Configuration> Snapshot<'a, S, Cow<'a, str>>
+where
+    for<'c> S::Content<'c>: serde::Deserialize<'c>,
+{
+    fn deserialize_json_and_infer_url(&'a self) -> Result<Option<Cow<'a, str>>, serde_json::Error> {
+        let content = serde_json::from_str(&self.content)?;
+
+        Ok(S::infer_url(&content))
+    }
+}
+
+impl<'a, S: configuration::Configuration> std::fmt::Display for Snapshot<'a, S, Cow<'a, str>>
+where
+    for<'c> S::Content<'c>: serde::Deserialize<'c>,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{\"{}\":\"{}\",", DIGEST_KEY, self.digest)?;
 
@@ -163,7 +185,9 @@ impl<C> std::fmt::Display for Snapshot<'_, C, Cow<'_, str>> {
             write!(f, "\"{EXPECTED_DIGEST_KEY}\":\"{expected_digest}\",")?;
         }
 
-        if let Some(closing_whitespace) = &self.closing_whitespace {
+        if let Some(closing_whitespace) = &self.closing_whitespace
+            && closing_whitespace != S::default_closing_whitespace()
+        {
             write!(f, "\"{CLOSING_WHITESPACE_KEY}\":\"")?;
 
             for whitespace in closing_whitespace {
@@ -183,7 +207,11 @@ impl<C> std::fmt::Display for Snapshot<'_, C, Cow<'_, str>> {
             write!(f, "\"{TIMESTAMP_KEY}\":\"{timestamp}\",")?;
         }
 
-        if let Some(url) = &self.url {
+        let inferred_url = self.deserialize_json_and_infer_url().ok().flatten();
+
+        if let Some(url) = &self.url
+            && Some(url) != inferred_url.as_ref()
+        {
             write!(f, "\"{URL_KEY}\":\"{url}\",")?;
         }
 
@@ -207,23 +235,23 @@ const URL_KEY_LEN: usize = URL_KEY.len();
 const CONTENT_KEY: &str = "content";
 const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 
-impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
+impl<'a, S: configuration::Configuration> Snapshot<'a, S, Cow<'a, str>> {
     /// Create a minimal snapshot instance without CDX metadata.
     ///
     /// An empty value indicates that the content contained internal line breaks.
     #[must_use]
     pub fn new(digest: Sha1Digest, content: &'a str) -> Option<Self> {
+        let closing_whitespace = S::non_default_closing_whitespace(content);
+
+        let content = &content[0..content.len()
+            - closing_whitespace
+                .as_ref()
+                .map_or_else(|| S::default_closing_whitespace().len(), std::vec::Vec::len)];
+
         if content
             .chars()
             .all(|candidate| candidate != '\r' && candidate != '\n')
         {
-            let closing_whitespace = C::non_default_closing_whitespace(content);
-
-            let content = &content[0..content.len()
-                - closing_whitespace
-                    .as_ref()
-                    .map_or_else(|| C::default_closing_whitespace().len(), std::vec::Vec::len)];
-
             Some(Self {
                 digest,
                 expected_digest: None,
@@ -362,12 +390,9 @@ impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
         }
     }
 
-    pub fn validate(&self, hasher: &mut sha1::Sha1) -> Result<(), Sha1Digest> {
-        hasher.update(self.content.as_bytes());
-
+    fn closing_whitespace_bytes(&self) -> impl Iterator<Item = u8> {
         // We simply ignore any unexpected whitespace characters here.
-        let bytes = self
-            .closing_whitespace()
+        self.closing_whitespace()
             .iter()
             .filter_map(|whitespace_char| match whitespace_char {
                 '\r' => Some(b'\r'),
@@ -376,9 +401,19 @@ impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
                 '\t' => Some(b'\t'),
                 _ => None,
             })
-            .collect::<Vec<_>>();
+    }
 
-        hasher.update(&bytes);
+    pub fn content_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.content.as_bytes().to_vec();
+
+        bytes.extend(self.closing_whitespace_bytes());
+
+        bytes
+    }
+
+    pub fn validate(&self, hasher: &mut sha1::Sha1) -> Result<(), Sha1Digest> {
+        hasher.update(self.content.as_bytes());
+        hasher.update(self.closing_whitespace_bytes().collect::<Vec<_>>());
 
         let digest = Sha1Digest(hasher.finalize_reset().into());
 
@@ -398,7 +433,7 @@ impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
 
         for (i, line) in lines.enumerate() {
             let line = line?;
-            match Snapshot::<'_, C, Cow<'_, str>>::parse(&line) {
+            match Snapshot::<'_, S, Cow<'_, str>>::parse(&line) {
                 Ok(snapshot) => match snapshot.validate(&mut hasher) {
                     Ok(()) => {
                         if snapshot.digest > last_digest {
@@ -424,10 +459,10 @@ impl<'a, C: Configuration> Snapshot<'a, C, Cow<'a, str>> {
     }
 }
 
-impl<C: 'static, S: bounded_static::ToBoundedStatic> bounded_static::ToBoundedStatic
-    for Snapshot<'_, C, S>
+impl<S: 'static, C: bounded_static::ToBoundedStatic> bounded_static::ToBoundedStatic
+    for Snapshot<'_, S, C>
 {
-    type Static = Snapshot<'static, C, S::Static>;
+    type Static = Snapshot<'static, S, C::Static>;
 
     fn to_static(&self) -> Self::Static {
         Self::Static {
@@ -442,10 +477,10 @@ impl<C: 'static, S: bounded_static::ToBoundedStatic> bounded_static::ToBoundedSt
     }
 }
 
-impl<C: 'static, S: bounded_static::IntoBoundedStatic> bounded_static::IntoBoundedStatic
-    for Snapshot<'_, C, S>
+impl<S: 'static, C: bounded_static::IntoBoundedStatic> bounded_static::IntoBoundedStatic
+    for Snapshot<'_, S, C>
 {
-    type Static = Snapshot<'static, C, S::Static>;
+    type Static = Snapshot<'static, S, C::Static>;
 
     fn into_static(self) -> Self::Static {
         Self::Static {
@@ -465,35 +500,17 @@ mod tests {
     use sha1::digest::core_api::CoreWrapper;
     use std::io::BufRead;
 
+    use crate::configuration::instances::wxj::data::{WxjDataConfiguration, WxjDataSnapshot};
+
     use super::*;
 
-    struct WxjData;
-
-    impl Configuration for WxjData {
-        type S<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
-
-        fn default_closing_whitespace() -> &'static [char] {
-            &['\r', '\r', '\n']
-        }
-
-        fn infer_url<'a>(content: &'a Self::S<'a>) -> Option<Cow<'a, str>> {
-            content.lookup_user(content.data.author_id).map(|user| {
-                format!(
-                    "https://twitter.com/{}/status/{}",
-                    user.username, content.data.id
-                )
-                .into()
-            })
-        }
-    }
-
-    type WxjDataSnapshot<'a, S> = Snapshot<'a, WxjData, S>;
+    type WxjDataRawSnapshot<'a, C> = Snapshot<'a, WxjDataConfiguration, C>;
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
         let line = include_str!("../../examples/wbm/wxj/inferred-url-01.json").trim();
 
-        let parsed = WxjDataSnapshot::parse(line)?;
+        let parsed = WxjDataRawSnapshot::parse(line)?;
 
         assert_eq!(line, parsed.to_string());
 
@@ -507,7 +524,7 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let parsed = WxjDataSnapshot::parse(line)?;
+            let parsed = WxjDataRawSnapshot::parse(line)?;
 
             assert_eq!(line, parsed.to_string());
 
@@ -524,7 +541,7 @@ mod tests {
         )))
         .lines();
 
-        let validation = WxjDataSnapshot::validate_lines(lines)?;
+        let validation = WxjDataRawSnapshot::validate_lines(lines)?;
 
         assert!(validation.is_successful());
 
@@ -536,32 +553,31 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let _snapshot = serde_json::from_str::<
-                WxjDataSnapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
-            >(line)?;
+            let _snapshot = serde_json::from_str::<WxjDataSnapshot<'_>>(line)?;
         }
 
         Ok(())
     }
 
     #[test]
-    fn snapshot_line_snapshot_match() -> Result<(), Box<dyn std::error::Error>> {
+    fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let snapshot_line = WxjDataSnapshot::parse(line)?;
-            let snapshot = serde_json::from_str::<
-                WxjDataSnapshot<'_, birdsite::model::wxj::data::TweetSnapshot<'_>>,
-            >(line)?;
+            let snapshot_parse = WxjDataRawSnapshot::parse(line)?;
+            let snapshot_from_str = serde_json::from_str::<WxjDataSnapshot<'_>>(line)?;
 
-            assert_eq!(snapshot_line.digest, snapshot.digest);
-            assert_eq!(snapshot_line.expected_digest, snapshot.expected_digest);
+            assert_eq!(snapshot_parse.digest, snapshot_from_str.digest);
             assert_eq!(
-                snapshot_line.closing_whitespace,
-                snapshot.closing_whitespace
+                snapshot_parse.expected_digest,
+                snapshot_from_str.expected_digest
             );
-            assert_eq!(snapshot_line.timestamp, snapshot.timestamp);
-            assert_eq!(snapshot_line.url, snapshot.url);
+            assert_eq!(
+                snapshot_parse.closing_whitespace,
+                snapshot_from_str.closing_whitespace
+            );
+            assert_eq!(snapshot_parse.timestamp, snapshot_from_str.timestamp);
+            assert_eq!(snapshot_parse.url, snapshot_from_str.url);
         }
 
         Ok(())
@@ -574,23 +590,23 @@ mod tests {
         let digest = Sha1Digest::MIN;
 
         // Empty string
-        let snapshot = WxjDataSnapshot::new(digest, "").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "").unwrap();
         assert_eq!(snapshot.content, "");
 
         // 1 byte
-        let snapshot = WxjDataSnapshot::new(digest, "a").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "a").unwrap();
         assert_eq!(snapshot.content, "a");
 
         // 2 bytes
-        let snapshot = WxjDataSnapshot::new(digest, "ab").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "ab").unwrap();
         assert_eq!(snapshot.content, "ab");
 
         // 3 bytes
-        let snapshot = WxjDataSnapshot::new(digest, "abc").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "abc").unwrap();
         assert_eq!(snapshot.content, "abc");
 
         // Exactly 4 bytes (boundary case)
-        let snapshot = WxjDataSnapshot::new(digest, "abcd").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "abcd").unwrap();
         assert_eq!(snapshot.content, "abcd");
     }
 
@@ -601,7 +617,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com/no/closing/quote"#;
 
         // Should return an error, not panic or loop infinitely
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 
@@ -611,7 +627,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com"#;
 
         // Should return an error, not panic
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 
@@ -621,7 +637,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":""#;
 
         // Should return an error, not panic
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 }

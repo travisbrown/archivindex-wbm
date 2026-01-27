@@ -16,6 +16,10 @@ async fn main() -> Result<(), Error> {
 
             let validation_result = store.validate()?;
 
+            for error in &validation_result.errors {
+                log::warn!("{},{}", error.expected, error.actual);
+            }
+
             println!("Valid: {}", validation_result.valid_count);
             println!("Invalid: {}", validation_result.errors.len());
         }

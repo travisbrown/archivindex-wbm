@@ -2,18 +2,33 @@
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wxj::lines::{Snapshot, SnapshotLine};
-use birdsite::model::wxj::{TweetSnapshot, data, flat};
+use archivindex_wbm_json::{
+    Snapshot,
+    configuration::instances::wxj::{
+        WxjGenericConfiguration, data::WxjDataConfiguration, flat::WxjFlatConfiguration,
+    },
+    io::{read::SnapshotReader, write::SnapshotWriter},
+};
+use birdsite::model::wxj::{TweetSnapshot, data, flat, metadata::tweet};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
 use sha1::digest::core_api::CoreWrapper;
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
 mod cdx;
 mod snapshot;
+
+type WxjGenericSnapshot<'a, S> = Snapshot<'a, WxjGenericConfiguration, S>;
+type WxjDataSnapshot<'a, S> = Snapshot<'a, WxjDataConfiguration, S>;
+type WxjFlatSnapshot<'a, S> = Snapshot<'a, WxjFlatConfiguration, S>;
+type WxjDataSnapshotReader<R> = SnapshotReader<R, WxjDataConfiguration>;
+type WxjFlatSnapshotReader<R> = SnapshotReader<R, WxjFlatConfiguration>;
+type WxjDataSnapshotWriter<W> = SnapshotWriter<W, WxjDataConfiguration>;
+type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, WxjFlatConfiguration>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -34,18 +49,18 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot_line = SnapshotLine::parse(&line)?;
+                    let snapshot = WxjGenericSnapshot::<Cow<'_, str>>::parse(&line)?;
 
-                    if snapshot_line.digest <= last_digest {
-                        log::error!("Out of order: {}", snapshot_line.digest);
+                    if snapshot.digest <= last_digest {
+                        log::error!("Out of order: {}", snapshot.digest);
                     }
 
-                    last_digest = snapshot_line.digest;
+                    last_digest = snapshot.digest;
 
-                    if let Err(found_digest) = snapshot_line.validate(&mut hasher) {
+                    if let Err(found_digest) = snapshot.validate(&mut hasher) {
                         log::error!(
                             "Invalid: expected {}, found {}",
-                            snapshot_line.digest,
+                            snapshot.digest,
                             found_digest
                         );
                     } else {
@@ -55,6 +70,13 @@ async fn main() -> Result<(), Error> {
             }
 
             log::info!("{count} valid");
+        }
+        Command::StreamingValidate { input, n } => {
+            let validation =
+                archivindex_wbm_json::stream::validate_zstd::<_, WxjGenericConfiguration>(input, n)
+                    .await?;
+
+            println!("{validation:?}");
         }
         Command::Incomplete { input } => {
             let mut count = 0;
@@ -66,19 +88,19 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot_line = SnapshotLine::parse(&line)?;
+                    let snapshot = WxjDataSnapshot::<Cow<'_, str>>::parse(&line)?;
 
-                    if snapshot_line.timestamp.is_none() {
+                    if snapshot.timestamp.is_none() {
                         count += 1;
 
-                        println!("{}", snapshot_line.digest);
+                        println!("{}", snapshot.digest);
                     }
                 }
             }
 
             log::info!("{count} incomplete");
         }
-        Command::Merge {
+        Command::MergeOld {
             input,
             snapshots,
             output,
@@ -104,23 +126,16 @@ async fn main() -> Result<(), Error> {
             log::info!("Prepared {} files", paths.len());
 
             let mut flat_input =
-                archivindex_wxj::lines::io::SnapshotReader::open(input.join(FLAT_FILE_NAME))?
-                    .peekable();
+                WxjFlatSnapshotReader::open(input.join(FLAT_FILE_NAME))?.peekable();
             let mut data_input =
-                archivindex_wxj::lines::io::SnapshotReader::open(input.join(DATA_FILE_NAME))?
-                    .peekable();
+                WxjDataSnapshotReader::open(input.join(DATA_FILE_NAME))?.peekable();
 
             std::fs::create_dir_all(&output)?;
 
-            let mut flat_output = archivindex_wxj::lines::io::SnapshotWriter::create(
-                output.join(FLAT_FILE_NAME),
-                compression,
-            )?;
-
-            let mut data_output = archivindex_wxj::lines::io::SnapshotWriter::create(
-                output.join(DATA_FILE_NAME),
-                compression,
-            )?;
+            let mut flat_output =
+                WxjFlatSnapshotWriter::create(output.join(FLAT_FILE_NAME), compression)?;
+            let mut data_output =
+                WxjDataSnapshotWriter::create(output.join(DATA_FILE_NAME), compression)?;
 
             for (digest, path, _) in paths {
                 let mut flat_next = flat_input
@@ -203,17 +218,21 @@ async fn main() -> Result<(), Error> {
             for line in reader.lines() {
                 let line = line?;
 
-                let snapshot = if flat {
-                    serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?
-                        .map_content(TweetSnapshot::Flat)
+                let content = if flat {
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
+                    TweetSnapshot::Flat(snapshot.content)
                 } else {
-                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?
-                        .map_content(TweetSnapshot::Data)
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
+                    TweetSnapshot::Data(snapshot.content)
                 };
 
                 let metadata =
                     birdsite::model::wxj::metadata::tweet::TweetMetadata::from_tweet_snapshot(
-                        &snapshot.content,
+                        &content,
                     )?;
 
                 for tweet in metadata {
@@ -228,8 +247,9 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 let withheld = if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     snapshot
                         .content
@@ -248,8 +268,9 @@ async fn main() -> Result<(), Error> {
                         .into_iter()
                         .collect::<Vec<_>>()
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     snapshot
                         .content
@@ -286,8 +307,9 @@ async fn main() -> Result<(), Error> {
                 let mut output = vec![];
 
                 if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
                     let user = snapshot.content.user;
 
                     if let Some(withheld) = user.withheld_in_countries
@@ -318,8 +340,9 @@ async fn main() -> Result<(), Error> {
                         output.push(format!("{},{},P", user.id, user.screen_name));
                     }
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     for user in snapshot.content.includes.users {
                         if let Some(withheld) = user.withheld
@@ -370,8 +393,9 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         for user in snapshot.content.users() {
                             let entry = observations
@@ -382,8 +406,9 @@ async fn main() -> Result<(), Error> {
                         }
                     }
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         for user in snapshot.content.includes.users {
                             let entry = observations
@@ -431,7 +456,205 @@ async fn main() -> Result<(), Error> {
                 );
             }
         }
+        Command::UserCooccurrence { ids, input } => {
+            let target_ids = BufReader::new(File::open(ids)?)
+                .lines()
+                .map(|result| {
+                    result.and_then(|line| line.parse::<u64>().map_err(std::io::Error::other))
+                })
+                .collect::<Result<BTreeSet<_>, _>>()?;
 
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+
+            for line in reader.lines() {
+                let line = line?;
+
+                let snapshot =
+                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+
+                let author_id = snapshot.content.data.author_id;
+
+                if target_ids.contains(&author_id)
+                    || snapshot
+                        .content
+                        .includes
+                        .users
+                        .iter()
+                        .any(|user| target_ids.contains(&user.id))
+                {
+                    let users = snapshot
+                        .content
+                        .includes
+                        .users
+                        .iter()
+                        .map(|user| (user.id, user.username.clone()));
+
+                    let user_list = users
+                        .map(|(id, screen_name)| format!("{}:{}", id, screen_name))
+                        .collect::<Vec<_>>();
+
+                    println!(
+                        "{},{},{}",
+                        author_id,
+                        snapshot.content.data.id,
+                        user_list.join(";")
+                    );
+                }
+            }
+        }
+        Command::Replies { id, input } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+
+            for line in reader.lines() {
+                let line = line?;
+
+                let snapshot =
+                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+
+                let author_id = snapshot.content.data.author_id;
+
+                if author_id == id {
+                    let status_id = snapshot.content.data.id;
+                    let replied_to_user_id = snapshot.content.data.in_reply_to_user_id;
+                    let replied_to_status_id = snapshot
+                        .content
+                        .data
+                        .replied_to_id()
+                        .map_err(std::io::Error::other)?;
+
+                    let replied_to_user_screen_name = replied_to_user_id.and_then(|id| {
+                        snapshot
+                            .content
+                            .includes
+                            .users
+                            .iter()
+                            .find(|user| user.id == id)
+                            .map(|user| user.username.to_string())
+                    });
+
+                    let replied_to_status = replied_to_status_id.and_then(|id| {
+                        snapshot
+                            .content
+                            .includes
+                            .tweets
+                            .as_ref()
+                            .and_then(|tweets| tweets.iter().find(|tweet| tweet.id == id))
+                    });
+
+                    if replied_to_status.as_ref().map(|tweet| tweet.author_id) != replied_to_user_id
+                    {
+                        log::error!("Unexpected user ID for reply to tweet {status_id}");
+                    }
+
+                    println!(
+                        "{status_id},{},{},{}",
+                        replied_to_status
+                            .map(|tweet| tweet.id.to_string())
+                            .unwrap_or_default(),
+                        replied_to_user_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_default(),
+                        replied_to_user_screen_name.unwrap_or_default(),
+                    );
+                }
+            }
+        }
+        Command::DataInfo { data } => {
+            let mut data_info = archivindex_wbm_json::process::data::Data::default();
+
+            let read = data_info.load_data_directories(&data)?;
+
+            log::info!("{read} files, {} distinct digests", data_info.len());
+
+            let duplicates = data_info.duplicates().collect::<Vec<_>>();
+
+            log::info!(
+                "{} digests with duplicates ({} total files)",
+                duplicates.len(),
+                duplicates
+                    .iter()
+                    .map(|(_, paths)| paths.len())
+                    .sum::<usize>()
+            );
+
+            let invalid_duplicates = data_info.validate_duplicates()?;
+
+            for invalid_duplicate in invalid_duplicates {
+                log::warn!(
+                    "Invalid digest: {}",
+                    invalid_duplicate.as_os_str().to_string_lossy()
+                );
+            }
+        }
+        Command::Resolve {
+            data,
+            cdx,
+            invalid_db,
+            output,
+            warnings,
+            missing,
+        } => {
+            let mut data_info = archivindex_wbm_json::process::data::Data::default();
+            let read = data_info.load_data_directories(&data)?;
+
+            log::info!("{read} data files, {} distinct digests", data_info.len());
+
+            for invalid_duplicate in data_info.validate_duplicates()? {
+                log::warn!(
+                    "Invalid digest: {}",
+                    invalid_duplicate.as_os_str().to_string_lossy()
+                );
+            }
+
+            let mut resolver = data_info.resolver();
+
+            let database = archivindex_wbm_invalid_log::Database::open(&invalid_db)
+                .map_err(archivindex_wbm_json::process::resolver::Error::from)?;
+            let invalid_count = resolver.read_invalid_digests(&database)?;
+            log::info!("Read {invalid_count} invalid digest entries");
+
+            let cdx_count = resolver.resolve(&cdx, true)?;
+            log::info!("Resolved across {cdx_count} CDX files");
+
+            let mut csv_writer = csv::Writer::from_path(&output)?;
+            let mut warnings_file = std::io::BufWriter::new(File::create(&warnings)?);
+
+            let mut resolved_count = 0u64;
+            let mut warning_count = 0u64;
+
+            for (resolution, resolution_warnings) in resolver.found() {
+                csv_writer.serialize(&resolution)?;
+                resolved_count += 1;
+
+                if !resolution_warnings.is_empty() {
+                    use std::io::Write;
+                    serde_json::to_writer(&mut warnings_file, &resolution_warnings)?;
+                    warnings_file.write_all(b"\n")?;
+                    warning_count += 1;
+                }
+            }
+
+            csv_writer.flush()?;
+            drop(csv_writer);
+
+            warnings_file.flush()?;
+
+            let mut missing_file = std::io::BufWriter::new(File::create(&missing)?);
+            let mut missing_count = 0u64;
+
+            for digest in resolver.missing() {
+                writeln!(missing_file, "{digest}")?;
+                missing_count += 1;
+            }
+
+            missing_file.flush()?;
+            log::info!("{missing_count} missing digests");
+
+            log::info!(
+                "{resolved_count} resolved, \
+                 {warning_count} warnings"
+            );
+        }
         Command::MediaUrls {
             input,
             flat,
@@ -446,8 +669,9 @@ async fn main() -> Result<(), Error> {
 
                 if flat {
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(media) = snapshot.content.includes.media
                         && snapshot
                             .content
@@ -468,42 +692,60 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
-        Command::UserTweets { input, id } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-            let mut writer = csv::Writer::from_writer(std::io::stdout());
+        Command::Compact {
+            data,
+            cdx,
+            invalid_db,
+            flat_output,
+            data_output,
+            summary_output,
+            compression,
+        } => {
+            let summary = archivindex_wbm_json::process::compact::compact::<
+                WxjFlatConfiguration,
+                WxjDataConfiguration,
+                _,
+                _,
+            >(
+                &data,
+                &cdx,
+                &invalid_db,
+                &flat_output,
+                &data_output,
+                compression,
+            )?;
 
-            for line in reader.lines() {
-                let line = line?;
+            log::info!(
+                "{} resolved, {} unresolved, {} skipped, {} warnings",
+                summary.resolved_count,
+                summary.unresolved_count,
+                summary.skipped_count,
+                summary.warnings.len(),
+            );
 
-                let snapshot =
-                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+            std::fs::write(summary_output, serde_json::json!(summary).to_string())?;
+        }
+        Command::Merge {
+            first,
+            second,
+            output,
+            compression,
+        } => {
+            let summary = archivindex_wbm_json::process::merge::merge_zst(
+                first,
+                second,
+                output,
+                compression,
+            )?;
 
-                if let Some(tweets) = &snapshot.content.includes.tweets {
-                    let url = snapshot
-                        .url
-                        .clone()
-                        .or_else(|| snapshot.inferred_url(false).map(std::convert::Into::into));
+            log::info!(
+                "First: {}, second: {}, both: {}",
+                summary.counts.first,
+                summary.counts.second,
+                summary.counts.both
+            );
 
-                    let user_tweets = tweets
-                        .iter()
-                        .filter(|tweet| tweet.author_id == id)
-                        .collect::<Vec<_>>();
-
-                    for tweet in user_tweets {
-                        writer.write_record([
-                            tweet.id.to_string(),
-                            tweet.author_id.to_string(),
-                            url.as_ref()
-                                .map(std::string::ToString::to_string)
-                                .unwrap_or_default(),
-                            tweet.created_at.to_string(),
-                            tweet.text.replace('\n', " "),
-                        ])?;
-                    }
-                }
-            }
-
-            writer.flush()?;
+            println!("{}", serde_json::json!(summary));
         }
     }
 
@@ -524,10 +766,20 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("WBM snapshot storage import error")]
     WbmCas(#[from] archivindex_wbm_cas::legacy::import::Error),
-    #[error("WXJ line parsing error")]
-    WxjLine(#[from] archivindex_wxj::lines::Error),
+    #[error("WBM JSON parsing error")]
+    WbmJson(#[from] archivindex_wbm_json::Error),
+    #[error("WBM JSON write error")]
+    WbmJsonWrite(#[from] archivindex_wbm_json::io::write::Error),
     #[error("WXJ data format error")]
     BirdsiteWxjDataFormat(#[from] birdsite::model::wxj::data::FormatError),
+    #[error("Metadata resolution error")]
+    Resolver(#[from] archivindex_wbm_json::process::resolver::Error),
+    #[error("Data loading error")]
+    Data(#[from] archivindex_wbm_json::process::data::Error),
+    #[error("Compact error")]
+    Compact(#[from] archivindex_wbm_json::process::compact::Error),
+    #[error("Merge error")]
+    Merge(#[from] archivindex_wbm_json::process::merge::Error),
 }
 
 #[derive(Debug, Parser)]
@@ -545,11 +797,17 @@ enum Command {
         #[clap(long)]
         input: Vec<PathBuf>,
     },
+    StreamingValidate {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        n: usize,
+    },
     Incomplete {
         #[clap(long)]
         input: Vec<PathBuf>,
     },
-    Merge {
+    MergeOld {
         #[clap(long)]
         input: PathBuf,
         #[clap(long)]
@@ -585,6 +843,18 @@ enum Command {
         #[clap(long)]
         range_only: bool,
     },
+    UserCooccurrence {
+        #[clap(long)]
+        ids: PathBuf,
+        #[clap(long)]
+        input: PathBuf,
+    },
+    Replies {
+        #[clap(long)]
+        id: u64,
+        #[clap(long)]
+        input: PathBuf,
+    },
     MediaUrls {
         #[clap(long)]
         input: PathBuf,
@@ -595,10 +865,65 @@ enum Command {
         #[clap(long)]
         id: Vec<u64>,
     },
-    UserTweets {
+    /// Resolve snapshot digests to CDX metadata (timestamp + URL).
+    Resolve {
+        /// Directories containing data files (keyed by SHA-1 digest).
         #[clap(long)]
-        input: PathBuf,
+        data: Vec<PathBuf>,
+        /// Directories containing CDX JSON files.
         #[clap(long)]
-        id: u64,
+        cdx: Vec<PathBuf>,
+        /// Path to the invalid digest `SQLite` database.
+        #[clap(long)]
+        invalid_db: PathBuf,
+        /// Output path for resolved CSV data.
+        #[clap(long)]
+        output: PathBuf,
+        /// Output path for ND-JSON warnings.
+        #[clap(long)]
+        warnings: PathBuf,
+        /// Output path for missing (unresolved) digests, one per line.
+        #[clap(long)]
+        missing: PathBuf,
+    },
+    DataInfo {
+        /// Directories containing data files (keyed by SHA-1 digest).
+        #[clap(long)]
+        data: Vec<PathBuf>,
+    },
+    /// Load data files, resolve CDX metadata, and write enriched snapshots to a
+    /// ZST-compressed ND-JSON file.
+    Compact {
+        /// Directories containing data files (keyed by SHA-1 digest).
+        #[clap(long)]
+        data: Vec<PathBuf>,
+        /// Directories containing CDX JSON files.
+        #[clap(long)]
+        cdx: Vec<PathBuf>,
+        /// Path to the invalid digest SQLite database.
+        #[clap(long)]
+        invalid_db: PathBuf,
+        /// Output path for the ZST-compressed ND-JSON file for the flat format.
+        #[clap(long)]
+        flat_output: PathBuf,
+        /// Output path for the ZST-compressed ND-JSON file for the data format.
+        #[clap(long)]
+        data_output: PathBuf,
+        #[clap(long)]
+        summary_output: PathBuf,
+        /// ZSTD compression level.
+        #[clap(long, default_value = "14")]
+        compression: u16,
+    },
+    Merge {
+        #[clap(long)]
+        first: PathBuf,
+        #[clap(long)]
+        second: PathBuf,
+        #[clap(long)]
+        output: PathBuf,
+        /// Zstd compression level.
+        #[clap(long, default_value = "14")]
+        compression: u16,
     },
 }

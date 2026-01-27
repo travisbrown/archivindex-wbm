@@ -1,0 +1,476 @@
+use archivindex_wbm::digest::Sha1Digest;
+use std::cmp::Ordering;
+use std::io::{BufRead, BufReader, Write};
+use std::iter::Peekable;
+use std::path::Path;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum File {
+    First,
+    Second,
+}
+
+/// Indicates which input file produced a merged line.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Source {
+    File(File),
+    Both,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+pub struct MergeSummary {
+    pub counts: SourceCounts,
+    pub both: Vec<Sha1Digest>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
+pub struct SourceCounts {
+    pub first: usize,
+    pub second: usize,
+    pub both: usize,
+}
+
+impl SourceCounts {
+    pub fn add(&mut self, source: Source) {
+        match source {
+            Source::File(File::First) => self.first += 1,
+            Source::File(File::Second) => self.second += 1,
+            Source::Both => self.both += 1,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error")]
+    Io(#[from] std::io::Error),
+    #[error("I/O error while reading")]
+    ReadIo {
+        file: File,
+        line_number: usize,
+        digest: Sha1Digest,
+        error: std::io::Error,
+    },
+    #[error("Out-of-order error")]
+    Order {
+        file: File,
+        line_number: usize,
+        digest: Sha1Digest,
+    },
+    #[error("Collision (same digest, different values)")]
+    Collision {
+        first_line_number: usize,
+        second_line_number: usize,
+        digest: Sha1Digest,
+    },
+    #[error("Invalid line error")]
+    InvalidLine {
+        file: File,
+        line_number: usize,
+        content: String,
+    },
+}
+
+/// Byte offset where the Base32 digest begins in a serialized snapshot line.
+///
+/// Every line starts with `{"digest":"` (11 bytes), followed by 32 Base32
+/// characters.
+const DIGEST_OFFSET: usize = 11;
+
+/// Length of a Base32-encoded SHA-1 digest (20 bytes -> 32 chars).
+const DIGEST_LEN: usize = 32;
+
+/// Extract the [`Sha1Digest`] from a raw ND-JSON snapshot line.
+///
+/// The digest occupies bytes `[11..43]` in the fixed-order serialization.
+fn extract_digest(line: &str) -> Option<Sha1Digest> {
+    line.get(DIGEST_OFFSET..DIGEST_OFFSET + DIGEST_LEN)?
+        .parse()
+        .ok()
+}
+
+pub fn merge_zst<P: AsRef<Path>>(
+    first: P,
+    second: P,
+    output: P,
+    compression_level: u16,
+) -> Result<MergeSummary, Error> {
+    let reader_first = BufReader::new(zstd::Decoder::new(std::fs::File::open(first)?)?);
+    let reader_second = BufReader::new(zstd::Decoder::new(std::fs::File::open(second)?)?);
+
+    let mut writer = zstd::Encoder::new(std::fs::File::create(output)?, compression_level as i32)?;
+
+    let mut summary = MergeSummary::default();
+
+    for result in merge(reader_first.lines(), reader_second.lines()) {
+        let (digest, source, line) = result?;
+
+        summary.counts.add(source);
+
+        if source == Source::Both {
+            summary.both.push(digest);
+        }
+
+        writeln!(writer, "{line}")?;
+    }
+
+    writer.finish()?;
+
+    Ok(summary)
+}
+
+/// Two-way sorted merge of ND-JSON snapshot line iterators.
+pub fn merge<
+    F: Iterator<Item = Result<String, std::io::Error>>,
+    S: Iterator<Item = Result<String, std::io::Error>>,
+>(
+    first: F,
+    second: S,
+) -> impl Iterator<Item = Result<(Sha1Digest, Source, String), Error>> {
+    MergeIter::new(first, second)
+}
+
+/// Result of peeking at a stream's next item.
+#[derive(Clone, Copy)]
+enum Peek {
+    /// Stream exhausted.
+    Done,
+    /// Next item has a valid digest.
+    Ready(Sha1Digest),
+    /// Next item is an I/O error or has an invalid digest.
+    Bad,
+}
+
+struct FileState<I: Iterator> {
+    file: File,
+    iterator: Peekable<I>,
+    line_number: usize,
+    last_digest: Sha1Digest,
+}
+
+impl<I: Iterator> FileState<I> {
+    fn new(file: File, iterator: I) -> Self {
+        Self {
+            file,
+            iterator: iterator.peekable(),
+            line_number: 0,
+            last_digest: Sha1Digest::MIN,
+        }
+    }
+}
+
+impl<I: Iterator<Item = Result<String, std::io::Error>>> FileState<I> {
+    fn peek(&mut self) -> Peek {
+        match self.iterator.peek() {
+            None => Peek::Done,
+            Some(Err(_)) => Peek::Bad,
+            Some(Ok(line)) => match extract_digest(line) {
+                Some(d) => Peek::Ready(d),
+                None => Peek::Bad,
+            },
+        }
+    }
+
+    /// Consume the next valid line, checking sort order.
+    ///
+    /// Caller must have seen `Peek::Ready` before calling.
+    /// Returns `Error::Order` if the digest is not strictly greater than
+    /// the previous one from this stream.
+    fn take_ok(&mut self) -> Result<String, Error> {
+        self.line_number += 1;
+        let line = self.iterator.next().unwrap().unwrap();
+        let digest = extract_digest(&line).unwrap();
+
+        if digest <= self.last_digest {
+            Err(Error::Order {
+                file: self.file,
+                line_number: self.line_number,
+                digest,
+            })
+        } else {
+            self.last_digest = digest;
+            Ok(line)
+        }
+    }
+
+    /// Consume a bad item.
+    ///
+    /// Caller must have seen `Peek::Bad` before calling.
+    fn take_error(&mut self) -> Error {
+        self.line_number += 1;
+
+        match self.iterator.next().unwrap() {
+            Ok(line) => Error::InvalidLine {
+                file: self.file,
+                line_number: self.line_number,
+                content: line,
+            },
+            Err(error) => Error::ReadIo {
+                file: self.file,
+                line_number: self.line_number,
+                digest: self.last_digest,
+                error,
+            },
+        }
+    }
+}
+
+struct MergeIter<F: Iterator, S: Iterator> {
+    first: FileState<F>,
+    second: FileState<S>,
+}
+
+impl<F: Iterator, S: Iterator> MergeIter<F, S> {
+    fn new(first: F, second: S) -> Self {
+        Self {
+            first: FileState::new(File::First, first),
+            second: FileState::new(File::Second, second),
+        }
+    }
+}
+
+impl<
+    F: Iterator<Item = Result<String, std::io::Error>>,
+    S: Iterator<Item = Result<String, std::io::Error>>,
+> Iterator for MergeIter<F, S>
+{
+    type Item = Result<(Sha1Digest, Source, String), Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_first = self.first.peek();
+        let next_second = self.second.peek();
+
+        match (next_first, next_second) {
+            (Peek::Done, Peek::Done) => None,
+            (Peek::Ready(first_digest), Peek::Ready(second_digest)) => {
+                match first_digest.cmp(&second_digest) {
+                    Ordering::Less => Some(
+                        self.first
+                            .take_ok()
+                            .map(|line| (first_digest, Source::File(File::First), line)),
+                    ),
+                    Ordering::Greater => Some(
+                        self.second
+                            .take_ok()
+                            .map(|line| (second_digest, Source::File(File::Second), line)),
+                    ),
+                    Ordering::Equal => Some(
+                        self.first
+                            .take_ok()
+                            .and_then(|first_line| {
+                                self.second
+                                    .take_ok()
+                                    .map(|second_line| (first_line, second_line))
+                            })
+                            .and_then(|(first_line, second_line)| {
+                                if first_line != second_line {
+                                    Err(Error::Collision {
+                                        first_line_number: self.first.line_number,
+                                        second_line_number: self.second.line_number,
+                                        digest: first_digest,
+                                    })
+                                } else {
+                                    Ok((first_digest, Source::Both, first_line))
+                                }
+                            }),
+                    ),
+                }
+            }
+            (Peek::Ready(first_digest), _) => Some(
+                self.first
+                    .take_ok()
+                    .map(|line| (first_digest, Source::File(File::First), line)),
+            ),
+            (_, Peek::Ready(second_digest)) => Some(
+                self.second
+                    .take_ok()
+                    .map(|line| (second_digest, Source::File(File::Second), line)),
+            ),
+            (Peek::Bad, _) => Some(Err(self.first.take_error())),
+            (_, Peek::Bad) => Some(Err(self.second.take_error())),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build an infallible line iterator from digest strings and
+    /// dummy content.
+    fn lines_from_digests<'a>(
+        digests: &'a [&'a str],
+    ) -> impl Iterator<Item = Result<String, std::io::Error>> + 'a {
+        digests
+            .iter()
+            .map(|d| Ok(format!(r#"{{"digest":"{d}","content":{{"dummy":true}}}}"#)))
+    }
+
+    #[test]
+    fn merge_disjoint() {
+        let a_digests = ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"];
+        let b_digests = ["ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72"];
+
+        let results: Vec<_> = merge(
+            lines_from_digests(&a_digests),
+            lines_from_digests(&b_digests),
+        )
+        .collect();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].as_ref().unwrap().1, Source::File(File::First));
+        assert_eq!(results[1].as_ref().unwrap().1, Source::File(File::Second));
+    }
+
+    #[test]
+    fn merge_identical_digests() {
+        let digests = ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"];
+
+        let results: Vec<_> =
+            merge(lines_from_digests(&digests), lines_from_digests(&digests)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].as_ref().unwrap().1, Source::Both);
+    }
+
+    #[test]
+    fn merge_one_empty() {
+        let a_digests = [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+        ];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> =
+            merge(lines_from_digests(&a_digests), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|r| r.as_ref().unwrap().1 == Source::File(File::First))
+        );
+    }
+
+    #[test]
+    fn merge_both_empty() {
+        let empty: [&str; 0] = [];
+        let results: Vec<_> =
+            merge(lines_from_digests(&empty), lines_from_digests(&empty)).collect();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn merge_io_error_in_a() {
+        let a = vec![Err(std::io::Error::new(std::io::ErrorKind::Other, "test"))];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(a.into_iter(), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(Error::ReadIo { .. })));
+    }
+
+    #[test]
+    fn merge_invalid_line() {
+        let a = vec![Ok("not a valid snapshot line".to_owned())];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(a.into_iter(), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(Error::InvalidLine { .. })));
+    }
+
+    #[test]
+    fn merge_out_of_order_first() {
+        let a = [
+            "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM54",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+        ];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(lines_from_digests(&a), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(matches!(
+            results[1],
+            Err(Error::Order {
+                file: File::First,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn merge_out_of_order_second() {
+        let empty: [&str; 0] = [];
+        let b = [
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+        ];
+
+        let results: Vec<_> = merge(lines_from_digests(&empty), lines_from_digests(&b)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(matches!(
+            results[1],
+            Err(Error::Order {
+                file: File::Second,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn merge_interleaved() {
+        let a = [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+            "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM54",
+        ];
+        let b = [
+            "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDQ4",
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+        ];
+
+        let results: Vec<_> = merge(lines_from_digests(&a), lines_from_digests(&b))
+            .map(|r| r.unwrap().1)
+            .collect();
+
+        assert_eq!(
+            results,
+            [
+                Source::File(File::First),
+                Source::File(File::Second),
+                Source::File(File::First),
+                Source::File(File::Second)
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_collision() {
+        let digest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2";
+        let a = vec![Ok(format!(
+            r#"{{"digest":"{digest}","content":{{"value":1}}}}"#
+        ))];
+        let b = vec![Ok(format!(
+            r#"{{"digest":"{digest}","content":{{"value":2}}}}"#
+        ))];
+
+        let results: Vec<_> = merge(a.into_iter(), b.into_iter()).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            results[0],
+            Err(Error::Collision {
+                first_line_number: 1,
+                second_line_number: 1,
+                ..
+            })
+        ));
+    }
+}

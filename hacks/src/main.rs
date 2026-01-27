@@ -7,18 +7,25 @@ use archivindex_wbm::{
     surt::Surt,
 };
 use archivindex_wbm_downloader::DownloadResult;
-use archivindex_wxj::lines::{Snapshot, SnapshotLine};
-use birdsite::model::wxj::{data, flat};
+use archivindex_wbm_json::{
+    GenericSnapshot, Snapshot,
+    configuration::instances::wxj::{data::WxjDataSnapshot, flat::WxjFlatSnapshot},
+};
+use birdsite::model::wxj::data;
 use bounded_static::IntoBoundedStatic;
 use chrono::DateTime;
 use cli_helpers::prelude::*;
 use futures::stream::StreamExt;
 use itertools::Itertools;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+mod configuration;
 mod wxj;
+
+type BirdsiteWxjDataSnapshot<'a, C> = Snapshot<'a, configuration::WxjDataConfig, C>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -33,36 +40,38 @@ async fn main() -> Result<(), Error> {
         } => {
             let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
-            for (i, line) in lines.enumerate() {
+            for (i, result) in lines.enumerate() {
                 let line_number = i + 1;
-                let line = line?;
+                let line = result?;
 
-                let snapshot_line = SnapshotLine::parse(&line)?;
+                let (digest, has_metadata, inferred_url, provided_url) = if flat {
+                    let snapshot = serde_json::from_str::<WxjFlatSnapshot<'_>>(&line)
+                        .map_err(|error| Error::JsonLine(error, line_number))?;
 
-                if snapshot_line.url.is_none()
-                    && (include_timestamped || snapshot_line.timestamp.is_none())
-                {
-                    let url = if flat {
-                        Some(wxj::flat_canonical_url(
-                            &serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)
-                                .map_err(|error| Error::JsonLine(error, line_number))?
-                                .content,
-                            false,
-                        ))
+                    (
+                        snapshot.digest,
+                        snapshot.has_metadata(),
+                        snapshot.infer_url().into_static(),
+                        snapshot.url,
+                    )
+                } else {
+                    let snapshot = serde_json::from_str::<WxjDataSnapshot<'_>>(&line)
+                        .map_err(|error| Error::JsonLine(error, line_number))?;
+
+                    (
+                        snapshot.digest,
+                        snapshot.has_metadata(),
+                        snapshot.infer_url().into_static(),
+                        snapshot.url,
+                    )
+                };
+
+                if provided_url.is_none() && (include_timestamped || !has_metadata) {
+                    if let Some(url) = inferred_url {
+                        println!("{},{}", digest, url);
                     } else {
-                        wxj::data_canonical_url(
-                            &serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)
-                                .map_err(|error| Error::JsonLine(error, line_number))?
-                                .content,
-                            false,
-                        )
-                    };
-
-                    if let Some(url) = url {
-                        println!("{},{}", snapshot_line.digest, url);
-                    } else {
-                        println!("{},", snapshot_line.digest);
-                        log::error!("No canonical URL: {}", snapshot_line.digest);
+                        println!("{},", digest);
+                        log::error!("No canonical URL: {}", digest);
                     }
                 }
             }
@@ -101,18 +110,22 @@ async fn main() -> Result<(), Error> {
             for line in lines {
                 let line = line?;
 
-                let mut snapshot_line = SnapshotLine::parse(&line)?;
+                let mut snapshot_line = GenericSnapshot::parse(&line)?;
                 let new_line = match digest_metadata.get(&snapshot_line.digest) {
                     Some(metadata) => {
+                        let replacement_digest =
+                            metadata.expected_digest.map(|d| Cow::Owned(d.to_string()));
+
                         if let Some((previous, replacement)) = snapshot_line
                             .expected_digest
-                            .zip(metadata.expected_digest)
+                            .as_ref()
+                            .zip(replacement_digest.as_ref())
                             .filter(|(previous, replacement)| previous != replacement)
                         {
                             log::warn!("Replacing expected digest: {previous}, {replacement}");
                         }
 
-                        snapshot_line.expected_digest = metadata.expected_digest;
+                        snapshot_line.expected_digest = replacement_digest;
 
                         if let Some(previous) = snapshot_line
                             .timestamp
@@ -148,11 +161,11 @@ async fn main() -> Result<(), Error> {
             let validation = if input.as_os_str().to_string_lossy().ends_with("zst") {
                 let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
-                archivindex_wxj::lines::SnapshotLine::validate_lines(lines)
+                GenericSnapshot::validate_lines(lines)
             } else {
                 let lines = BufReader::new(File::open(input)?).lines();
 
-                archivindex_wxj::lines::SnapshotLine::validate_lines(lines)
+                GenericSnapshot::validate_lines(lines)
             }?;
 
             println!("Successful: {}", validation.valid_count);
@@ -210,8 +223,9 @@ async fn main() -> Result<(), Error> {
 
             for line in lines {
                 let line = line?;
-                let mut snapshot =
-                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                let mut snapshot = serde_json::from_str::<
+                    BirdsiteWxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                >(&line)?;
 
                 if let Some(mut tweets) = snapshot.content.includes.tweets.take() {
                     tweets.retain(|tweet| tweet.author_id == id);
@@ -225,7 +239,7 @@ async fn main() -> Result<(), Error> {
                                     .url
                                     .as_ref()
                                     .map(std::string::ToString::to_string)
-                                    .or_else(|| wxj::data_canonical_url(&snapshot.content, false)),
+                                    .or_else(|| snapshot.infer_url().map(|url| url.to_string())),
                             )
                     {
                         found.extend(tweets.into_iter().map(|tweet| {
@@ -354,8 +368,8 @@ pub enum Error {
     JsonLine(serde_json::Error, usize),
     #[error("SURT error")]
     Surt(#[from] archivindex_wbm::surt::Error),
-    #[error("WXJ lines error")]
-    WxjLines(#[from] archivindex_wxj::lines::Error),
+    #[error("WBM JSON error")]
+    WbmJson(#[from] archivindex_wbm_json::Error),
     #[error("WXJ hacking error")]
     Wxj(#[from] wxj::Error),
     #[error("WBM downloader error")]
