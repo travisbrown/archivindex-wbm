@@ -2,18 +2,30 @@
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wxj::lines::{Snapshot, SnapshotLine};
+use archivindex_wbm_json::{
+    Configuration, Snapshot,
+    io::{SnapshotReader, SnapshotWriter},
+};
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
 use sha1::digest::core_api::CoreWrapper;
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 mod cdx;
+mod configuration;
 mod snapshot;
+
+type WxjDataSnapshot<'a, S> = Snapshot<'a, configuration::WxjDataConfig, S>;
+type WxjFlatSnapshot<'a, S> = Snapshot<'a, configuration::WxjFlatConfig, S>;
+type WxjDataSnapshotReader<R> = SnapshotReader<R, configuration::WxjDataConfig>;
+type WxjFlatSnapshotReader<R> = SnapshotReader<R, configuration::WxjFlatConfig>;
+type WxjDataSnapshotWriter<W> = SnapshotWriter<W, configuration::WxjDataConfig>;
+type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, configuration::WxjFlatConfig>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -34,18 +46,18 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot_line = SnapshotLine::parse(&line)?;
+                    let snapshot = WxjDataSnapshot::<Cow<'_, str>>::parse(&line)?;
 
-                    if snapshot_line.digest <= last_digest {
-                        log::error!("Out of order: {}", snapshot_line.digest);
+                    if snapshot.digest <= last_digest {
+                        log::error!("Out of order: {}", snapshot.digest);
                     }
 
-                    last_digest = snapshot_line.digest;
+                    last_digest = snapshot.digest;
 
-                    if let Err(found_digest) = snapshot_line.validate(&mut hasher) {
+                    if let Err(found_digest) = snapshot.validate(&mut hasher) {
                         log::error!(
                             "Invalid: expected {}, found {}",
-                            snapshot_line.digest,
+                            snapshot.digest,
                             found_digest
                         );
                     } else {
@@ -66,12 +78,12 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot_line = SnapshotLine::parse(&line)?;
+                    let snapshot = WxjDataSnapshot::<Cow<'_, str>>::parse(&line)?;
 
-                    if snapshot_line.timestamp.is_none() {
+                    if snapshot.timestamp.is_none() {
                         count += 1;
 
-                        println!("{}", snapshot_line.digest);
+                        println!("{}", snapshot.digest);
                     }
                 }
             }
@@ -104,23 +116,16 @@ async fn main() -> Result<(), Error> {
             log::info!("Prepared {} files", paths.len());
 
             let mut flat_input =
-                archivindex_wxj::lines::io::SnapshotReader::open(input.join(FLAT_FILE_NAME))?
-                    .peekable();
+                WxjFlatSnapshotReader::open(input.join(FLAT_FILE_NAME))?.peekable();
             let mut data_input =
-                archivindex_wxj::lines::io::SnapshotReader::open(input.join(DATA_FILE_NAME))?
-                    .peekable();
+                WxjDataSnapshotReader::open(input.join(DATA_FILE_NAME))?.peekable();
 
             std::fs::create_dir_all(&output)?;
 
-            let mut flat_output = archivindex_wxj::lines::io::SnapshotWriter::create(
-                output.join(FLAT_FILE_NAME),
-                compression,
-            )?;
-
-            let mut data_output = archivindex_wxj::lines::io::SnapshotWriter::create(
-                output.join(DATA_FILE_NAME),
-                compression,
-            )?;
+            let mut flat_output =
+                WxjFlatSnapshotWriter::create(output.join(FLAT_FILE_NAME), compression)?;
+            let mut data_output =
+                WxjDataSnapshotWriter::create(output.join(DATA_FILE_NAME), compression)?;
 
             for (digest, path, _) in paths {
                 let mut flat_next = flat_input
@@ -203,17 +208,21 @@ async fn main() -> Result<(), Error> {
             for line in reader.lines() {
                 let line = line?;
 
-                let snapshot = if flat {
-                    serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?
-                        .map_content(TweetSnapshot::Flat)
+                let content = if flat {
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
+                    TweetSnapshot::Flat(snapshot.content)
                 } else {
-                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?
-                        .map_content(TweetSnapshot::Data)
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
+                    TweetSnapshot::Data(snapshot.content)
                 };
 
                 let metadata =
                     birdsite::model::wxj::metadata::tweet::TweetMetadata::from_tweet_snapshot(
-                        &snapshot.content,
+                        &content,
                     )?;
 
                 for tweet in metadata {
@@ -228,8 +237,9 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 let withheld = if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     snapshot
                         .content
@@ -248,8 +258,9 @@ async fn main() -> Result<(), Error> {
                         .into_iter()
                         .collect::<Vec<_>>()
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     snapshot
                         .content
@@ -286,8 +297,9 @@ async fn main() -> Result<(), Error> {
                 let mut output = vec![];
 
                 if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
                     let user = snapshot.content.user;
 
                     if let Some(withheld) = user.withheld_in_countries
@@ -318,8 +330,9 @@ async fn main() -> Result<(), Error> {
                         output.push(format!("{},{},P", user.id, user.screen_name));
                     }
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
 
                     for user in snapshot.content.includes.users {
                         if let Some(withheld) = user.withheld
@@ -370,8 +383,9 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 if flat {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, flat::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         for user in snapshot.content.users() {
                             let entry = observations
@@ -382,8 +396,9 @@ async fn main() -> Result<(), Error> {
                         }
                     }
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
                         for user in snapshot.content.includes.users {
                             let entry = observations
@@ -446,8 +461,9 @@ async fn main() -> Result<(), Error> {
 
                 if flat {
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    let snapshot = serde_json::from_str::<
+                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                    >(&line)?;
                     if let Some(media) = snapshot.content.includes.media
                         && snapshot
                             .content
@@ -476,13 +492,13 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 let snapshot =
-                    serde_json::from_str::<Snapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
 
                 if let Some(tweets) = &snapshot.content.includes.tweets {
                     let url = snapshot
                         .url
                         .clone()
-                        .or_else(|| snapshot.inferred_url(false).map(std::convert::Into::into));
+                        .or_else(|| configuration::WxjDataConfig::infer_url(&snapshot.content));
 
                     let user_tweets = tweets
                         .iter()
@@ -524,8 +540,10 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("WBM snapshot storage import error")]
     WbmCas(#[from] archivindex_wbm_cas::legacy::import::Error),
-    #[error("WXJ line parsing error")]
-    WxjLine(#[from] archivindex_wxj::lines::Error),
+    #[error("WBM JSON parsing error")]
+    WbmJson(#[from] archivindex_wbm_json::Error),
+    #[error("WBM JSON write error")]
+    WbmJsonWrite(#[from] archivindex_wbm_json::io::WriteError),
     #[error("WXJ data format error")]
     BirdsiteWxjDataFormat(#[from] birdsite::model::wxj::data::FormatError),
 }

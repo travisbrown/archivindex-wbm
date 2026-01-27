@@ -55,6 +55,14 @@ pub trait Configuration {
     }
 }
 
+impl Configuration for () {
+    type S<'a> = serde_json::Value;
+
+    fn default_closing_whitespace() -> &'static [char] {
+        &[]
+    }
+}
+
 /// Metadata and content for a Wayback Machine snapshot.
 ///
 /// The representation is JSON with some additional guarantees. The first guarantee is that the

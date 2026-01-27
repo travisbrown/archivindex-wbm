@@ -9,7 +9,7 @@ license = { workspace = true }
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../wbm-cas/" }
-archivindex-wxj = { path = "../wxj/" }
+archivindex-wbm-json = { path = "../wbm-json/" }
 birdsite = { workspace = true }
 chrono = { workspace = true }
 cli-helpers = { workspace = true }
