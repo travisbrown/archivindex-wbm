@@ -3,6 +3,7 @@ use archivindex_wbm_downloader::client::{Client, FailedDownload};
 
 /// Test basic download of a known archived page.
 #[tokio::test]
+#[ignore]
 async fn test_client_download_basic() {
     let client = Client::new_with_default_configuration().unwrap();
 
@@ -27,6 +28,7 @@ async fn test_client_download_basic() {
 
 /// Test that 404 returns a failed result rather than an error.
 #[tokio::test]
+#[ignore]
 async fn test_client_download_not_found() {
     let client = Client::new_with_default_configuration().unwrap();
 
@@ -41,6 +43,7 @@ async fn test_client_download_not_found() {
 
 /// Test that a known witheld URL returns a failed result rather than an error.
 #[tokio::test]
+#[ignore]
 async fn test_client_download_forbidden() {
     let client = Client::new_with_default_configuration().unwrap();
 

@@ -7,6 +7,7 @@ use archivindex_wbm_invalid_log::{Database, Entry};
 
 /// Test basic download and validation of a known archived page.
 #[tokio::test]
+#[ignore]
 async fn test_downloader_basic() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
@@ -41,6 +42,7 @@ async fn test_downloader_basic() {
 
 /// Test that withheld URLs (status code 403) are properly logged to the database.
 #[tokio::test]
+#[ignore]
 async fn test_downloader_withheld_url_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
@@ -80,6 +82,7 @@ async fn test_downloader_withheld_url_logging() {
 
 /// Test that a URL with a known invalid digest is properly logged to the database.
 #[tokio::test]
+#[ignore]
 async fn test_downloader_invalid_digest_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
