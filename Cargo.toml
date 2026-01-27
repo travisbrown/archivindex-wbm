@@ -7,7 +7,7 @@ members = [
     "wbm-downloader-cli",
     "wbm-invalid-log",
     "wbm-json",
-    "wxj-cli",
+    "wbm-json-cli",
 ]
 
 [workspace.package]

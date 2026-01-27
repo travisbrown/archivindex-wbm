@@ -1,5 +1,5 @@
 [package]
-name = "archivindex-wxj-cli"
+name = "archivindex-wbm-json-cli"
 authors = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
