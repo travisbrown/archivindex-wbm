@@ -263,8 +263,8 @@ impl Client {
                         .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                    let mut guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes);
+                    let guess_bytes = guess.as_bytes();
+                    let guess_digest = Sha1Computer::compute_digest(guess_bytes);
 
                     let mut valid_initial_content = true;
                     let mut valid_digest = true;
@@ -279,8 +279,7 @@ impl Client {
                             .await?
                             .bytes()
                             .await?;
-                        let direct_digest =
-                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref());
+                        let direct_digest = Sha1Computer::compute_digest(direct_bytes.as_ref());
 
                         valid_initial_content = false;
                         valid_digest = direct_digest == expected_digest;
@@ -349,8 +348,8 @@ impl Client {
                         .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                    let mut guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(&mut guess_bytes);
+                    let guess_bytes = guess.as_bytes();
+                    let guess_digest = Sha1Computer::compute_digest(guess_bytes);
 
                     let (content, valid_digest) = if guess_digest == expected_digest {
                         (guess, true)
@@ -362,8 +361,7 @@ impl Client {
                             .await?
                             .bytes()
                             .await?;
-                        let direct_digest =
-                            Sha1Computer::compute_digest(&mut direct_bytes.as_ref());
+                        let direct_digest = Sha1Computer::compute_digest(direct_bytes.as_ref());
 
                         (
                             std::str::from_utf8(&direct_bytes)?.to_string(),
