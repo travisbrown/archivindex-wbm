@@ -31,7 +31,7 @@ pub mod configuration;
 pub mod io;
 pub mod validation;
 
-pub type GenericSnapshot<'a, S> = Snapshot<'a, (), S>;
+pub type GenericSnapshot<'a, C> = Snapshot<'a, (), C>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -76,7 +76,7 @@ pub enum Error {
 /// `timestamp` field present, and any value with a non-null `timestamp` field must have accurate
 /// `expected_digest` and `url` fields.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct Snapshot<'a, C, S> {
+pub struct Snapshot<'a, S, C> {
     pub digest: Sha1Digest,
     /// The digest indicated in the CDX entry for this snapshot.
     ///
@@ -110,19 +110,19 @@ pub struct Snapshot<'a, C, S> {
     /// infer the URL from the content, and that the inferred URL value exactly matches the CDX
     /// entry (including case).
     pub url: Option<Cow<'a, str>>,
-    pub content: S,
+    pub content: C,
     #[serde(skip_serializing, default)]
-    configuration: PhantomData<C>,
+    configuration: PhantomData<S>,
 }
 
-impl<'a, C, S> Snapshot<'a, C, S> {
+impl<'a, S, C> Snapshot<'a, S, C> {
     /// Indicates that the value is fully-processed.
     pub const fn has_metadata(&self) -> bool {
         self.timestamp.is_some()
     }
 
     /// Transform the content.
-    pub fn map_content<T, F: FnOnce(S) -> T>(self, f: F) -> Snapshot<'a, C, T> {
+    pub fn map_content<T, F: FnOnce(C) -> T>(self, f: F) -> Snapshot<'a, S, T> {
         Snapshot {
             digest: self.digest,
             expected_digest: self.expected_digest,
@@ -135,21 +135,21 @@ impl<'a, C, S> Snapshot<'a, C, S> {
     }
 }
 
-impl<S, C: configuration::Configuration> Snapshot<'_, C, S> {
+impl<C, S: configuration::Configuration> Snapshot<'_, S, C> {
     pub fn closing_whitespace(&self) -> &[char] {
         self.closing_whitespace
             .as_deref()
-            .unwrap_or_else(|| C::default_closing_whitespace())
+            .unwrap_or_else(|| S::default_closing_whitespace())
     }
 }
 
-impl<'a, C: configuration::Configuration> Snapshot<'a, C, C::S<'a>> {
+impl<'a, S: configuration::Configuration> Snapshot<'a, S, S::Content<'a>> {
     pub fn infer_url(&self) -> Option<Cow<'_, str>> {
-        C::infer_url(&self.content)
+        S::infer_url(&self.content)
     }
 }
 
-impl<C> std::fmt::Display for Snapshot<'_, C, Cow<'_, str>> {
+impl<S> std::fmt::Display for Snapshot<'_, S, Cow<'_, str>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{\"{}\":\"{}\",", DIGEST_KEY, self.digest)?;
 
@@ -201,7 +201,7 @@ const URL_KEY_LEN: usize = URL_KEY.len();
 const CONTENT_KEY: &str = "content";
 const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 
-impl<'a, C: configuration::Configuration> Snapshot<'a, C, Cow<'a, str>> {
+impl<'a, S: configuration::Configuration> Snapshot<'a, S, Cow<'a, str>> {
     /// Create a minimal snapshot instance without CDX metadata.
     ///
     /// An empty value indicates that the content contained internal line breaks.
@@ -211,12 +211,12 @@ impl<'a, C: configuration::Configuration> Snapshot<'a, C, Cow<'a, str>> {
             .chars()
             .all(|candidate| candidate != '\r' && candidate != '\n')
         {
-            let closing_whitespace = C::non_default_closing_whitespace(content);
+            let closing_whitespace = S::non_default_closing_whitespace(content);
 
             let content = &content[0..content.len()
                 - closing_whitespace
                     .as_ref()
-                    .map_or_else(|| C::default_closing_whitespace().len(), std::vec::Vec::len)];
+                    .map_or_else(|| S::default_closing_whitespace().len(), std::vec::Vec::len)];
 
             Some(Self {
                 digest,
@@ -392,7 +392,7 @@ impl<'a, C: configuration::Configuration> Snapshot<'a, C, Cow<'a, str>> {
 
         for (i, line) in lines.enumerate() {
             let line = line?;
-            match Snapshot::<'_, C, Cow<'_, str>>::parse(&line) {
+            match Snapshot::<'_, S, Cow<'_, str>>::parse(&line) {
                 Ok(snapshot) => match snapshot.validate(&mut hasher) {
                     Ok(()) => {
                         if snapshot.digest > last_digest {
@@ -418,10 +418,10 @@ impl<'a, C: configuration::Configuration> Snapshot<'a, C, Cow<'a, str>> {
     }
 }
 
-impl<C: 'static, S: bounded_static::ToBoundedStatic> bounded_static::ToBoundedStatic
-    for Snapshot<'_, C, S>
+impl<S: 'static, C: bounded_static::ToBoundedStatic> bounded_static::ToBoundedStatic
+    for Snapshot<'_, S, C>
 {
-    type Static = Snapshot<'static, C, S::Static>;
+    type Static = Snapshot<'static, S, C::Static>;
 
     fn to_static(&self) -> Self::Static {
         Self::Static {
@@ -436,10 +436,10 @@ impl<C: 'static, S: bounded_static::ToBoundedStatic> bounded_static::ToBoundedSt
     }
 }
 
-impl<C: 'static, S: bounded_static::IntoBoundedStatic> bounded_static::IntoBoundedStatic
-    for Snapshot<'_, C, S>
+impl<S: 'static, C: bounded_static::IntoBoundedStatic> bounded_static::IntoBoundedStatic
+    for Snapshot<'_, S, C>
 {
-    type Static = Snapshot<'static, C, S::Static>;
+    type Static = Snapshot<'static, S, C::Static>;
 
     fn into_static(self) -> Self::Static {
         Self::Static {
@@ -463,7 +463,7 @@ mod tests {
 
     use super::*;
 
-    type WxjDataSnapshot<'a, S> = Snapshot<'a, instances::wxj::data::Configuration, S>;
+    type WxjDataSnapshot<'a, C> = Snapshot<'a, instances::wxj::data::Configuration, C>;
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {

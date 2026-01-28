@@ -5,13 +5,13 @@ use std::borrow::Cow;
 pub struct WxjDataConfig;
 
 impl Configuration for WxjDataConfig {
-    type S<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
+    type Content<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
 
     fn default_closing_whitespace() -> &'static [char] {
         &['\r', '\r', '\n']
     }
 
-    fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
+    fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
         content.lookup_user(content.data.author_id).map(|user| {
             format!(
                 "https://twitter.com/{}/status/{}",

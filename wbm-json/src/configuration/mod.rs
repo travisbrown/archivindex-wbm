@@ -3,10 +3,10 @@ use std::borrow::Cow;
 pub mod instances;
 
 pub trait Configuration {
-    type S<'a>;
+    type Content<'a>;
 
     fn default_closing_whitespace() -> &'static [char];
-    fn infer_url<'a>(_content: &Self::S<'a>) -> Option<Cow<'a, str>> {
+    fn infer_url<'a>(_content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
         None
     }
 
@@ -55,7 +55,7 @@ pub trait Configuration {
 }
 
 impl Configuration for () {
-    type S<'a> = serde_json::Value;
+    type Content<'a> = serde_json::Value;
 
     fn default_closing_whitespace() -> &'static [char] {
         &[]

@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 mod configuration;
 mod wxj;
 
-type WxjDataSnapshot<'a, S> = Snapshot<'a, configuration::WxjDataConfig, S>;
+type WxjDataSnapshot<'a, C> = Snapshot<'a, configuration::WxjDataConfig, C>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

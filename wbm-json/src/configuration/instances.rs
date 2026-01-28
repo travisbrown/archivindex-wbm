@@ -7,13 +7,13 @@ pub mod wts {
     pub struct Configuration;
 
     impl crate::configuration::Configuration for Configuration {
-        type S<'a> = Content<'a>;
+        type Content<'a> = Content<'a>;
 
         fn default_closing_whitespace() -> &'static [char] {
             &['\r', '\r', '\n']
         }
 
-        fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
+        fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
             Some(format!("https://truthsocial.com/api/v1/statuses/{}", content.id).into())
         }
     }
@@ -34,13 +34,13 @@ pub mod wxj {
         pub struct Configuration;
 
         impl crate::configuration::Configuration for Configuration {
-            type S<'a> = Content<'a>;
+            type Content<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {
                 &['\r', '\r', '\n']
             }
 
-            fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
+            fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
                 content.lookup_user(&content.data.author_id).map(|user| {
                     format!(
                         "https://twitter.com/{}/status/{}",
@@ -90,13 +90,13 @@ pub mod wxj {
         pub struct Configuration;
 
         impl crate::configuration::Configuration for Configuration {
-            type S<'a> = Content<'a>;
+            type Content<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {
                 &['\r', '\r', '\n']
             }
 
-            fn infer_url<'a>(content: &Self::S<'a>) -> Option<Cow<'a, str>> {
+            fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
                 Some(
                     format!(
                         "https://twitter.com/{}/status/{}",
