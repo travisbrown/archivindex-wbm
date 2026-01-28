@@ -2,38 +2,12 @@ use crate::{Snapshot, configuration::Configuration};
 use archivindex_wbm::digest::Sha1Digest;
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Lines, Read, Write};
+use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
 
-pub struct SnapshotReader<R, C> {
-    underlying: Lines<BufReader<R>>,
-    configuration: PhantomData<C>,
-}
-
-impl<C: Configuration> SnapshotReader<zstd::Decoder<'_, BufReader<File>>, C> {
-    pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, std::io::Error> {
-        Ok(Self {
-            underlying: BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines(),
-            configuration: PhantomData,
-        })
-    }
-}
-
-impl<R: Read, C: Configuration + 'static> Iterator for SnapshotReader<R, C> {
-    type Item = Result<Snapshot<'static, C, Cow<'static, str>>, super::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.underlying.next().map(|result| {
-            result.map_err(super::Error::from).and_then(|line| {
-                Snapshot::parse(&line).map(bounded_static::IntoBoundedStatic::into_static)
-            })
-        })
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
-pub enum WriteError {
+pub enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
     #[error("Internal line break")]
@@ -47,13 +21,13 @@ pub struct SnapshotWriter<W, C> {
 }
 
 impl<W: Write, C: Configuration> SnapshotWriter<W, C> {
-    pub fn write<R: Read>(&mut self, digest: Sha1Digest, reader: R) -> Result<bool, WriteError> {
+    pub fn write<R: Read>(&mut self, digest: Sha1Digest, reader: R) -> Result<bool, Error> {
         if Some(digest) == self.last_written {
             Ok(false)
         } else {
             let content = std::io::read_to_string(reader)?;
             let snapshot = Snapshot::<C, _>::new(digest, &content)
-                .ok_or_else(|| WriteError::InternalLineBreak(content.clone()))?;
+                .ok_or_else(|| Error::InternalLineBreak(content.clone()))?;
 
             writeln!(self.underlying, "{snapshot}")?;
             self.last_written = Some(digest);

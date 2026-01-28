@@ -4,11 +4,8 @@
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
     GenericSnapshot, Snapshot,
-    configuration::instances::{
-        wts::WtsConfiguration,
-        wxj::{data::WxjDataConfiguration, flat::WxjFlatConfiguration},
-    },
-    io::{SnapshotReader, SnapshotWriter},
+    configuration::instances::wxj::{data::WxjDataConfiguration, flat::WxjFlatConfiguration},
+    io::{read::SnapshotReader, write::SnapshotWriter},
 };
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
@@ -509,7 +506,7 @@ pub enum Error {
     #[error("WBM JSON parsing error")]
     WbmJson(#[from] archivindex_wbm_json::Error),
     #[error("WBM JSON write error")]
-    WbmJsonWrite(#[from] archivindex_wbm_json::io::WriteError),
+    WbmJsonWrite(#[from] archivindex_wbm_json::io::write::Error),
     #[error("WXJ data format error")]
     BirdsiteWxjDataFormat(#[from] birdsite::model::wxj::data::FormatError),
 }
