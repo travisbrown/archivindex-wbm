@@ -1,12 +1,12 @@
 pub mod wts {
     use std::borrow::Cow;
 
-    pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+    pub type WtsSnapshot<'a> = crate::Snapshot<'a, WtsConfiguration, Content<'a>>;
 
     /// Configuration for Truth Social post snapshots.
-    pub struct Configuration;
+    pub struct WtsConfiguration;
 
-    impl crate::configuration::Configuration for Configuration {
+    impl crate::configuration::Configuration for WtsConfiguration {
         type Content<'a> = Content<'a>;
 
         fn default_closing_whitespace() -> &'static [char] {
@@ -28,12 +28,12 @@ pub mod wxj {
     pub mod data {
         use std::borrow::Cow;
 
-        pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+        pub type WxjDataSnapshot<'a> = crate::Snapshot<'a, WxjDataConfiguration, Content<'a>>;
 
         /// Configuration for WXJ data format tweet snapshots.
-        pub struct Configuration;
+        pub struct WxjDataConfiguration;
 
-        impl crate::configuration::Configuration for Configuration {
+        impl crate::configuration::Configuration for WxjDataConfiguration {
             type Content<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {
@@ -84,12 +84,12 @@ pub mod wxj {
     pub mod flat {
         use std::borrow::Cow;
 
-        pub type Snapshot<'a> = crate::Snapshot<'a, Configuration, Content<'a>>;
+        pub type WxjFlatSnapshot<'a> = crate::Snapshot<'a, WxjFlatConfiguration, Content<'a>>;
 
         /// Configuration for WXJ flat format tweet snapshots.
-        pub struct Configuration;
+        pub struct WxjFlatConfiguration;
 
-        impl crate::configuration::Configuration for Configuration {
+        impl crate::configuration::Configuration for WxjFlatConfiguration {
             type Content<'a> = Content<'a>;
 
             fn default_closing_whitespace() -> &'static [char] {

@@ -4,7 +4,10 @@
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
     GenericSnapshot, Snapshot,
-    configuration::instances,
+    configuration::instances::{
+        wts::WtsConfiguration,
+        wxj::{data::WxjDataConfiguration, flat::WxjFlatConfiguration},
+    },
     io::{SnapshotReader, SnapshotWriter},
 };
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
@@ -20,12 +23,12 @@ use std::path::PathBuf;
 mod cdx;
 mod snapshot;
 
-type WxjDataSnapshot<'a, S> = Snapshot<'a, instances::wxj::data::Configuration, S>;
-type WxjFlatSnapshot<'a, S> = Snapshot<'a, instances::wxj::flat::Configuration, S>;
-type WxjDataSnapshotReader<R> = SnapshotReader<R, instances::wxj::data::Configuration>;
-type WxjFlatSnapshotReader<R> = SnapshotReader<R, instances::wxj::flat::Configuration>;
-type WxjDataSnapshotWriter<W> = SnapshotWriter<W, instances::wxj::data::Configuration>;
-type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, instances::wxj::flat::Configuration>;
+type WxjDataSnapshot<'a, S> = Snapshot<'a, WxjDataConfiguration, S>;
+type WxjFlatSnapshot<'a, S> = Snapshot<'a, WxjFlatConfiguration, S>;
+type WxjDataSnapshotReader<R> = SnapshotReader<R, WxjDataConfiguration>;
+type WxjFlatSnapshotReader<R> = SnapshotReader<R, WxjFlatConfiguration>;
+type WxjDataSnapshotWriter<W> = SnapshotWriter<W, WxjDataConfiguration>;
+type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, WxjFlatConfiguration>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

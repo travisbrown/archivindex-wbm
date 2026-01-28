@@ -7,7 +7,10 @@ use archivindex_wbm::{
     surt::Surt,
 };
 use archivindex_wbm_downloader::DownloadResult;
-use archivindex_wbm_json::{GenericSnapshot, Snapshot, configuration::instances};
+use archivindex_wbm_json::{
+    GenericSnapshot, Snapshot,
+    configuration::instances::wxj::{data::WxjDataSnapshot, flat::WxjFlatSnapshot},
+};
 use birdsite::model::wxj::data;
 use bounded_static::IntoBoundedStatic;
 use chrono::DateTime;
@@ -22,7 +25,7 @@ use std::path::{Path, PathBuf};
 mod configuration;
 mod wxj;
 
-type WxjDataSnapshot<'a, C> = Snapshot<'a, configuration::WxjDataConfig, C>;
+type BirdsiteWxjDataSnapshot<'a, C> = Snapshot<'a, configuration::WxjDataConfig, C>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -42,9 +45,8 @@ async fn main() -> Result<(), Error> {
                 let line = result?;
 
                 let (digest, has_metadata, inferred_url, provided_url) = if flat {
-                    let snapshot =
-                        serde_json::from_str::<instances::wxj::flat::Snapshot<'_>>(&line)
-                            .map_err(|error| Error::JsonLine(error, line_number))?;
+                    let snapshot = serde_json::from_str::<WxjFlatSnapshot<'_>>(&line)
+                        .map_err(|error| Error::JsonLine(error, line_number))?;
 
                     (
                         snapshot.digest,
@@ -53,9 +55,8 @@ async fn main() -> Result<(), Error> {
                         snapshot.url,
                     )
                 } else {
-                    let snapshot =
-                        serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(&line)
-                            .map_err(|error| Error::JsonLine(error, line_number))?;
+                    let snapshot = serde_json::from_str::<WxjDataSnapshot<'_>>(&line)
+                        .map_err(|error| Error::JsonLine(error, line_number))?;
 
                     (
                         snapshot.digest,
@@ -222,8 +223,9 @@ async fn main() -> Result<(), Error> {
 
             for line in lines {
                 let line = line?;
-                let mut snapshot =
-                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
+                let mut snapshot = serde_json::from_str::<
+                    BirdsiteWxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
+                >(&line)?;
 
                 if let Some(mut tweets) = snapshot.content.includes.tweets.take() {
                     tweets.retain(|tweet| tweet.author_id == id);

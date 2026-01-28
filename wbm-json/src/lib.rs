@@ -471,17 +471,17 @@ mod tests {
     use sha1::digest::core_api::CoreWrapper;
     use std::io::BufRead;
 
-    use crate::configuration::instances;
+    use crate::configuration::instances::wxj::data::{WxjDataConfiguration, WxjDataSnapshot};
 
     use super::*;
 
-    type WxjDataSnapshot<'a, C> = Snapshot<'a, instances::wxj::data::Configuration, C>;
+    type WxjDataRawSnapshot<'a, C> = Snapshot<'a, WxjDataConfiguration, C>;
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
         let line = include_str!("../../examples/wbm/wxj/inferred-url-01.json").trim();
 
-        let parsed = WxjDataSnapshot::parse(line)?;
+        let parsed = WxjDataRawSnapshot::parse(line)?;
 
         assert_eq!(line, parsed.to_string());
 
@@ -495,7 +495,7 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let parsed = WxjDataSnapshot::parse(line)?;
+            let parsed = WxjDataRawSnapshot::parse(line)?;
 
             assert_eq!(line, parsed.to_string());
 
@@ -512,7 +512,7 @@ mod tests {
         )))
         .lines();
 
-        let validation = WxjDataSnapshot::validate_lines(lines)?;
+        let validation = WxjDataRawSnapshot::validate_lines(lines)?;
 
         assert!(validation.is_successful());
 
@@ -524,7 +524,7 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let _snapshot = serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
+            let _snapshot = serde_json::from_str::<WxjDataSnapshot<'_>>(line)?;
         }
 
         Ok(())
@@ -535,9 +535,8 @@ mod tests {
         let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
 
         for line in lines {
-            let snapshot_parse = WxjDataSnapshot::parse(line)?;
-            let snapshot_from_str =
-                serde_json::from_str::<instances::wxj::data::Snapshot<'_>>(line)?;
+            let snapshot_parse = WxjDataRawSnapshot::parse(line)?;
+            let snapshot_from_str = serde_json::from_str::<WxjDataSnapshot<'_>>(line)?;
 
             assert_eq!(snapshot_parse.digest, snapshot_from_str.digest);
             assert_eq!(
@@ -562,23 +561,23 @@ mod tests {
         let digest = Sha1Digest::MIN;
 
         // Empty string
-        let snapshot = WxjDataSnapshot::new(digest, "").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "").unwrap();
         assert_eq!(snapshot.content, "");
 
         // 1 byte
-        let snapshot = WxjDataSnapshot::new(digest, "a").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "a").unwrap();
         assert_eq!(snapshot.content, "a");
 
         // 2 bytes
-        let snapshot = WxjDataSnapshot::new(digest, "ab").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "ab").unwrap();
         assert_eq!(snapshot.content, "ab");
 
         // 3 bytes
-        let snapshot = WxjDataSnapshot::new(digest, "abc").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "abc").unwrap();
         assert_eq!(snapshot.content, "abc");
 
         // Exactly 4 bytes (boundary case)
-        let snapshot = WxjDataSnapshot::new(digest, "abcd").unwrap();
+        let snapshot = WxjDataRawSnapshot::new(digest, "abcd").unwrap();
         assert_eq!(snapshot.content, "abcd");
     }
 
@@ -589,7 +588,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com/no/closing/quote"#;
 
         // Should return an error, not panic or loop infinitely
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 
@@ -599,7 +598,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com"#;
 
         // Should return an error, not panic
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 
@@ -609,7 +608,7 @@ mod tests {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":""#;
 
         // Should return an error, not panic
-        let result = WxjDataSnapshot::parse(line);
+        let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
 }
