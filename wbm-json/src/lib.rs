@@ -122,7 +122,7 @@ impl<'a, S, C> Snapshot<'a, S, C> {
     }
 
     /// Transform the content.
-    pub fn map_content<T, F: FnOnce(C) -> T>(self, f: F) -> Snapshot<'a, S, T> {
+    pub fn into_transformed<T, F: FnOnce(C) -> T>(self, f: F) -> Snapshot<'a, S, T> {
         Snapshot {
             digest: self.digest,
             expected_digest: self.expected_digest,
@@ -131,6 +131,18 @@ impl<'a, S, C> Snapshot<'a, S, C> {
             url: self.url,
             content: f(self.content),
             configuration: self.configuration,
+        }
+    }
+
+    pub fn into_reconfigured<T>(self) -> Snapshot<'a, T, C> {
+        Snapshot {
+            digest: self.digest,
+            expected_digest: self.expected_digest,
+            closing_whitespace: self.closing_whitespace,
+            timestamp: self.timestamp,
+            url: self.url,
+            content: self.content,
+            configuration: PhantomData,
         }
     }
 }
