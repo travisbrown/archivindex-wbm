@@ -29,6 +29,7 @@ use std::marker::PhantomData;
 mod closing_whitespace;
 pub mod configuration;
 pub mod io;
+pub mod metadata;
 pub mod validation;
 
 pub type GenericSnapshot<'a, C> = Snapshot<'a, (), C>;
