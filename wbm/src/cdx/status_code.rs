@@ -1,6 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-pub const STATUS_CODE_VALUES: [StatusCode; 23] = [
+pub const STATUS_CODE_VALUES: [StatusCode; 25] = [
     StatusCode::Empty,
     StatusCode::Ok,
     StatusCode::MovedPermanently,
@@ -12,6 +12,7 @@ pub const STATUS_CODE_VALUES: [StatusCode; 23] = [
     StatusCode::Unauthorized,
     StatusCode::Forbidden,
     StatusCode::NotFound,
+    StatusCode::RequestTimeout,
     StatusCode::UpgradeRequired,
     StatusCode::TooManyRequests,
     StatusCode::RequestHeaderFieldsTooLarge,
@@ -21,6 +22,7 @@ pub const STATUS_CODE_VALUES: [StatusCode; 23] = [
     StatusCode::GatewayTimeout,
     StatusCode::CloudflareUnknownError,
     StatusCode::CloudflareWebServerDown,
+    StatusCode::CloudflareConnectionTimeout,
     StatusCode::CloudflareTimeout,
     StatusCode::CloudflareSslHandshakeFailed,
     StatusCode::CloudflareOriginDnsError,
@@ -65,6 +67,8 @@ pub enum StatusCode {
     Forbidden,
     #[serde(alias = "404")]
     NotFound,
+    #[serde(alias = "408")]
+    RequestTimeout,
     #[serde(alias = "426")]
     UpgradeRequired,
     // Temporary redirect.
@@ -84,6 +88,8 @@ pub enum StatusCode {
     CloudflareUnknownError,
     #[serde(alias = "521")]
     CloudflareWebServerDown,
+    #[serde(alias = "522")]
+    CloudflareConnectionTimeout,
     #[serde(alias = "524")]
     CloudflareTimeout,
     #[serde(alias = "525")]
@@ -112,6 +118,7 @@ impl StatusCode {
             Self::Unauthorized => 401,
             Self::Forbidden => 403,
             Self::NotFound => 404,
+            Self::RequestTimeout => 408,
             Self::UpgradeRequired => 426,
             Self::TooManyRequests => 429,
             Self::RequestHeaderFieldsTooLarge => 431,
@@ -121,6 +128,7 @@ impl StatusCode {
             Self::GatewayTimeout => 504,
             Self::CloudflareUnknownError => 520,
             Self::CloudflareWebServerDown => 521,
+            Self::CloudflareConnectionTimeout => 522,
             Self::CloudflareTimeout => 524,
             Self::CloudflareSslHandshakeFailed => 525,
             Self::CloudflareOriginDnsError => 530,
@@ -140,6 +148,7 @@ impl StatusCode {
             401 => Ok(Self::Unauthorized),
             403 => Ok(Self::Forbidden),
             404 => Ok(Self::NotFound),
+            408 => Ok(Self::RequestTimeout),
             426 => Ok(Self::UpgradeRequired),
             429 => Ok(Self::TooManyRequests),
             431 => Ok(Self::RequestHeaderFieldsTooLarge),
@@ -149,6 +158,7 @@ impl StatusCode {
             504 => Ok(Self::GatewayTimeout),
             520 => Ok(Self::CloudflareUnknownError),
             521 => Ok(Self::CloudflareWebServerDown),
+            522 => Ok(Self::CloudflareConnectionTimeout),
             524 => Ok(Self::CloudflareTimeout),
             525 => Ok(Self::CloudflareSslHandshakeFailed),
             530 => Ok(Self::CloudflareOriginDnsError),
@@ -170,6 +180,7 @@ impl StatusCode {
             Self::Unauthorized => "401",
             Self::Forbidden => "403",
             Self::NotFound => "404",
+            Self::RequestTimeout => "408",
             Self::UpgradeRequired => "426",
             Self::TooManyRequests => "429",
             Self::RequestHeaderFieldsTooLarge => "431",
@@ -179,6 +190,7 @@ impl StatusCode {
             Self::GatewayTimeout => "504",
             Self::CloudflareUnknownError => "520",
             Self::CloudflareWebServerDown => "521",
+            Self::CloudflareConnectionTimeout => "522",
             Self::CloudflareTimeout => "524",
             Self::CloudflareSslHandshakeFailed => "525",
             Self::CloudflareOriginDnsError => "530",
@@ -208,6 +220,7 @@ impl FromStr for StatusCode {
             "401" => Ok(Self::Unauthorized),
             "403" => Ok(Self::Forbidden),
             "404" => Ok(Self::NotFound),
+            "408" => Ok(Self::RequestTimeout),
             "426" => Ok(Self::UpgradeRequired),
             "429" => Ok(Self::TooManyRequests),
             "431" => Ok(Self::RequestHeaderFieldsTooLarge),
@@ -217,6 +230,7 @@ impl FromStr for StatusCode {
             "504" => Ok(Self::GatewayTimeout),
             "520" => Ok(Self::CloudflareUnknownError),
             "521" => Ok(Self::CloudflareWebServerDown),
+            "522" => Ok(Self::CloudflareConnectionTimeout),
             "524" => Ok(Self::CloudflareTimeout),
             "525" => Ok(Self::CloudflareSslHandshakeFailed),
             "530" => Ok(Self::CloudflareOriginDnsError),
@@ -239,12 +253,14 @@ impl From<StatusCode> for http::status::StatusCode {
             StatusCode::Unauthorized => Self::UNAUTHORIZED,
             StatusCode::Forbidden => Self::FORBIDDEN,
             StatusCode::NotFound => Self::NOT_FOUND,
+            StatusCode::RequestTimeout => Self::REQUEST_TIMEOUT,
             StatusCode::UpgradeRequired => Self::UPGRADE_REQUIRED,
             StatusCode::TooManyRequests => Self::TOO_MANY_REQUESTS,
             StatusCode::RequestHeaderFieldsTooLarge => Self::REQUEST_HEADER_FIELDS_TOO_LARGE,
             StatusCode::InternalServerError
             | StatusCode::CloudflareUnknownError
             | StatusCode::CloudflareWebServerDown
+            | StatusCode::CloudflareConnectionTimeout
             | StatusCode::CloudflareTimeout
             | StatusCode::CloudflareSslHandshakeFailed
             | StatusCode::CloudflareOriginDnsError => Self::INTERNAL_SERVER_ERROR,
