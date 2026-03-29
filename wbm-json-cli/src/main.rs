@@ -9,10 +9,10 @@ use archivindex_wbm_json::{
     },
     io::{read::SnapshotReader, write::SnapshotWriter},
 };
-use birdsite::model::wxj::{TweetSnapshot, data, flat, metadata::tweet};
+use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
-use sha1::digest::core_api::CoreWrapper;
+use sha1::Digest as _;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Error> {
     match opts.command {
         Command::Validate { input } => {
             let mut count = 0;
-            let mut hasher = CoreWrapper::default();
+            let mut hasher = sha1::Sha1::new();
 
             for path in input {
                 let reader = BufReader::new(zstd::Decoder::new(File::open(&path)?)?);

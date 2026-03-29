@@ -200,12 +200,25 @@ impl Iterator for ValidatingImporter {
     }
 }
 
+/// Bridges `std::io::Write` to `sha1::Sha1` until `digest-io` is released.
+struct Sha1WriteShim<'a>(&'a mut Sha1);
+
+impl Write for Sha1WriteShim<'_> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Compute the SHA-1 hash for bytes read from a source.
 fn digest_bytes<R: Read>(input: &mut R, hasher: &mut Sha1) -> Result<Sha1Digest, std::io::Error> {
-    std::io::copy(input, hasher)?;
-    hasher.flush()?;
-
+    std::io::copy(input, &mut Sha1WriteShim(hasher))?;
     let bytes = hasher.finalize_reset();
-
     Ok(Sha1Digest(bytes.into()))
 }

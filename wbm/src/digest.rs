@@ -16,6 +16,27 @@ use std::io::{BufWriter, Read, Write};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+/// Bridges `std::io::Write` to `sha1::Sha1` until `digest-io` is released.
+///
+/// `sha1::Sha1` (via `digest 0.11`) no longer implements `std::io::Write`
+/// directly. This shim forwards `write` calls to `sha1::Digest::update` so
+/// that callers can use `std::io::copy` and other `Write`-based utilities,
+/// including wrapping in `BufWriter`.
+struct Sha1WriteShim(sha1::Sha1);
+
+impl Write for Sha1WriteShim {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("I/O error")]
@@ -34,7 +55,7 @@ pub enum Error {
 
 #[derive(Clone)]
 pub struct Sha1Computer {
-    writer: Arc<Mutex<BufWriter<sha1::Sha1>>>,
+    writer: Arc<Mutex<BufWriter<Sha1WriteShim>>>,
 }
 
 impl Sha1Computer {
@@ -50,10 +71,9 @@ impl Sha1Computer {
         // Only panics on poisoning, so we don't care what Clippy says here.
         #[allow(clippy::missing_panics_doc)]
         let mut writer = self.writer.lock().unwrap();
-        std::io::copy(input, &mut writer.get_mut())?;
+        std::io::copy(input, &mut *writer)?;
         writer.flush()?;
-
-        let bytes = writer.get_mut().finalize_reset();
+        let bytes = writer.get_mut().0.finalize_reset();
         drop(writer);
 
         Ok(bytes.into())
@@ -81,7 +101,7 @@ impl Sha1Computer {
 impl Default for Sha1Computer {
     fn default() -> Self {
         Self {
-            writer: Arc::new(Mutex::new(BufWriter::new(sha1::Sha1::new()))),
+            writer: Arc::new(Mutex::new(BufWriter::new(Sha1WriteShim(sha1::Sha1::new())))),
         }
     }
 }

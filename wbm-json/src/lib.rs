@@ -497,12 +497,9 @@ impl<S: 'static, C: bounded_static::IntoBoundedStatic> bounded_static::IntoBound
 
 #[cfg(test)]
 mod tests {
-    use sha1::digest::core_api::CoreWrapper;
-    use std::io::BufRead;
-
-    use crate::configuration::instances::wxj::data::{WxjDataConfiguration, WxjDataSnapshot};
-
     use super::*;
+    use crate::configuration::instances::wxj::data::{WxjDataConfiguration, WxjDataSnapshot};
+    use std::io::BufRead;
 
     type WxjDataRawSnapshot<'a, C> = Snapshot<'a, WxjDataConfiguration, C>;
 
@@ -514,7 +511,7 @@ mod tests {
 
         assert_eq!(line, parsed.to_string());
 
-        assert_eq!(parsed.validate(&mut CoreWrapper::default()), Ok(()));
+        assert_eq!(parsed.validate(&mut Sha1::new()), Ok(()));
 
         Ok(())
     }
@@ -528,7 +525,7 @@ mod tests {
 
             assert_eq!(line, parsed.to_string());
 
-            assert_eq!(parsed.validate(&mut CoreWrapper::default()), Ok(()));
+            assert_eq!(parsed.validate(&mut Sha1::new()), Ok(()));
         }
 
         Ok(())
