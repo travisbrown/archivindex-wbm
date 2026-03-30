@@ -106,6 +106,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
     }
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
 pub struct ItemList<'a> {
     pub values: Vec<Item<'a>>,
     pub resume_key: Option<Cow<'a, str>>,
