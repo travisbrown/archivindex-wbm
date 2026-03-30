@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::{
     cdx::{item::ItemList, mime_type::MimeType},
+    digest::Digest,
     item::{ItemInfo, UrlParts},
     surt::Surt,
 };
@@ -18,9 +19,11 @@ use cli_helpers::prelude::*;
 use futures::stream::StreamExt;
 use itertools::Itertools;
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 mod configuration;
 mod wxj;
@@ -68,10 +71,10 @@ async fn main() -> Result<(), Error> {
 
                 if provided_url.is_none() && (include_timestamped || !has_metadata) {
                     if let Some(url) = inferred_url {
-                        println!("{},{}", digest, url);
+                        println!("{digest},{url}");
                     } else {
-                        println!("{},", digest);
-                        log::error!("No canonical URL: {}", digest);
+                        println!("{digest},");
+                        log::error!("No canonical URL: {digest}");
                     }
                 }
             }
@@ -182,7 +185,7 @@ async fn main() -> Result<(), Error> {
             }
         }
         Command::CheckSurts { input } => {
-            let cdx_paths = find_cdx_files(input)?;
+            let cdx_paths = find_cdx_files_structured(input)?;
             let mut success_count = 0;
             let mut failure_count = 0;
 
@@ -321,26 +324,22 @@ async fn main() -> Result<(), Error> {
                                 actual_digest: Some(actual_digest),
                                 ..
                             } => {
-                                log::warn!(
-                                    "Downloaded {} (invalid digest: {})",
-                                    url,
-                                    actual_digest
-                                );
+                                log::warn!("Downloaded {url} (invalid digest: {actual_digest})");
                             }
                             DownloadResult::Success {
                                 url,
                                 actual_digest: None,
                                 ..
                             } => {
-                                log::info!("Downloaded {}", url,);
+                                log::info!("Downloaded {url}",);
                             }
                             DownloadResult::NotFound { url, .. } => {
-                                log::warn!("Not found: {}", url,);
+                                log::warn!("Not found: {url}",);
                             }
                             DownloadResult::Error {
                                 url, error_type, ..
                             } => {
-                                log::error!("Error: {} ({:?})", url, error_type);
+                                log::error!("Error: {url} ({error_type:?})");
                             }
                         }
                     })
@@ -348,6 +347,62 @@ async fn main() -> Result<(), Error> {
             }
 
             manager.close().await?;
+        }
+        Command::FindUnused { cdx } => {
+            let cdx_paths = find_json_files_all(&cdx)?;
+
+            let mut seen_valid_digests = BTreeSet::new();
+            let mut seen_invalid_digests = BTreeSet::new();
+
+            for cdx_path in cdx_paths {
+                let entry_list = std::fs::read_to_string(&cdx_path)
+                    .map_err(Error::from)
+                    .and_then(|contents| {
+                        serde_json::from_str::<ItemList<'_>>(&contents)
+                            .map(bounded_static::IntoBoundedStatic::into_static)
+                            .map_err(|error| Error::JsonFile(cdx_path.clone(), error))
+                    })?;
+
+                let mut valid_digests = BTreeSet::new();
+                let mut invalid_digests = BTreeSet::new();
+
+                for entry in entry_list.values {
+                    match entry.digest {
+                        Digest::Valid(valid) => {
+                            valid_digests.insert(valid);
+                        }
+                        Digest::Invalid(invalid) => {
+                            invalid_digests.insert(invalid);
+                        }
+                    }
+                }
+
+                let is_unused = if invalid_digests.is_empty() {
+                    valid_digests.is_subset(&seen_valid_digests)
+                } else {
+                    log::warn!(
+                        "Invalid digests in {}: {:?}",
+                        cdx_path.as_os_str().to_string_lossy(),
+                        invalid_digests
+                    );
+
+                    valid_digests.is_subset(&seen_valid_digests)
+                        && invalid_digests.is_subset(&seen_invalid_digests)
+                };
+
+                let code = if is_unused {
+                    // Unused.
+                    "-"
+                } else {
+                    // Necessary.
+                    "+"
+                };
+
+                println!("{},{}", code, cdx_path.as_os_str().to_string_lossy());
+
+                seen_valid_digests.extend(valid_digests);
+                seen_invalid_digests.extend(invalid_digests);
+            }
         }
     }
 
@@ -366,6 +421,8 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("JSON file parsing error")]
     JsonLine(serde_json::Error, usize),
+    #[error("JSON file error")]
+    JsonFile(PathBuf, serde_json::Error),
     #[error("SURT error")]
     Surt(#[from] archivindex_wbm::surt::Error),
     #[error("WBM JSON error")]
@@ -435,9 +492,13 @@ enum Command {
         #[clap(long, default_value = "3")]
         n: usize,
     },
+    FindUnused {
+        #[clap(long)]
+        cdx: Vec<PathBuf>,
+    },
 }
 
-fn find_cdx_files<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
+fn find_cdx_files_structured<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
     let mut cdx_paths = std::fs::read_dir(root)?
         .flat_map(|collection_entry| {
             collection_entry
@@ -461,6 +522,43 @@ fn find_cdx_files<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
     cdx_paths.sort_by_key(|(timestamp, _)| std::cmp::Reverse(*timestamp));
 
     Ok(cdx_paths.into_iter().map(|(_, path)| path).collect())
+}
+
+fn find_json_files_all<P: AsRef<Path>>(roots: &[P]) -> Result<Vec<PathBuf>, Error> {
+    let mut json_paths = vec![];
+
+    for root in roots {
+        find_json_files_all_rec(root, &mut json_paths)?;
+    }
+
+    json_paths.sort_by_key(|(timestamp, _)| std::cmp::Reverse(*timestamp));
+
+    Ok(json_paths.into_iter().map(|(_, path)| path).collect())
+}
+
+fn find_json_files_all_rec<P: AsRef<Path>>(
+    current: P,
+    acc: &mut Vec<(SystemTime, PathBuf)>,
+) -> Result<(), Error> {
+    if current.as_ref().is_file() {
+        if current
+            .as_ref()
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            let modified = current.as_ref().metadata()?.modified()?;
+
+            acc.push((modified, current.as_ref().to_path_buf()));
+        }
+    } else {
+        for entry in std::fs::read_dir(current)? {
+            let entry = entry?;
+
+            find_json_files_all_rec(entry.path(), acc)?;
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]
