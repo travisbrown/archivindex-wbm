@@ -490,7 +490,7 @@ async fn main() -> Result<(), Error> {
                         .map(|user| (user.id, user.username.clone()));
 
                     let user_list = users
-                        .map(|(id, screen_name)| format!("{}:{}", id, screen_name))
+                        .map(|(id, screen_name)| format!("{id}:{screen_name}"))
                         .collect::<Vec<_>>();
 
                     println!(
@@ -873,7 +873,7 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[clap(long)]
         cdx: Vec<PathBuf>,
-        /// Path to the invalid digest `SQLite` database.
+        /// Path to the invalid digest SQLite database.
         #[clap(long)]
         invalid_db: PathBuf,
         /// Output path for resolved CSV data.

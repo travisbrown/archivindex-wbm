@@ -403,6 +403,7 @@ impl<'a, S: configuration::Configuration> Snapshot<'a, S, Cow<'a, str>> {
             })
     }
 
+    #[must_use]
     pub fn content_bytes(&self) -> Vec<u8> {
         let mut bytes = self.content.as_bytes().to_vec();
 

@@ -53,7 +53,7 @@ pub struct Skipped {
 ///
 /// * `data_directories` - Directories containing raw JSON files named by SHA-1 digest
 /// * `cdx_directories` - Directories containing CDX JSON files (searched recursively)
-/// * `invalid_db` - Path to the SQLite database of known invalid digests
+/// * `invalid_db` - Path to the `SQLite` database of known invalid digests
 /// * `output` - Output path for the ZST-compressed ND-JSON file (must not already exist)
 /// * `compression_level` - Zstd compression level (e.g. 14)
 ///

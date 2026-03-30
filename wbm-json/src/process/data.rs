@@ -54,6 +54,7 @@ impl Data {
         Ok(count)
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.paths.len()
     }
@@ -74,6 +75,7 @@ impl Data {
         })
     }
 
+    #[must_use]
     pub fn resolver(&self) -> crate::process::resolver::Resolver {
         let mut resolver = crate::process::resolver::Resolver::default();
         resolver.load_digests(self.files().map(|(digest, _)| digest));

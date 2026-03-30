@@ -31,7 +31,7 @@ pub struct SourceCounts {
 }
 
 impl SourceCounts {
-    pub fn add(&mut self, source: Source) {
+    pub const fn add(&mut self, source: Source) {
         match source {
             Source::File(File::First) => self.first += 1,
             Source::File(File::Second) => self.second += 1,
@@ -98,7 +98,8 @@ pub fn merge_zst<P: AsRef<Path>>(
     let reader_first = BufReader::new(zstd::Decoder::new(std::fs::File::open(first)?)?);
     let reader_second = BufReader::new(zstd::Decoder::new(std::fs::File::open(second)?)?);
 
-    let mut writer = zstd::Encoder::new(std::fs::File::create(output)?, compression_level as i32)?;
+    let mut writer =
+        zstd::Encoder::new(std::fs::File::create(output)?, i32::from(compression_level))?;
 
     let mut summary = MergeSummary::default();
 
@@ -164,10 +165,7 @@ impl<I: Iterator<Item = Result<String, std::io::Error>>> FileState<I> {
         match self.iterator.peek() {
             None => Peek::Done,
             Some(Err(_)) => Peek::Bad,
-            Some(Ok(line)) => match extract_digest(line) {
-                Some(d) => Peek::Ready(d),
-                None => Peek::Bad,
-            },
+            Some(Ok(line)) => extract_digest(line).map_or(Peek::Bad, Peek::Ready),
         }
     }
 
@@ -263,14 +261,14 @@ impl<
                                     .map(|second_line| (first_line, second_line))
                             })
                             .and_then(|(first_line, second_line)| {
-                                if first_line != second_line {
+                                if first_line == second_line {
+                                    Ok((first_digest, Source::Both, first_line))
+                                } else {
                                     Err(Error::Collision {
                                         first_line_number: self.first.line_number,
                                         second_line_number: self.second.line_number,
                                         digest: first_digest,
                                     })
-                                } else {
-                                    Ok((first_digest, Source::Both, first_line))
                                 }
                             }),
                     ),

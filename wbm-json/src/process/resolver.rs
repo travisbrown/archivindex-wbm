@@ -175,6 +175,7 @@ impl Resolver {
     /// Look up the resolution for a single digest.
     ///
     /// Returns `None` if the digest has not been resolved (i.e. no CDX match was found).
+    #[must_use]
     pub fn lookup(&self, digest: Sha1Digest) -> Option<(Resolution, ResolutionWarnings)> {
         self.done.get(&digest).map(|set| set.to_resolution(digest))
     }
