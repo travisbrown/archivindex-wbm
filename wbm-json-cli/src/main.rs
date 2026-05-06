@@ -215,18 +215,20 @@ async fn main() -> Result<(), Error> {
         Command::TweetIds { input, flat } => {
             let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
 
-            for line in reader.lines() {
+            for (i, line) in reader.lines().enumerate() {
                 let line = line?;
 
                 let content = if flat {
-                    let snapshot = serde_json::from_str::<
-                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
-                    >(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>>(&line)
+                            .map_err(|error| Error::JsonLine(i + 1, error))?;
+
                     TweetSnapshot::Flat(snapshot.content)
                 } else {
-                    let snapshot = serde_json::from_str::<
-                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                    >(&line)?;
+                    let snapshot =
+                        serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)
+                            .map_err(|error| Error::JsonLine(i + 1, error))?;
+
                     TweetSnapshot::Data(snapshot.content)
                 };
 
@@ -764,6 +766,8 @@ pub enum Error {
     Csv(#[from] csv::Error),
     #[error("JSON error")]
     Json(#[from] serde_json::Error),
+    #[error("JSON line error")]
+    JsonLine(usize, serde_json::Error),
     #[error("WBM snapshot storage import error")]
     WbmCas(#[from] archivindex_wbm_cas::legacy::import::Error),
     #[error("WBM JSON parsing error")]
