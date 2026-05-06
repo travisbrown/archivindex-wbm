@@ -17,10 +17,48 @@ pub enum Source {
     Both,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct Collision {
+    pub first_value: String,
+    pub second_value: String,
+    pub first_line_number: usize,
+    pub second_line_number: usize,
+    pub digest: Sha1Digest,
+}
+
+/// Indicates which input file produced a merged line.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SourceLine {
+    First(String),
+    Second(String),
+    Match(String),
+    Collision(Collision),
+}
+
+impl SourceLine {
+    pub fn value(&self) -> &str {
+        match self {
+            Self::First(value) | Self::Second(value) | Self::Match(value) => value,
+            Self::Collision(Collision {
+                first_value,
+                second_value,
+                ..
+            }) => {
+                if first_value.len() < second_value.len() {
+                    first_value
+                } else {
+                    second_value
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 pub struct MergeSummary {
     pub counts: SourceCounts,
     pub both: Vec<Sha1Digest>,
+    pub collisions: Vec<Collision>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
@@ -104,7 +142,18 @@ pub fn merge_zst<P: AsRef<Path>>(
     let mut summary = MergeSummary::default();
 
     for result in merge(reader_first.lines(), reader_second.lines()) {
-        let (digest, source, line) = result?;
+        let (digest, source_line) = result?;
+
+        let source = match &source_line {
+            SourceLine::First(_) => Source::File(File::First),
+            SourceLine::Second(_) => Source::File(File::Second),
+            SourceLine::Match(_) => Source::Both,
+            SourceLine::Collision(collision) => {
+                summary.collisions.push(collision.clone());
+
+                Source::Both
+            }
+        };
 
         summary.counts.add(source);
 
@@ -112,7 +161,7 @@ pub fn merge_zst<P: AsRef<Path>>(
             summary.both.push(digest);
         }
 
-        writeln!(writer, "{line}")?;
+        writeln!(writer, "{}", source_line.value())?;
     }
 
     writer.finish()?;
@@ -127,7 +176,7 @@ pub fn merge<
 >(
     first: F,
     second: S,
-) -> impl Iterator<Item = Result<(Sha1Digest, Source, String), Error>> {
+) -> impl Iterator<Item = Result<(Sha1Digest, SourceLine), Error>> {
     MergeIter::new(first, second)
 }
 
@@ -232,7 +281,7 @@ impl<
     S: Iterator<Item = Result<String, std::io::Error>>,
 > Iterator for MergeIter<F, S>
 {
-    type Item = Result<(Sha1Digest, Source, String), Error>;
+    type Item = Result<(Sha1Digest, SourceLine), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let next_first = self.first.peek();
@@ -245,12 +294,12 @@ impl<
                     Ordering::Less => Some(
                         self.first
                             .take_ok()
-                            .map(|line| (first_digest, Source::File(File::First), line)),
+                            .map(|line| (first_digest, SourceLine::First(line))),
                     ),
                     Ordering::Greater => Some(
                         self.second
                             .take_ok()
-                            .map(|line| (second_digest, Source::File(File::Second), line)),
+                            .map(|line| (second_digest, SourceLine::Second(line))),
                     ),
                     Ordering::Equal => Some(
                         self.first
@@ -262,13 +311,18 @@ impl<
                             })
                             .and_then(|(first_line, second_line)| {
                                 if first_line == second_line {
-                                    Ok((first_digest, Source::Both, first_line))
+                                    Ok((first_digest, SourceLine::Match(first_line)))
                                 } else {
-                                    Err(Error::Collision {
-                                        first_line_number: self.first.line_number,
-                                        second_line_number: self.second.line_number,
-                                        digest: first_digest,
-                                    })
+                                    Ok((
+                                        first_digest,
+                                        SourceLine::Collision(Collision {
+                                            first_value: first_line,
+                                            second_value: second_line,
+                                            first_line_number: self.first.line_number,
+                                            second_line_number: self.second.line_number,
+                                            digest: first_digest,
+                                        }),
+                                    ))
                                 }
                             }),
                     ),
@@ -277,12 +331,12 @@ impl<
             (Peek::Ready(first_digest), _) => Some(
                 self.first
                     .take_ok()
-                    .map(|line| (first_digest, Source::File(File::First), line)),
+                    .map(|line| (first_digest, SourceLine::First(line))),
             ),
             (_, Peek::Ready(second_digest)) => Some(
                 self.second
                     .take_ok()
-                    .map(|line| (second_digest, Source::File(File::Second), line)),
+                    .map(|line| (second_digest, SourceLine::Second(line))),
             ),
             (Peek::Bad, _) => Some(Err(self.first.take_error())),
             (_, Peek::Bad) => Some(Err(self.second.take_error())),
@@ -316,8 +370,14 @@ mod tests {
         .collect();
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].as_ref().unwrap().1, Source::File(File::First));
-        assert_eq!(results[1].as_ref().unwrap().1, Source::File(File::Second));
+        assert!(matches!(
+            results[0].as_ref().unwrap().1,
+            SourceLine::First(_)
+        ));
+        assert!(matches!(
+            results[1].as_ref().unwrap().1,
+            SourceLine::Second(_)
+        ));
     }
 
     #[test]
@@ -328,7 +388,10 @@ mod tests {
             merge(lines_from_digests(&digests), lines_from_digests(&digests)).collect();
 
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].as_ref().unwrap().1, Source::Both);
+        assert!(matches!(
+            results[0].as_ref().unwrap().1,
+            SourceLine::Match(_)
+        ));
     }
 
     #[test]
@@ -346,7 +409,7 @@ mod tests {
         assert!(
             results
                 .iter()
-                .all(|r| r.as_ref().unwrap().1 == Source::File(File::First))
+                .all(|r| matches!(r.as_ref().unwrap().1, SourceLine::First(_)))
         );
     }
 
@@ -438,15 +501,11 @@ mod tests {
             .map(|r| r.unwrap().1)
             .collect();
 
-        assert_eq!(
-            results,
-            [
-                Source::File(File::First),
-                Source::File(File::Second),
-                Source::File(File::First),
-                Source::File(File::Second)
-            ]
-        );
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], SourceLine::First(_)));
+        assert!(matches!(results[1], SourceLine::Second(_)));
+        assert!(matches!(results[2], SourceLine::First(_)));
+        assert!(matches!(results[3], SourceLine::Second(_)));
     }
 
     #[test]
@@ -464,11 +523,14 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(matches!(
             results[0],
-            Err(Error::Collision {
-                first_line_number: 1,
-                second_line_number: 1,
-                ..
-            })
+            Ok((
+                _,
+                SourceLine::Collision(Collision {
+                    first_line_number: 1,
+                    second_line_number: 1,
+                    ..
+                })
+            ))
         ));
     }
 }
