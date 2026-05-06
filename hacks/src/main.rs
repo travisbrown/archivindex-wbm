@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::{
     cdx::{item::ItemList, mime_type::MimeType},
-    digest::Digest,
+    digest::{Digest, Sha1Digest},
     item::{ItemInfo, UrlParts},
     surt::Surt,
 };
@@ -18,12 +18,12 @@ use chrono::DateTime;
 use cli_helpers::prelude::*;
 use futures::stream::StreamExt;
 use itertools::Itertools;
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use std::{borrow::Cow, collections::HashSet};
 
 mod configuration;
 mod wxj;
@@ -404,6 +404,58 @@ async fn main() -> Result<(), Error> {
                 seen_invalid_digests.extend(invalid_digests);
             }
         }
+        Command::CleanFlat {
+            known,
+            files,
+            dry_run,
+        } => {
+            let reader = BufReader::new(File::open(known)?);
+            let mut count_deleted = 0;
+            let mut count_valid = 0;
+            let mut count_total = 0;
+
+            let digests = reader
+                .lines()
+                .map(|line| {
+                    let line = line?;
+                    let digest = line.parse()?;
+
+                    Ok(digest)
+                })
+                .collect::<Result<HashSet<Sha1Digest>, Error>>()?;
+
+            for entry in std::fs::read_dir(files)? {
+                let entry = entry?;
+
+                if entry.path().is_file() {
+                    count_total += 1;
+
+                    if let Some(file_name) = entry
+                        .path()
+                        .file_name()
+                        .and_then(|file_name| file_name.to_str())
+                    {
+                        count_valid += 1;
+
+                        if let Ok(digest) = file_name.parse::<Sha1Digest>() {
+                            if digests.contains(&digest) {
+                                count_deleted += 1;
+
+                                log::warn!("Deleting: {:?}", entry.path());
+
+                                if !dry_run {
+                                    std::fs::remove_file(entry.path())?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            log::info!(
+                "Deleted {count_deleted} of {count_total} files ({count_valid} valid digest names)"
+            );
+        }
     }
 
     Ok(())
@@ -431,6 +483,8 @@ pub enum Error {
     Wxj(#[from] wxj::Error),
     #[error("WBM downloader error")]
     Downloader(#[from] archivindex_wbm_downloader::Error),
+    #[error("Base32 digest parse error")]
+    Base32Parse(#[from] archivindex_wbm::digest::Error),
 }
 
 #[derive(Debug, Parser)]
@@ -495,6 +549,17 @@ enum Command {
     FindUnused {
         #[clap(long)]
         cdx: Vec<PathBuf>,
+    },
+    CleanFlat {
+        /// File containing known SHA-1 digests (one Base32-encoded digest per line)
+        #[clap(long)]
+        known: PathBuf,
+        /// Directory containing archive files, with each file name being a Base32-encoded digest
+        #[clap(long)]
+        files: PathBuf,
+        /// Dry run (do not actual perform deletions)
+        #[clap(long)]
+        dry_run: bool,
     },
 }
 
