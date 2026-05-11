@@ -59,6 +59,11 @@ impl Data {
         self.paths.len()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+
     /// Iterate file paths by digest and return with the digest.
     ///
     /// In the case of duplicate digests, simply chooses the first.

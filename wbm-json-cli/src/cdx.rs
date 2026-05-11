@@ -9,8 +9,8 @@ pub fn find_cdx_paths<P: AsRef<Path>>(base: P) -> Result<Vec<PathBuf>, std::io::
         path.as_ref()
             .file_name()
             .and_then(|name| name.to_str())
-            .filter(|name| *name == "data")
-            .is_some()
+            .as_ref()
+            .is_some_and(|name| *name == "data")
     }
 
     fn is_json_file<P: AsRef<Path>>(path: P) -> bool {
@@ -19,8 +19,8 @@ pub fn find_cdx_paths<P: AsRef<Path>>(base: P) -> Result<Vec<PathBuf>, std::io::
                 .as_ref()
                 .extension()
                 .and_then(|extension| extension.to_str())
-                .filter(|extension| *extension == "json")
-                .is_some()
+                .as_ref()
+                .is_some_and(|extension| *extension == "json")
     }
 
     fn find_cdx_paths_rec<P: AsRef<Path>>(

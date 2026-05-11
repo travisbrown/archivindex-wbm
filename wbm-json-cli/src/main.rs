@@ -877,6 +877,7 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[clap(long)]
         cdx: Vec<PathBuf>,
+        #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
         #[clap(long)]
         invalid_db: PathBuf,
@@ -904,6 +905,7 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[clap(long)]
         cdx: Vec<PathBuf>,
+        #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
         #[clap(long)]
         invalid_db: PathBuf,

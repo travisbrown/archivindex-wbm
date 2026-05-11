@@ -36,6 +36,7 @@ pub enum SourceLine {
 }
 
 impl SourceLine {
+    #[must_use]
     pub fn value(&self) -> &str {
         match self {
             Self::First(value) | Self::Second(value) | Self::Match(value) => value,
@@ -309,11 +310,11 @@ impl<
                                     .take_ok()
                                     .map(|second_line| (first_line, second_line))
                             })
-                            .and_then(|(first_line, second_line)| {
+                            .map(|(first_line, second_line)| {
                                 if first_line == second_line {
-                                    Ok((first_digest, SourceLine::Match(first_line)))
+                                    (first_digest, SourceLine::Match(first_line))
                                 } else {
-                                    Ok((
+                                    (
                                         first_digest,
                                         SourceLine::Collision(Collision {
                                             first_value: first_line,
@@ -322,7 +323,7 @@ impl<
                                             second_line_number: self.second.line_number,
                                             digest: first_digest,
                                         }),
-                                    ))
+                                    )
                                 }
                             }),
                     ),

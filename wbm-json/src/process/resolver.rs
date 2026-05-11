@@ -223,8 +223,8 @@ fn is_json_file<P: AsRef<Path>>(path: P) -> bool {
             .as_ref()
             .extension()
             .and_then(|extension| extension.to_str())
-            .filter(|extension| *extension == "json")
-            .is_some()
+            .as_ref()
+            .is_some_and(|extension| *extension == "json")
 }
 
 /// A set of resolution candidates for a given digest.
