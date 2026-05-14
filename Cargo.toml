@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "wbm",
     "wbm-cas",
+    "wbm-cdx",
+    "wbm-cdx-cli",
     "wbm-downloader",
     "wbm-downloader-cli",
     "wbm-invalid-log",
@@ -36,6 +38,7 @@ rayon = "1"
 regex = "1"
 reqwest = { version = "0.13", features = ["json"] }
 rusqlite = "0.39"
+scraper-trail = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.11"

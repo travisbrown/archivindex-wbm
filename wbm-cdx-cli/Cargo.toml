@@ -1,0 +1,19 @@
+[package]
+name = "archivindex-wbm-cdx-cli"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[[bin]]
+name = "archivindex-wbm-cdx"
+path = "src/main.rs"
+
+[dependencies]
+archivindex-wbm-cdx = { path = "../wbm-cdx/" }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+scraper-trail = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

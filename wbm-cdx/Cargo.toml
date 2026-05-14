@@ -1,0 +1,20 @@
+[package]
+name = "archivindex-wbm-cdx"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+archivindex-wbm = { path = "../wbm/" }
+bounded-static = { workspace = true }
+chrono = { workspace = true }
+http = { workspace = true }
+reqwest = { workspace = true }
+scraper-trail = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio-retry = "0.3"
+url = { workspace = true }
