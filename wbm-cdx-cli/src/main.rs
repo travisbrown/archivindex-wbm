@@ -79,13 +79,14 @@ async fn main() -> Result<(), Error> {
                 let entry = result.map_err(|e| Error::Archive(path, e))?;
                 for item in &entry.exchange.response.data.0.values {
                     writer.write_record([
-                        item.key.to_string(),
-                        item.timestamp.to_string(),
                         item.original.to_string(),
+                        item.timestamp.to_string(),
+                        item.digest.to_string(),
                         item.mime_type.as_str().to_owned(),
                         item.status_code.to_string(),
-                        item.digest.to_string(),
-                        item.length.map_or_else(String::new, |l| l.to_string()),
+                        item.length
+                            .map(|length| length.to_string())
+                            .unwrap_or_default(),
                     ])?;
                 }
             }
