@@ -68,7 +68,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-downloader-cli", version, author)]
+#[clap(name = "archivindex-wbm-downloader", version, author)]
 struct Opts {
     #[clap(flatten)]
     verbose: Verbosity,

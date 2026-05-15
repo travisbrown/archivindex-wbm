@@ -789,7 +789,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wxj-cli", version, author)]
+#[clap(name = "archivindex-wbm-json", version, author)]
 struct Opts {
     #[clap(flatten)]
     verbose: Verbosity,

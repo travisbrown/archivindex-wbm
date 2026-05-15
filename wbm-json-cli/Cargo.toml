@@ -6,6 +6,10 @@ version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 
+[[bin]]
+name = "archivindex-wbm-json"
+path = "src/main.rs"
+
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../wbm-cas/" }
