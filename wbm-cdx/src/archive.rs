@@ -21,6 +21,7 @@ pub(crate) fn build_cdx_url_str(
     match_type: MatchType,
     fast_latest: bool,
     limit: Option<i64>,
+    show_resume_key: bool,
     resume_key: Option<&str>,
 ) -> String {
     let mut s = format!("{CDX_BASE_URL}?url={url}&matchType={match_type}&output=json");
@@ -29,6 +30,9 @@ pub(crate) fn build_cdx_url_str(
     }
     if fast_latest {
         s.push_str("&fastLatest=true");
+    }
+    if show_resume_key {
+        s.push_str("&showResumeKey=true");
     }
     if let Some(key) = resume_key {
         s.push_str("&resumeKey=");
@@ -48,6 +52,8 @@ pub struct CdxRequest {
     pub fast_latest: bool,
     /// Maximum results per page; negative values return the most recent results. `None` means no limit.
     pub limit: Option<i64>,
+    /// Whether to request a resume key for pagination.
+    pub show_resume_key: bool,
     /// Pagination continuation key from a previous CDX response, if any.
     pub resume_key: Option<String>,
 }
@@ -59,6 +65,7 @@ impl Params for CdxRequest {
             self.match_type,
             self.fast_latest,
             self.limit,
+            self.show_resume_key,
             self.resume_key.as_deref(),
         );
         let headers = [("User-Agent", USER_AGENT)];
@@ -71,6 +78,7 @@ impl Params for CdxRequest {
         let mut match_type = None;
         let mut fast_latest = false;
         let mut limit = None;
+        let mut show_resume_key = false;
         let mut resume_key = None;
 
         for (key, value) in request.url.query_pairs() {
@@ -89,6 +97,7 @@ impl Params for CdxRequest {
                         expected: "integer limit",
                     })?);
                 }
+                "showResumeKey" => show_resume_key = value == "true",
                 "resumeKey" => resume_key = Some(value.into_owned()),
                 _ => {}
             }
@@ -103,6 +112,7 @@ impl Params for CdxRequest {
             })?,
             fast_latest,
             limit,
+            show_resume_key,
             resume_key,
         })
     }
@@ -159,6 +169,7 @@ mod tests {
             MatchType::Prefix,
             true,
             Some(-100),
+            true,
             None,
         );
         assert!(url.starts_with("http://web.archive.org/cdx/search/cdx?"));
@@ -167,17 +178,24 @@ mod tests {
         assert!(url.contains("fastLatest=true"));
         assert!(url.contains("limit=-100"));
         assert!(url.contains("output=json"));
+        assert!(url.contains("showResumeKey=true"));
     }
 
     #[test]
     fn build_cdx_url_omits_limit_when_none() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, None);
+        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, false, None);
         assert!(!url.contains("limit"));
     }
 
     #[test]
+    fn build_cdx_url_omits_show_resume_key_when_false() {
+        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, false, None);
+        assert!(!url.contains("showResumeKey"));
+    }
+
+    #[test]
     fn build_cdx_url_omits_fast_latest_when_false() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, Some(100), None);
+        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, Some(100), false, None);
         assert!(!url.contains("fastLatest"));
     }
 
@@ -188,6 +206,7 @@ mod tests {
             MatchType::Prefix,
             false,
             Some(100),
+            true,
             Some("eJwNxzEOgCA"),
         );
         assert!(url.contains("resumeKey=eJwNxzEOgCA"));
@@ -200,6 +219,7 @@ mod tests {
             match_type: MatchType::Prefix,
             fast_latest: true,
             limit: Some(-100),
+            show_resume_key: true,
             resume_key: Some("eJwNxzEOgCA".to_owned()),
         };
         let request = original.build_request(None);
@@ -214,6 +234,7 @@ mod tests {
             match_type: MatchType::Domain,
             fast_latest: false,
             limit: None,
+            show_resume_key: false,
             resume_key: None,
         };
         let request = original.build_request(None);
@@ -228,6 +249,7 @@ mod tests {
             match_type: MatchType::Domain,
             fast_latest: false,
             limit: Some(500),
+            show_resume_key: false,
             resume_key: None,
         };
         let request = original.build_request(None);

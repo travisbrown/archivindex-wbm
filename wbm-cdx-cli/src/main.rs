@@ -29,6 +29,7 @@ async fn main() -> Result<(), Error> {
                 match_type,
                 fast_latest,
                 limit,
+                show_resume_key: all,
             };
 
             let mut writer = csv::WriterBuilder::new()
