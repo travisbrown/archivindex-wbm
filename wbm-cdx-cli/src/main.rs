@@ -135,8 +135,8 @@ enum Command {
         #[clap(long)]
         fast_latest: bool,
         /// Result limit per page. Negative values return the most recent results.
-        #[clap(long, default_value = "-100")]
-        limit: i64,
+        #[clap(long)]
+        limit: Option<i64>,
         /// Follow pagination resume keys and fetch all results.
         #[clap(long)]
         all: bool,

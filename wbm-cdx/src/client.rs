@@ -51,8 +51,8 @@ pub struct CdxParams<'a> {
     pub match_type: MatchType,
     /// Optimize for fetching the most recent results first.
     pub fast_latest: bool,
-    /// Maximum results per page. Negative values return the most recent results.
-    pub limit: i64,
+    /// Maximum results per page. Negative values return the most recent results. `None` means no limit.
+    pub limit: Option<i64>,
 }
 
 /// Configuration for the [`Client`].

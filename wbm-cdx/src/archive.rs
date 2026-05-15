@@ -20,10 +20,13 @@ pub(crate) fn build_cdx_url_str(
     url: &str,
     match_type: MatchType,
     fast_latest: bool,
-    limit: i64,
+    limit: Option<i64>,
     resume_key: Option<&str>,
 ) -> String {
-    let mut s = format!("{CDX_BASE_URL}?url={url}&matchType={match_type}&output=json&limit={limit}");
+    let mut s = format!("{CDX_BASE_URL}?url={url}&matchType={match_type}&output=json");
+    if let Some(limit) = limit {
+        s.push_str(&format!("&limit={limit}"));
+    }
     if fast_latest {
         s.push_str("&fastLatest=true");
     }
@@ -43,8 +46,8 @@ pub struct CdxRequest {
     pub match_type: MatchType,
     /// Whether the most-recent results were returned first.
     pub fast_latest: bool,
-    /// Maximum results per page; negative values return the most recent results.
-    pub limit: i64,
+    /// Maximum results per page; negative values return the most recent results. `None` means no limit.
+    pub limit: Option<i64>,
     /// Pagination continuation key from a previous CDX response, if any.
     pub resume_key: Option<String>,
 }
@@ -99,9 +102,7 @@ impl Params for CdxRequest {
                 expected: "matchType query parameter",
             })?,
             fast_latest,
-            limit: limit.ok_or(ParseError::InvalidUrl {
-                expected: "limit query parameter",
-            })?,
+            limit,
             resume_key,
         })
     }
@@ -157,7 +158,7 @@ mod tests {
             "https://twitter.com/grok/status/2",
             MatchType::Prefix,
             true,
-            -100,
+            Some(-100),
             None,
         );
         assert!(url.starts_with("http://web.archive.org/cdx/search/cdx?"));
@@ -169,8 +170,14 @@ mod tests {
     }
 
     #[test]
+    fn build_cdx_url_omits_limit_when_none() {
+        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, None);
+        assert!(!url.contains("limit"));
+    }
+
+    #[test]
     fn build_cdx_url_omits_fast_latest_when_false() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, 100, None);
+        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, Some(100), None);
         assert!(!url.contains("fastLatest"));
     }
 
@@ -180,7 +187,7 @@ mod tests {
             "https://twitter.com/",
             MatchType::Prefix,
             false,
-            100,
+            Some(100),
             Some("eJwNxzEOgCA"),
         );
         assert!(url.contains("resumeKey=eJwNxzEOgCA"));
@@ -192,8 +199,22 @@ mod tests {
             url: "https://twitter.com/grok/status/2".to_owned(),
             match_type: MatchType::Prefix,
             fast_latest: true,
-            limit: -100,
+            limit: Some(-100),
             resume_key: Some("eJwNxzEOgCA".to_owned()),
+        };
+        let request = original.build_request(None);
+        let parsed = CdxRequest::parse_request(&request).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn parse_request_no_limit() {
+        let original = CdxRequest {
+            url: "https://example.com/".to_owned(),
+            match_type: MatchType::Domain,
+            fast_latest: false,
+            limit: None,
+            resume_key: None,
         };
         let request = original.build_request(None);
         let parsed = CdxRequest::parse_request(&request).unwrap();
@@ -206,7 +227,7 @@ mod tests {
             url: "https://example.com/".to_owned(),
             match_type: MatchType::Domain,
             fast_latest: false,
-            limit: 500,
+            limit: Some(500),
             resume_key: None,
         };
         let request = original.build_request(None);
