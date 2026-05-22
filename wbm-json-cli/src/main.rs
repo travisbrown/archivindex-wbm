@@ -263,7 +263,7 @@ async fn main() -> Result<(), Error> {
                                 Some((
                                     snapshot.content.user.id,
                                     snapshot.content.user.screen_name.to_string(),
-                                    country_codes,
+                                    country_codes.clone(),
                                 ))
                             }
                         })
@@ -280,8 +280,14 @@ async fn main() -> Result<(), Error> {
                         .users
                         .into_iter()
                         .filter_map(|user| {
-                            user.withheld.map(|withheld| {
-                                (user.id, user.username.to_string(), withheld.country_codes)
+                            user.user().and_then(|user| {
+                                user.withheld.as_ref().map(|withheld| {
+                                    (
+                                        user.id,
+                                        user.username.to_string(),
+                                        withheld.country_codes.clone(),
+                                    )
+                                })
                             })
                         })
                         .collect::<Vec<_>>()
@@ -346,8 +352,8 @@ async fn main() -> Result<(), Error> {
                         WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
                     >(&line)?;
 
-                    for user in snapshot.content.includes.users {
-                        if let Some(withheld) = user.withheld
+                    for user in snapshot.content.includes.users() {
+                        if let Some(withheld) = &user.withheld
                             && !withheld.country_codes.is_empty()
                         {
                             output.push(format!(
@@ -412,7 +418,7 @@ async fn main() -> Result<(), Error> {
                         WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
                     >(&line)?;
                     if let Some(timestamp) = snapshot.timestamp {
-                        for user in snapshot.content.includes.users {
+                        for user in snapshot.content.includes.users() {
                             let entry = observations
                                 .entry((user.id, user.username.to_string()))
                                 .or_default();
@@ -480,15 +486,13 @@ async fn main() -> Result<(), Error> {
                     || snapshot
                         .content
                         .includes
-                        .users
-                        .iter()
+                        .users()
                         .any(|user| target_ids.contains(&user.id))
                 {
                     let users = snapshot
                         .content
                         .includes
-                        .users
-                        .iter()
+                        .users()
                         .map(|user| (user.id, user.username.clone()));
 
                     let user_list = users
@@ -528,8 +532,7 @@ async fn main() -> Result<(), Error> {
                         snapshot
                             .content
                             .includes
-                            .users
-                            .iter()
+                            .users()
                             .find(|user| user.id == id)
                             .map(|user| user.username.to_string())
                     });
@@ -674,12 +677,11 @@ async fn main() -> Result<(), Error> {
                     let snapshot = serde_json::from_str::<
                         WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
                     >(&line)?;
-                    if let Some(media) = snapshot.content.includes.media
+                    if let Some(ref media) = snapshot.content.includes.media
                         && snapshot
                             .content
                             .includes
-                            .users
-                            .iter()
+                            .users()
                             .any(|user| ids.contains(&user.id))
                     {
                         for media in media {

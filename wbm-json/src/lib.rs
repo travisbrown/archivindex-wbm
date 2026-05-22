@@ -638,4 +638,10 @@ mod tests {
         let result = WxjDataRawSnapshot::parse(line);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn deserialize_bad_01() {
+        let content = include_str!("../../examples/wbm/wxj/bad-01.json").trim();
+        assert!(serde_json::from_str::<WxjDataSnapshot<'_>>(content).is_ok());
+    }
 }

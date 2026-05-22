@@ -55,13 +55,16 @@ pub mod wxj {
             }
 
             fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
-                content.lookup_user(&content.data.author_id).map(|user| {
+                let user = content.lookup_user(&content.data.author_id)?;
+                let username = user.username.as_deref()?;
+
+                Some(
                     format!(
                         "https://twitter.com/{}/status/{}",
-                        user.username, content.data.id
+                        username, content.data.id
                     )
-                    .into()
-                })
+                    .into(),
+                )
             }
         }
 
@@ -91,7 +94,7 @@ pub mod wxj {
         #[derive(serde::Deserialize)]
         struct User<'a> {
             id: Cow<'a, str>,
-            username: Cow<'a, str>,
+            username: Option<Cow<'a, str>>,
         }
     }
 
