@@ -1,11 +1,11 @@
 use archivindex_wbm::cdx::item::ItemList;
 use bounded_static::ToBoundedStatic;
 use chrono::{DateTime, Utc};
-use scraper_trail::archive::entry::Field;
 use scraper_trail::archive::Archiveable;
+use scraper_trail::archive::entry::Field;
 use scraper_trail::exchange::Response;
-use scraper_trail::request::params::{Params, ParseError};
 use scraper_trail::request::Request;
+use scraper_trail::request::params::{Params, ParseError};
 
 use crate::client::MatchType;
 
@@ -85,11 +85,14 @@ impl Params for CdxRequest {
             match key.as_ref() {
                 "url" => url = Some(value.into_owned()),
                 "matchType" => {
-                    match_type = Some(
-                        value.parse::<MatchType>().map_err(|_| ParseError::InvalidUrl {
-                            expected: "valid matchType (exact, prefix, host, domain)",
-                        })?,
-                    );
+                    match_type =
+                        Some(
+                            value
+                                .parse::<MatchType>()
+                                .map_err(|_| ParseError::InvalidUrl {
+                                    expected: "valid matchType (exact, prefix, host, domain)",
+                                })?,
+                        );
                 }
                 "fastLatest" => fast_latest = value == "true",
                 "limit" => {
@@ -144,16 +147,18 @@ impl Archiveable for CdxItemList<'static> {
         map: &mut A,
     ) -> Result<Option<(Field, Response<'de, Self>)>, A::Error> {
         map.next_entry::<Field, Response<'de, serde_json::Value>>()?
-            .map(|(field, response)| -> Result<(Field, Response<'de, Self>), A::Error> {
-                let response = response.and_then(|value| {
-                    let text =
-                        serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
-                    serde_json::from_str::<ItemList<'_>>(&text)
-                        .map(|list| CdxItemList(list.to_static()))
-                        .map_err(serde::de::Error::custom)
-                })?;
-                Ok((field, response))
-            })
+            .map(
+                |(field, response)| -> Result<(Field, Response<'de, Self>), A::Error> {
+                    let response = response.and_then(|value| {
+                        let text =
+                            serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+                        serde_json::from_str::<ItemList<'_>>(&text)
+                            .map(|list| CdxItemList(list.to_static()))
+                            .map_err(serde::de::Error::custom)
+                    })?;
+                    Ok((field, response))
+                },
+            )
             .transpose()
     }
 }
@@ -183,19 +188,40 @@ mod tests {
 
     #[test]
     fn build_cdx_url_omits_limit_when_none() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, false, None);
+        let url = build_cdx_url_str(
+            "https://example.com/",
+            MatchType::Exact,
+            false,
+            None,
+            false,
+            None,
+        );
         assert!(!url.contains("limit"));
     }
 
     #[test]
     fn build_cdx_url_omits_show_resume_key_when_false() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, None, false, None);
+        let url = build_cdx_url_str(
+            "https://example.com/",
+            MatchType::Exact,
+            false,
+            None,
+            false,
+            None,
+        );
         assert!(!url.contains("showResumeKey"));
     }
 
     #[test]
     fn build_cdx_url_omits_fast_latest_when_false() {
-        let url = build_cdx_url_str("https://example.com/", MatchType::Exact, false, Some(100), false, None);
+        let url = build_cdx_url_str(
+            "https://example.com/",
+            MatchType::Exact,
+            false,
+            Some(100),
+            false,
+            None,
+        );
         assert!(!url.contains("fastLatest"));
     }
 

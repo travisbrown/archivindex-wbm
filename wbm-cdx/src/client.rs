@@ -219,8 +219,14 @@ impl Client {
         params: &CdxParams<'_>,
         resume_key: Option<&str>,
     ) -> Result<ItemList<'static>, Error> {
-        let url =
-            build_cdx_url_str(params.url, params.match_type, params.fast_latest, params.limit, params.show_resume_key, resume_key);
+        let url = build_cdx_url_str(
+            params.url,
+            params.match_type,
+            params.fast_latest,
+            params.limit,
+            params.show_resume_key,
+            resume_key,
+        );
 
         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(2)
             .factor(self.configuration.retry_base_duration_ms / 2)
