@@ -222,3 +222,57 @@ where
 
     Ok(summary)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io::read::SnapshotReader;
+    use std::fs;
+
+    /// A data file whose contents do not hash to the digest it is named by (here, an empty file —
+    /// whose digest is the empty-input SHA-1 — stored under a different name) is skipped with a
+    /// `digest_mismatch`, while a correctly-named file alongside it is still written.
+    #[test]
+    fn skips_files_whose_contents_do_not_match_their_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join("data");
+        let cdx_dir = dir.path().join("cdx");
+        fs::create_dir(&data_dir).expect("create data dir");
+        fs::create_dir(&cdx_dir).expect("create cdx dir");
+        let output = dir.path().join("out.ndjson.zst");
+        let invalid_db = dir.path().join("invalid.db");
+
+        // Valid: stored under the SHA-1 of its own bytes.
+        let good = b"{\"id\":1}\n";
+        let good_digest = Sha1Computer::compute_digest(good);
+        fs::write(data_dir.join(good_digest.to_string()), good).expect("write good");
+
+        // Corrupt: an empty file stored under an unrelated digest.
+        let wrong_name = Sha1Computer::compute_digest(b"not the contents");
+        assert_ne!(wrong_name, Sha1Computer::compute_digest(b""));
+        fs::write(data_dir.join(wrong_name.to_string()), b"").expect("write empty");
+
+        let context = Context::from_static(&['\n']);
+        let summary = compact(
+            &[data_dir.as_path()],
+            &[cdx_dir.as_path()],
+            &invalid_db,
+            vec![((), output.as_path(), &context)],
+            1,
+            false,
+            |_bytes, _resolution| ((), FormatInfo::default()),
+        )
+        .expect("compact succeeds");
+
+        // Only the corrupt file is skipped (for a digest mismatch); the valid file is written.
+        assert_eq!(summary.skipped.digest_mismatch.len(), 1);
+        assert_eq!(summary.unresolved_count, 1);
+
+        let snapshots: Vec<_> = SnapshotReader::open(&output)
+            .expect("open output")
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].digest, good_digest);
+    }
+}

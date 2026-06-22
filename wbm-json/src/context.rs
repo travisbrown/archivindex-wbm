@@ -453,3 +453,76 @@ impl Context {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_registered_format_round_trip() {
+        // A stand-in non-default format whose digest is over the uppercased content. The codec's
+        // encode uppercases (str -> bytes); decode lowercases back (bytes -> str).
+        let codec = Codec::new(
+            |bytes: &[u8]| {
+                std::str::from_utf8(bytes)
+                    .ok()
+                    .map(|text| Cow::Owned(text.to_lowercase()))
+            },
+            |content: &str, _metadata: &serde_json::Map<String, serde_json::Value>| {
+                Cow::Owned(content.to_uppercase().into_bytes())
+            },
+        );
+
+        let digest = Sha1Computer::compute_digest("ABC");
+        let line = format!(
+            "{{\"digest\":\"{digest}\",\"format\":{{\"type\":\"upper\"}},\"content\":abc}}"
+        );
+
+        let snapshot = ExactSnapshot::parse(&line).unwrap();
+        assert_eq!(snapshot.format.name, Format::Other("upper".to_owned()));
+        assert_eq!(snapshot.content.as_str(), "abc");
+
+        assert_eq!(line, snapshot.display(&Context::default()).to_string());
+
+        let upper = Format::Other("upper".to_owned());
+        assert_eq!(
+            Context::default().validate(&snapshot, &mut Sha1::new()),
+            Err(validation::ValidationError::UnsupportedFormat(
+                upper.clone()
+            ))
+        );
+
+        let context = Context::default().with_format(upper, codec);
+        assert_eq!(context.validate(&snapshot, &mut Sha1::new()), Ok(()));
+    }
+
+    #[test]
+    fn unprocessed_snapshot_from_bytes() {
+        // Default UTF-8 format: trailing whitespace stripped into the closing-whitespace field, the
+        // digest is over the raw bytes.
+        let context = Context::from_static(&['\n']);
+        let raw = b"{\"a\":1}\n";
+
+        let snapshot = context
+            .unprocessed_snapshot(&Format::Utf8, raw)
+            .expect("decodes");
+
+        assert_eq!(snapshot.content.as_str(), "{\"a\":1}");
+        assert!(snapshot.format.closing_whitespace.is_none()); // matches the default, so not stored
+        assert_eq!(snapshot.digest, Sha1Computer::compute_digest(raw));
+        assert_eq!(context.validate(&snapshot, &mut Sha1::new()), Ok(()));
+    }
+
+    #[test]
+    fn infer_url_via_cel() {
+        let context = Context::default()
+            .with_url_query("\"https://truthsocial.com/api/v1/statuses/\" + content.id")
+            .unwrap();
+
+        assert_eq!(
+            context.infer_url(r#"{"id":"42"}"#).as_deref(),
+            Some("https://truthsocial.com/api/v1/statuses/42")
+        );
+        assert_eq!(Context::default().infer_url(r#"{"id":"42"}"#), None);
+    }
+}

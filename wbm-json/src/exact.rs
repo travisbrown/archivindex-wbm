@@ -325,3 +325,114 @@ pub fn format_closing_whitespace(whitespace: &[char]) -> String {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Snapshot, context::Context, format::Format};
+    use sha1::{Digest as _, Sha1};
+    use std::io::BufRead;
+
+    type RawSnapshot<'a> = ExactSnapshot<'a>;
+    // A concrete typed snapshot for deserialization round-trips; the content schema is irrelevant.
+    type TypedSnapshot<'a> = Snapshot<'a, serde_json::Value>;
+
+    fn context() -> Context {
+        crate::configuration::instances::wxj::data::context()
+    }
+
+    #[test]
+    fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
+        let line = include_str!("../../examples/wbm/wxj/inferred-url-01.json").trim();
+        let context = context();
+        let parsed = RawSnapshot::parse(line)?;
+        assert_eq!(line, parsed.display(&context).to_string());
+        assert_eq!(context.validate(&parsed, &mut Sha1::new()), Ok(()));
+        Ok(())
+    }
+
+    #[test]
+    fn parse_examples() -> Result<(), Box<dyn std::error::Error>> {
+        let context = context();
+        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        for line in lines {
+            let parsed = RawSnapshot::parse(line)?;
+            assert_eq!(line, parsed.display(&context).to_string());
+            assert_eq!(context.validate(&parsed, &mut Sha1::new()), Ok(()));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn validate_all_examples() -> Result<(), Box<dyn std::error::Error>> {
+        let lines = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
+            "../../examples/wbm/wxj/lines-01.ndjson"
+        )))
+        .lines();
+        let validation = context().validate_lines(lines)?;
+        assert!(validation.is_successful());
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
+        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        for line in lines {
+            let _snapshot = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
+        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        for line in lines {
+            let snapshot_parse = RawSnapshot::parse(line)?;
+            let snapshot_from_str = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
+            assert_eq!(snapshot_parse.digest, snapshot_from_str.digest);
+            assert_eq!(
+                snapshot_parse.expected_digest,
+                snapshot_from_str.expected_digest
+            );
+            assert_eq!(snapshot_parse.format, snapshot_from_str.format);
+            assert_eq!(snapshot_parse.timestamp, snapshot_from_str.timestamp);
+            assert_eq!(snapshot_parse.url, snapshot_from_str.url);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unprocessed_with_short_content() {
+        let context = context();
+        for s in ["", "a", "ab", "abc", "abcd"] {
+            let snapshot = context
+                .unprocessed_snapshot(&Format::Utf8, s.as_bytes())
+                .unwrap();
+            assert_eq!(snapshot.content.as_str(), s);
+        }
+    }
+
+    #[test]
+    fn parse_with_missing_quote_in_url() {
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com/no/closing/quote"#;
+        assert!(RawSnapshot::parse(line).is_err());
+    }
+
+    #[test]
+    fn parse_with_truncated_url() {
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":"http://example.com"#;
+        assert!(RawSnapshot::parse(line).is_err());
+    }
+
+    #[test]
+    fn parse_with_url_at_end_of_line() {
+        let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":""#;
+        assert!(RawSnapshot::parse(line).is_err());
+    }
+
+    #[test]
+    fn deserialize_bad_01() {
+        let content = include_str!("../../examples/wbm/wxj/bad-01.json").trim();
+        assert!(serde_json::from_str::<TypedSnapshot<'_>>(content).is_ok());
+    }
+}

@@ -1,13 +1,10 @@
 //! Integration tests for [`archivindex_wbm_json::stream::merge`].
 //!
-//! Reads pre-generated fixtures from `examples/merge/` (created by
-//! `generate_merge_fixtures.rs`) and verifies that `merge_dual_zstd`
-//! produces the expected output.
+//! Reads pre-generated fixtures from `examples/merge/` (created by `generate_merge_fixtures.rs`)
+//! and verifies that `merge_dual_zstd` produces the expected output.
 
 use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wbm_json::configuration::instances::wxj::{
-    data::WxjDataConfiguration, flat::WxjFlatConfiguration,
-};
+use archivindex_wbm_json::configuration::instances::wxj::{data, flat};
 use archivindex_wbm_json::io::read::SnapshotReader;
 use archivindex_wbm_json::stream::merge::{MergeDualConfig, MergeStats, NewSnapshotTarget};
 use std::collections::BTreeSet;
@@ -48,18 +45,16 @@ fn read_manifest() -> Vec<ManifestEntry> {
         .collect()
 }
 
-/// Collect digests from a zstd-compressed ND-JSON file.
-fn read_output_digests<C: archivindex_wbm_json::configuration::Configuration + 'static>(
-    path: &std::path::Path,
-) -> Vec<Sha1Digest> {
-    SnapshotReader::<_, C>::open(path)
+/// Collect digests from a Zstandard-compressed NDJSON file.
+fn read_output_digests(path: &std::path::Path) -> Vec<Sha1Digest> {
+    SnapshotReader::open(path)
         .unwrap()
         .map(|r| r.unwrap().digest)
         .collect()
 }
 
-/// Classify content as flat or data based on the JSON prefix, matching the
-/// logic used in the CLI merge command.
+/// Classify content as flat or data based on the JSON prefix, matching the logic used in the CLI
+/// merge command.
 fn classify_content(content: &str) -> NewSnapshotTarget {
     if content.starts_with("{\"created_at\":") {
         NewSnapshotTarget::First
@@ -74,8 +69,8 @@ fn classify_content(content: &str) -> NewSnapshotTarget {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Full end-to-end merge: reads fixture inputs, merges new entries (some
-/// overlapping), and verifies both the statistics and the output contents.
+/// Full end-to-end merge: reads fixture inputs, merges new entries (some overlapping), and verifies
+/// both the statistics and the output contents.
 #[tokio::test]
 async fn merge_dual_zstd_end_to_end() {
     let merge_dir = examples_merge_dir();
@@ -119,11 +114,7 @@ async fn merge_dual_zstd_end_to_end() {
     // Temp directory for outputs.
     let tmp = tempfile::tempdir().unwrap();
 
-    let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd::<
-        WxjFlatConfiguration,
-        WxjDataConfiguration,
-        _,
-    >(MergeDualConfig {
+    let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
         first_input: merge_dir.join("flat_input.ndjson.zst"),
         second_input: merge_dir.join("data_input.ndjson.zst"),
         new_entries,
@@ -131,6 +122,8 @@ async fn merge_dual_zstd_end_to_end() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
+        first_context: flat::context(),
+        second_context: data::context(),
         classify: classify_content,
     })
     .await
@@ -139,10 +132,8 @@ async fn merge_dual_zstd_end_to_end() {
     assert_eq!(stats, expected_stats, "merge stats mismatch");
 
     // Read output files and collect digests.
-    let flat_output_digests =
-        read_output_digests::<WxjFlatConfiguration>(&tmp.path().join("flat_output.ndjson.zst"));
-    let data_output_digests =
-        read_output_digests::<WxjDataConfiguration>(&tmp.path().join("data_output.ndjson.zst"));
+    let flat_output_digests = read_output_digests(&tmp.path().join("flat_output.ndjson.zst"));
+    let data_output_digests = read_output_digests(&tmp.path().join("data_output.ndjson.zst"));
 
     // Expected flat digests: all flat entries from the manifest.
     let expected_flat: BTreeSet<_> = manifest
@@ -215,11 +206,7 @@ async fn merge_output_validates() {
 
     let tmp = tempfile::tempdir().unwrap();
 
-    archivindex_wbm_json::stream::merge::merge_dual_zstd::<
-        WxjFlatConfiguration,
-        WxjDataConfiguration,
-        _,
-    >(MergeDualConfig {
+    archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
         first_input: merge_dir.join("flat_input.ndjson.zst"),
         second_input: merge_dir.join("data_input.ndjson.zst"),
         new_entries,
@@ -227,39 +214,33 @@ async fn merge_output_validates() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
+        first_context: flat::context(),
+        second_context: data::context(),
         classify: classify_content,
     })
     .await
     .unwrap();
 
     // Validate every snapshot in both outputs.
-    let flat_reader =
-        SnapshotReader::<_, WxjFlatConfiguration>::open(tmp.path().join("flat_output.ndjson.zst"))
-            .unwrap();
+    let flat_reader = SnapshotReader::open(tmp.path().join("flat_output.ndjson.zst")).unwrap();
 
+    let flat_context = flat::context();
     let mut hasher = sha1::Sha1::default();
     for result in flat_reader {
         let snapshot = result.unwrap();
-        snapshot.validate(&mut hasher).unwrap_or_else(|actual| {
-            panic!(
-                "flat snapshot {}: digest mismatch (actual {})",
-                snapshot.digest, actual
-            )
-        });
+        flat_context
+            .validate(&snapshot, &mut hasher)
+            .unwrap_or_else(|error| panic!("flat snapshot {}: {error}", snapshot.digest));
     }
 
-    let data_reader =
-        SnapshotReader::<_, WxjDataConfiguration>::open(tmp.path().join("data_output.ndjson.zst"))
-            .unwrap();
+    let data_reader = SnapshotReader::open(tmp.path().join("data_output.ndjson.zst")).unwrap();
 
+    let data_context = data::context();
     for result in data_reader {
         let snapshot = result.unwrap();
-        snapshot.validate(&mut hasher).unwrap_or_else(|actual| {
-            panic!(
-                "data snapshot {}: digest mismatch (actual {})",
-                snapshot.digest, actual
-            )
-        });
+        data_context
+            .validate(&snapshot, &mut hasher)
+            .unwrap_or_else(|error| panic!("data snapshot {}: {error}", snapshot.digest));
     }
 }
 
@@ -279,11 +260,7 @@ async fn merge_parallel_matches_sequential() {
 
     let tmp = tempfile::tempdir().unwrap();
 
-    let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd::<
-        WxjFlatConfiguration,
-        WxjDataConfiguration,
-        _,
-    >(MergeDualConfig {
+    let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
         first_input: merge_dir.join("flat_input.ndjson.zst"),
         second_input: merge_dir.join("data_input.ndjson.zst"),
         new_entries,
@@ -291,6 +268,8 @@ async fn merge_parallel_matches_sequential() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 4,
+        first_context: flat::context(),
+        second_context: data::context(),
         classify: classify_content,
     })
     .await
@@ -321,10 +300,8 @@ async fn merge_parallel_matches_sequential() {
     assert_eq!(stats.skipped, 0);
 
     // Verify content matches expected sets.
-    let flat_digests =
-        read_output_digests::<WxjFlatConfiguration>(&tmp.path().join("flat_output.ndjson.zst"));
-    let data_digests =
-        read_output_digests::<WxjDataConfiguration>(&tmp.path().join("data_output.ndjson.zst"));
+    let flat_digests = read_output_digests(&tmp.path().join("flat_output.ndjson.zst"));
+    let data_digests = read_output_digests(&tmp.path().join("data_output.ndjson.zst"));
 
     let expected_flat: BTreeSet<_> = manifest
         .iter()

@@ -342,3 +342,192 @@ impl<
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build an infallible line iterator from digest strings and dummy content.
+    fn lines_from_digests<'a>(
+        digests: &'a [&'a str],
+    ) -> impl Iterator<Item = Result<String, std::io::Error>> + 'a {
+        digests
+            .iter()
+            .map(|d| Ok(format!(r#"{{"digest":"{d}","content":{{"dummy":true}}}}"#)))
+    }
+
+    #[test]
+    fn merge_disjoint() {
+        let a_digests = ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"];
+        let b_digests = ["ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72"];
+
+        let results: Vec<_> = merge(
+            lines_from_digests(&a_digests),
+            lines_from_digests(&b_digests),
+        )
+        .collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(
+            results[0].as_ref().unwrap().1,
+            SourceLine::First(_)
+        ));
+        assert!(matches!(
+            results[1].as_ref().unwrap().1,
+            SourceLine::Second(_)
+        ));
+    }
+
+    #[test]
+    fn merge_identical_digests() {
+        let digests = ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"];
+
+        let results: Vec<_> =
+            merge(lines_from_digests(&digests), lines_from_digests(&digests)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            results[0].as_ref().unwrap().1,
+            SourceLine::Match(_)
+        ));
+    }
+
+    #[test]
+    fn merge_one_empty() {
+        let a_digests = [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+        ];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> =
+            merge(lines_from_digests(&a_digests), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|r| matches!(r.as_ref().unwrap().1, SourceLine::First(_)))
+        );
+    }
+
+    #[test]
+    fn merge_both_empty() {
+        let empty: [&str; 0] = [];
+        let mut results = merge(lines_from_digests(&empty), lines_from_digests(&empty));
+
+        assert!(results.next().is_none());
+    }
+
+    #[test]
+    fn merge_io_error_in_a() {
+        let a = vec![Err(std::io::Error::other("test"))];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(a.into_iter(), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(Error::ReadIo { .. })));
+    }
+
+    #[test]
+    fn merge_invalid_line() {
+        let a = vec![Ok("not a valid snapshot line".to_owned())];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(a.into_iter(), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(Error::InvalidLine { .. })));
+    }
+
+    #[test]
+    fn merge_out_of_order_first() {
+        let a = [
+            "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM54",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+        ];
+        let empty: [&str; 0] = [];
+
+        let results: Vec<_> = merge(lines_from_digests(&a), lines_from_digests(&empty)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(matches!(
+            results[1],
+            Err(Error::Order {
+                file: File::First,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn merge_out_of_order_second() {
+        let empty: [&str; 0] = [];
+        let b = [
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+        ];
+
+        let results: Vec<_> = merge(lines_from_digests(&empty), lines_from_digests(&b)).collect();
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ok());
+        assert!(matches!(
+            results[1],
+            Err(Error::Order {
+                file: File::Second,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn merge_interleaved() {
+        let a = [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2",
+            "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM54",
+        ];
+        let b = [
+            "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDQ4",
+            "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72",
+        ];
+
+        let results: Vec<_> = merge(lines_from_digests(&a), lines_from_digests(&b))
+            .map(|r| r.unwrap().1)
+            .collect();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], SourceLine::First(_)));
+        assert!(matches!(results[1], SourceLine::Second(_)));
+        assert!(matches!(results[2], SourceLine::First(_)));
+        assert!(matches!(results[3], SourceLine::Second(_)));
+    }
+
+    #[test]
+    fn merge_collision() {
+        let digest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2";
+        let a = vec![Ok(format!(
+            r#"{{"digest":"{digest}","content":{{"value":1}}}}"#
+        ))];
+        let b = vec![Ok(format!(
+            r#"{{"digest":"{digest}","content":{{"value":2}}}}"#
+        ))];
+
+        let results: Vec<_> = merge(a.into_iter(), b.into_iter()).collect();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            results[0],
+            Ok((
+                _,
+                SourceLine::Collision(Collision {
+                    first_line_number: 1,
+                    second_line_number: 1,
+                    ..
+                })
+            ))
+        ));
+    }
+}
