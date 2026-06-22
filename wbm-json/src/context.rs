@@ -359,6 +359,39 @@ impl Context {
         }
     }
 
+    /// Reproduce the exact bytes whose SHA-1 is `snapshot`'s digest.
+    ///
+    /// This is the inverse of [`unprocessed_snapshot`](Context::unprocessed_snapshot): the content
+    /// followed by its effective closing whitespace, encoded by the snapshot's format (the default
+    /// format is plain UTF-8; a non-default format is encoded by its registered [`Codec`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns
+    /// [`ValidationError::UnsupportedFormat`](crate::validation::ValidationError::UnsupportedFormat)
+    /// if the snapshot names a non-default format with no codec registered on this context.
+    pub fn encode(
+        &self,
+        snapshot: &ExactSnapshot<'_>,
+    ) -> Result<Vec<u8>, validation::ValidationError> {
+        match &snapshot.format.name {
+            Format::Utf8 => {
+                let mut bytes = snapshot.content.as_bytes().to_vec();
+                bytes.extend(char_whitespace_to_bytes(self.closing_whitespace(snapshot)));
+                Ok(bytes)
+            }
+            other @ Format::Other(_) => {
+                let codec = self
+                    .codec(other)
+                    .ok_or_else(|| validation::ValidationError::UnsupportedFormat(other.clone()))?;
+
+                let mut full = snapshot.content.as_str().to_owned();
+                full.extend(self.closing_whitespace(snapshot).iter().copied());
+                Ok(codec.encode(&full, &snapshot.format.metadata).into_owned())
+            }
+        }
+    }
+
     /// Parse and validate every line of an NDJSON reader under this context.
     pub fn validate_lines<R: Read>(
         &self,

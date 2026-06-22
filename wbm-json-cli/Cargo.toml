@@ -11,6 +11,7 @@ archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../wbm-cas/" }
 archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
 archivindex-wbm-json = { path = "../wbm-json/" }
+archivindex-wbm-json-gzip = { path = "../wbm-json-gzip/" }
 birdsite = { workspace = true }
 chrono = { workspace = true }
 cli-helpers = { workspace = true }

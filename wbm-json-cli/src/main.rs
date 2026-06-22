@@ -1,7 +1,7 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
-use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use archivindex_wbm_json::{
     Snapshot,
     configuration::instances::{wts, wxj},
@@ -62,6 +62,44 @@ async fn main() -> Result<(), Error> {
             let validation = archivindex_wbm_json::stream::validate_zstd(input, n, context).await?;
 
             println!("{validation:?}");
+        }
+        Command::Export {
+            input,
+            digest,
+            output,
+        } => {
+            // The input rows are in binary digest order, so sort the requested digests and advance
+            // through them in a single pass.
+            let mut requested = digest;
+            requested.sort_unstable();
+            requested.dedup();
+
+            let mut context = resolve_context(None, &input)?;
+            archivindex_wbm_json_gzip::register(&mut context);
+            std::fs::create_dir_all(&output)?;
+
+            let mut next = 0;
+            for result in SnapshotReader::open(&input)? {
+                if next >= requested.len() {
+                    break;
+                }
+                let snapshot = result?;
+
+                // Any requested digests we have passed are not present in the input.
+                while next < requested.len() && requested[next] < snapshot.digest {
+                    log::warn!("Digest not found: {}", requested[next]);
+                    next += 1;
+                }
+
+                if next < requested.len() && requested[next] == snapshot.digest {
+                    export_snapshot(&context, &snapshot, &output)?;
+                    next += 1;
+                }
+            }
+
+            for missing in &requested[next..] {
+                log::warn!("Digest not found: {missing}");
+            }
         }
         Command::Incomplete { input } => {
             let mut count = 0;
@@ -811,6 +849,32 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Erro
     Ok(context)
 }
 
+/// Reproduce the original content bytes of `snapshot` (its content followed by the effective
+/// closing whitespace, encoded by its format), write them to `<output>/<DIGEST>`, then reread the
+/// file and confirm its SHA-1 matches the snapshot's digest.
+fn export_snapshot(
+    context: &Context,
+    snapshot: &ExactSnapshot<'_>,
+    output: &Path,
+) -> Result<(), Error> {
+    let bytes = context.encode(snapshot)?;
+
+    let path = output.join(snapshot.digest.to_string());
+    std::fs::write(&path, &bytes).map_err(|error| Error::FileIo(path.clone(), error))?;
+
+    let on_disk = std::fs::read(&path).map_err(|error| Error::FileIo(path, error))?;
+    let actual = Sha1Computer::compute_digest(&on_disk);
+    if actual == snapshot.digest {
+        log::info!("Exported {}", snapshot.digest);
+        Ok(())
+    } else {
+        Err(Error::DigestMismatch {
+            expected: snapshot.digest,
+            actual,
+        })
+    }
+}
+
 fn validate_file(
     path: &Path,
     context: &Context,
@@ -869,6 +933,13 @@ pub enum Error {
     Compact(#[from] archivindex_wbm_json::process::compact::Error),
     #[error("Merge error")]
     Merge(#[from] archivindex_wbm_json::process::merge::Error),
+    #[error("Validation error")]
+    Validation(#[from] archivindex_wbm_json::validation::ValidationError),
+    #[error("Exported file for digest {expected} has digest {actual}")]
+    DigestMismatch {
+        expected: Sha1Digest,
+        actual: Sha1Digest,
+    },
 }
 
 #[derive(Clone, Debug, Default, clap::ValueEnum)]
@@ -904,6 +975,22 @@ enum Command {
         input: PathBuf,
         #[clap(long)]
         n: usize,
+    },
+    /// Write the original content bytes for the given digests into a directory, each file named by
+    /// its uppercase Base32 digest.
+    ///
+    /// A digest not present in the input is skipped with a warning; an exported file that does not
+    /// hash to its digest fails with an error.
+    Export {
+        /// Snapshot NDJSON Zstandard file.
+        #[clap(long)]
+        input: PathBuf,
+        /// Digest to export (may be repeated).
+        #[clap(long)]
+        digest: Vec<Sha1Digest>,
+        /// Output directory.
+        #[clap(long)]
+        output: PathBuf,
     },
     Incomplete {
         #[clap(long)]
