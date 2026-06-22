@@ -67,9 +67,14 @@ impl Data {
     /// Iterate file paths by digest and return with the digest.
     ///
     /// In the case of duplicate digests, simply chooses the first.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal invariant is violated (a digest entry with no associated path), which
+    /// cannot happen when items are inserted via the public API.
     pub fn files(&self) -> impl Iterator<Item = (Sha1Digest, &PathBuf)> {
-        // Note that we assume that we have no empty entries (which should be safe, since the map
-        // is private and instances are constructed only in two places).
+        // Note that we assume that we have no empty entries (which should be safe, since the map is
+        // private and instances are constructed only in two places).
         self.paths.iter().map(|(digest, paths)| {
             (
                 *digest,

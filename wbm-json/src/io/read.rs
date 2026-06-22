@@ -1,31 +1,32 @@
-use crate::{Error, Snapshot, configuration::Configuration};
-use std::borrow::Cow;
+use crate::{Error, exact::ExactSnapshot};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines, Read};
-use std::marker::PhantomData;
 use std::path::Path;
 
-pub struct SnapshotReader<R, C> {
+/// Reads NDJSON snapshot lines into raw [`Snapshot`] values.
+///
+/// Reading requires no configuration: lines are parsed structurally and the content is kept as raw
+/// JSON. Interpret the results with a [`Context`](crate::context::Context) when validation is
+/// needed.
+pub struct SnapshotReader<R> {
     underlying: Lines<BufReader<R>>,
-    configuration: PhantomData<C>,
 }
 
-impl<C: Configuration> SnapshotReader<zstd::Decoder<'_, BufReader<File>>, C> {
+impl SnapshotReader<zstd::Decoder<'_, BufReader<File>>> {
     pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, std::io::Error> {
         Ok(Self {
             underlying: BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines(),
-            configuration: PhantomData,
         })
     }
 }
 
-impl<R: Read, C: Configuration + 'static> Iterator for SnapshotReader<R, C> {
-    type Item = Result<Snapshot<'static, C, Cow<'static, str>>, Error>;
+impl<R: Read> Iterator for SnapshotReader<R> {
+    type Item = Result<ExactSnapshot<'static>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.underlying.next().map(|result| {
             result.map_err(Error::from).and_then(|line| {
-                Snapshot::parse(&line).map(bounded_static::IntoBoundedStatic::into_static)
+                ExactSnapshot::parse(&line).map(bounded_static::IntoBoundedStatic::into_static)
             })
         })
     }

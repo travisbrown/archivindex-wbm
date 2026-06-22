@@ -180,8 +180,7 @@ impl Resolver {
         self.done.get(&digest).map(|set| set.to_resolution(digest))
     }
 
-    /// Iterate over all digests that have been resolved, yielding each
-    /// resolution and its warnings.
+    /// Iterate over all digests that have been resolved, yielding each resolution and its warnings.
     pub fn found(&self) -> impl Iterator<Item = (Resolution, ResolutionWarnings)> + '_ {
         self.done
             .iter()

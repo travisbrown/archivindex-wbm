@@ -1,38 +1,47 @@
-use crate::{Snapshot, configuration::Configuration};
+use crate::context::{Context, SnapshotError};
+use crate::exact::ExactSnapshot;
+use crate::format::Format;
 use archivindex_wbm::digest::Sha1Digest;
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::marker::PhantomData;
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("Internal line break")]
-    InternalLineBreak(String),
+    #[error("Snapshot error")]
+    Snapshot(#[from] SnapshotError),
 }
 
-pub struct SnapshotWriter<W, C> {
+/// Writes snapshots as canonical NDJSON under a [`Context`].
+///
+/// The context supplies the closing whitespace (for creating new snapshots and omitting a default
+/// `closing_whitespace` field) and the URL inference used to omit a redundant `url` field.
+pub struct SnapshotWriter<W> {
     last_written: Option<Sha1Digest>,
     underlying: W,
-    configuration: PhantomData<C>,
+    context: Context,
 }
 
-impl<W: Write, C: Configuration> SnapshotWriter<W, C>
-where
-    for<'c> C::Content<'c>: serde::Deserialize<'c>,
-{
-    pub fn write<R: Read>(&mut self, digest: Sha1Digest, reader: R) -> Result<bool, Error> {
+impl<W> SnapshotWriter<W> {
+    /// The [`Context`] this writer uses to create and serialize snapshots.
+    #[must_use]
+    pub const fn context(&self) -> &Context {
+        &self.context
+    }
+}
+
+impl<W: Write> SnapshotWriter<W> {
+    pub fn write<R: Read>(&mut self, digest: Sha1Digest, mut reader: R) -> Result<bool, Error> {
         if Some(digest) == self.last_written {
             Ok(false)
         } else {
-            let content = std::io::read_to_string(reader)?;
-            let snapshot = Snapshot::<C, _>::new(digest, &content)
-                .ok_or_else(|| Error::InternalLineBreak(content.clone()))?;
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes)?;
+            let snapshot = self.context.unprocessed_snapshot(&Format::Utf8, &bytes)?;
 
-            writeln!(self.underlying, "{snapshot}")?;
+            writeln!(self.underlying, "{}", snapshot.display(&self.context))?;
             self.last_written = Some(digest);
 
             Ok(true)
@@ -40,14 +49,11 @@ where
     }
 
     /// Ignores consecutive values with the same digest.
-    pub fn write_snapshot(
-        &mut self,
-        snapshot: &Snapshot<'_, C, Cow<'_, str>>,
-    ) -> Result<bool, std::io::Error> {
+    pub fn write_snapshot(&mut self, snapshot: &ExactSnapshot<'_>) -> Result<bool, std::io::Error> {
         if Some(snapshot.digest) == self.last_written {
             Ok(false)
         } else {
-            writeln!(self.underlying, "{snapshot}")?;
+            writeln!(self.underlying, "{}", snapshot.display(&self.context))?;
             self.last_written = Some(snapshot.digest);
 
             Ok(true)
@@ -55,10 +61,11 @@ where
     }
 }
 
-impl<C> SnapshotWriter<zstd::Encoder<'_, File>, C> {
+impl SnapshotWriter<zstd::Encoder<'_, File>> {
     pub fn create<P: AsRef<Path>>(
         output: P,
         compression_level: u16,
+        context: Context,
     ) -> Result<Self, std::io::Error> {
         Ok(Self {
             last_written: None,
@@ -66,7 +73,7 @@ impl<C> SnapshotWriter<zstd::Encoder<'_, File>, C> {
                 File::create_new(output)?,
                 i32::from(compression_level),
             )?,
-            configuration: PhantomData,
+            context,
         })
     }
 

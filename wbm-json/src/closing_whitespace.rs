@@ -40,19 +40,18 @@ pub fn serialize<S: Serializer>(
 ) -> Result<S::Ok, S::Error> {
     match value {
         Some(value) => {
+            // Push the actual whitespace characters and let the serializer apply JSON escaping, so
+            // `['\r', '\n']` becomes the string value `"\r\n"`. Pushing pre-escaped text here would
+            // double-escape under `serde_json` (`"\\r\\n"`) and fail to round-trip.
             let mut closing_whitespace_str = String::new();
 
-            for whitespace_char in value {
-                match whitespace_char {
-                    '\r' => closing_whitespace_str.push_str("\\r"),
-                    '\n' => closing_whitespace_str.push_str("\\n"),
-                    ' ' => closing_whitespace_str.push(' '),
-                    '\t' => closing_whitespace_str.push_str("\\t"),
-                    other => {
-                        return Err(serde::ser::Error::custom(format!(
-                            "unexpected whitespace character: {other}"
-                        )));
-                    }
+            for &whitespace_char in value {
+                if is_json_whitespace(whitespace_char) {
+                    closing_whitespace_str.push(whitespace_char);
+                } else {
+                    return Err(serde::ser::Error::custom(format!(
+                        "unexpected whitespace character: {whitespace_char}"
+                    )));
                 }
             }
 

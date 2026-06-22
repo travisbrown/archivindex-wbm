@@ -1,12 +1,12 @@
-use crate::Snapshot;
-use crate::configuration::Configuration;
+use crate::context::{Context, SnapshotError};
+use crate::format::FormatInfo;
 use crate::io::write::SnapshotWriter;
-use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use archivindex_wbm_invalid_log::Database;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use super::resolver::ResolutionWarnings;
+use super::resolver::{Resolution, ResolutionWarnings};
 
 /// Errors that can occur during the compact operation.
 #[derive(Debug, thiserror::Error)]
@@ -28,7 +28,8 @@ pub struct Summary {
     pub skipped_count: u64,
     /// Digests present in the resolver's target set but absent from the resolved set.
     pub unresolved: Vec<Sha1Digest>,
-    /// File paths skipped because the content contained internal line breaks or is otherwise invalid.
+    /// File paths skipped because the content contained internal line breaks or is otherwise
+    /// invalid.
     pub skipped: Skipped,
     /// Non-empty resolution warnings (e.g. extra valid/invalid digest matches).
     pub warnings: Vec<ResolutionWarnings>,
@@ -38,45 +39,59 @@ pub struct Summary {
 pub struct Skipped {
     pub non_utf8: Vec<PathBuf>,
     pub non_single_line: Vec<PathBuf>,
+    /// File paths skipped because the discriminator chose a partition not present in `partitions`.
     pub invalid_format: Vec<PathBuf>,
+    /// File paths skipped because the file's contents do not hash to the digest it is named by.
+    pub digest_mismatch: Vec<PathBuf>,
 }
 
-/// Load data files, resolve CDX metadata, and write enriched snapshots to a
-/// ZST-compressed ND-JSON file.
+/// Load data files, resolve CDX metadata, and write enriched snapshots to one or more
+/// Zstandard-compressed NDJSON partitions.
 ///
-/// Each data file (a raw JSON file named by its SHA-1 digest) is read and wrapped
-/// in a [`Snapshot`]. If a CDX resolution exists for the digest, the snapshot is
-/// enriched with `timestamp`, `url`, and (when applicable) `expected_digest` fields.
+/// Each data file (named by the SHA-1 digest of its raw bytes) is read, and `discriminator` is
+/// called with those raw bytes and the file's CDX [`Resolution`] (if any) to choose a partition `P`
+/// and the [`FormatInfo`] of the bytes. The matching partition's [`Context`] decodes the bytes
+/// under that format's [`type`](FormatInfo::name) into an unprocessed snapshot (see
+/// [`Context::unprocessed_snapshot`]); the discriminator's [`metadata`](FormatInfo::metadata) is
+/// attached to the result, which is then enriched with the resolution's `timestamp`, `url`, and
+/// (when applicable) `expected_digest`, and written to that partition's output. (The format's
+/// closing whitespace is computed from the content, so the discriminator need not supply it.)
 /// Snapshots are written in digest-sorted order.
+///
+/// A file whose discriminated partition is not present in `partitions` is skipped (recorded in
+/// [`Skipped::invalid_format`]).
 ///
 /// # Arguments
 ///
 /// * `data_directories` - Directories containing raw JSON files named by SHA-1 digest
 /// * `cdx_directories` - Directories containing CDX JSON files (searched recursively)
 /// * `invalid_db` - Path to the `SQLite` database of known invalid digests
-/// * `output` - Output path for the ZST-compressed ND-JSON file (must not already exist)
-/// * `compression_level` - Zstd compression level (e.g. 14)
-///
-/// # Returns
-///
-/// A [`CompactResult`] summarizing counts, warnings, missing digests, and skipped files.
+/// * `partitions` - The output partitions: a key `P`, an output path (must not already exist), and
+///   a [`Context`] for each
+/// * `compression_level` - Zstandard compression level (e.g. 14)
+/// * `skip_unresolved` - Omit snapshots with no CDX resolution from the output
+/// * `discriminator` - Chooses the partition and [`FormatInfo`] for a snapshot from its raw bytes
+///   and resolution
 ///
 /// # Errors
 ///
-/// Returns [`Error::Data`] if data directory scanning fails.
-/// Returns [`Error::Resolver`] if CDX resolution or invalid digest loading fails.
-/// Returns [`Error::Io`] if file I/O (reading content, writing output) fails.
-pub fn compact<FC: Configuration, DC: Configuration, D: AsRef<Path>, X: AsRef<Path>>(
+/// Returns [`Error::Data`] if data directory scanning fails, [`Error::Resolver`] if CDX resolution
+/// or invalid digest loading fails, or [`Error::Io`] if file I/O (reading content, writing output)
+/// fails.
+pub fn compact<P, D, X, F>(
     data_directories: &[D],
     cdx_directories: &[X],
     invalid_db: &Path,
-    flat_output: &Path,
-    data_output: &Path,
+    partitions: Vec<(P, &Path, &Context)>,
     compression_level: u16,
+    skip_unresolved: bool,
+    discriminator: F,
 ) -> Result<Summary, Error>
 where
-    for<'c> FC::Content<'c>: serde::Deserialize<'c>,
-    for<'c> DC::Content<'c>: serde::Deserialize<'c>,
+    P: PartialEq,
+    D: AsRef<Path>,
+    X: AsRef<Path>,
+    F: Fn(&[u8], Option<&Resolution>) -> (P, FormatInfo),
 {
     // Load data directories.
     let mut data = super::data::Data::default();
@@ -88,88 +103,122 @@ where
     resolver.read_invalid_digests(&database)?;
     resolver.resolve(cdx_directories, true)?;
 
-    // Create output writers.
-    let mut flat_writer = SnapshotWriter::<_, FC>::create(flat_output, compression_level)?;
-    let mut data_writer = SnapshotWriter::<_, DC>::create(data_output, compression_level)?;
+    // One writer per partition (each owns its context for creating and serializing snapshots),
+    // keyed by the partition key in a parallel `keys` vector.
+    let mut keys = Vec::with_capacity(partitions.len());
+    let mut writers = Vec::with_capacity(partitions.len());
+    for (key, path, context) in partitions {
+        writers.push(SnapshotWriter::create(
+            path,
+            compression_level,
+            Context::clone(context),
+        )?);
+        keys.push(key);
+    }
 
     let mut summary = Summary::default();
 
     // Iterate data files in digest-sorted order, enriching with metadata where available.
     for (digest, path) in data.files() {
-        match std::fs::read_to_string(path) {
-            Ok(content) => {
-                if content.starts_with("{\"created_at\":") {
-                    if let Some(mut snapshot) = Snapshot::<FC, Cow<'_, str>>::new(digest, &content)
-                    {
-                        // Look up the CDX resolution for this digest.
-                        if let Some((resolution, warnings)) = resolver.lookup(digest) {
-                            snapshot.timestamp = Some(resolution.timestamp);
-                            snapshot.url = Some(Cow::Owned(resolution.url));
-                            snapshot.expected_digest = resolution
-                                .expected_digest
-                                .map(|d| Cow::Owned(d.to_string()));
-
-                            if !warnings.is_empty() {
-                                summary.warnings.push(warnings);
-                            }
-
-                            summary.resolved_count += 1;
-                        } else {
-                            summary.unresolved_count += 1;
-                        }
-
-                        flat_writer.write_snapshot(&snapshot)?;
-                    } else {
-                        log::warn!(
-                            "Internal whitespace (flat format): {}",
-                            path.as_os_str().to_string_lossy()
-                        );
-
-                        summary.skipped.non_single_line.push(path.clone());
-                    }
-                } else if content.starts_with("{\"data\":") {
-                    if let Some(mut snapshot) = Snapshot::<DC, Cow<'_, str>>::new(digest, &content)
-                    {
-                        // Look up the CDX resolution for this digest.
-                        if let Some((resolution, warnings)) = resolver.lookup(digest) {
-                            snapshot.timestamp = Some(resolution.timestamp);
-                            snapshot.url = Some(Cow::Owned(resolution.url));
-                            snapshot.expected_digest = resolution
-                                .expected_digest
-                                .map(|d| Cow::Owned(d.to_string()));
-
-                            if !warnings.is_empty() {
-                                summary.warnings.push(warnings);
-                            }
-
-                            summary.resolved_count += 1;
-                        } else {
-                            summary.unresolved_count += 1;
-                        }
-
-                        data_writer.write_snapshot(&snapshot)?;
-                    } else {
-                        log::warn!(
-                            "Internal whitespace (data format): {}",
-                            path.as_os_str().to_string_lossy()
-                        );
-
-                        summary.skipped.non_single_line.push(path.clone());
-                    }
-                } else {
-                    log::warn!("Unexpected content: {}", path.as_os_str().to_string_lossy());
-                    summary.skipped.invalid_format.push(path.clone());
-                }
-            }
-            Err(_error) => {
-                log::warn!("Not UTF-8: {}", path.as_os_str().to_string_lossy());
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log::warn!(
+                    "Read error ({error:?}): {}",
+                    path.as_os_str().to_string_lossy()
+                );
                 summary.skipped.non_utf8.push(path.clone());
+                continue;
             }
+        };
+
+        // Verify the file's contents hash to the digest it is named by. A mismatch means the stored
+        // bytes are corrupt (e.g. a truncated or empty download, whose digest is the empty-input
+        // SHA-1), so warn and skip rather than emitting a snapshot under the wrong digest.
+        let actual_digest = Sha1Computer::compute_digest(&bytes);
+        if actual_digest != digest {
+            log::warn!(
+                "Digest mismatch (named {digest}, contents hash to {actual_digest}): {}",
+                path.as_os_str().to_string_lossy()
+            );
+            summary.skipped.digest_mismatch.push(path.clone());
+            continue;
+        }
+
+        // Look up the CDX resolution (if any), then pick the partition and format from the raw
+        // bytes.
+        let resolution = resolver.lookup(digest);
+        let (partition, format) = discriminator(
+            &bytes,
+            resolution.as_ref().map(|(resolution, _)| resolution),
+        );
+
+        let Some(index) = keys.iter().position(|key| *key == partition) else {
+            log::warn!(
+                "No matching partition: {}",
+                path.as_os_str().to_string_lossy()
+            );
+            summary.skipped.invalid_format.push(path.clone());
+            continue;
+        };
+
+        // Build the unprocessed snapshot: the partition's context decodes the raw bytes under the
+        // chosen format's `type` and strips the closing whitespace.
+        let mut snapshot = match writers[index]
+            .context()
+            .unprocessed_snapshot(&format.name, &bytes)
+        {
+            Ok(snapshot) => snapshot,
+            Err(SnapshotError::Decode(_)) => {
+                log::warn!("Could not decode: {}", path.as_os_str().to_string_lossy());
+                summary.skipped.non_utf8.push(path.clone());
+                continue;
+            }
+            Err(SnapshotError::InternalLineBreak) => {
+                log::warn!(
+                    "Internal whitespace: {}",
+                    path.as_os_str().to_string_lossy()
+                );
+                summary.skipped.non_single_line.push(path.clone());
+                continue;
+            }
+            Err(SnapshotError::UnsupportedFormat(_)) => {
+                log::warn!("Unsupported format: {}", path.as_os_str().to_string_lossy());
+                summary.skipped.invalid_format.push(path.clone());
+                continue;
+            }
+        };
+
+        // Attach the discriminator's format metadata (the codec uses it to reproduce the bytes).
+        snapshot.format.metadata = format.metadata;
+
+        let is_resolved = if let Some((resolution, warnings)) = resolution {
+            snapshot.timestamp = Some(resolution.timestamp);
+            snapshot.url = Some(Cow::Owned(resolution.url));
+            snapshot.expected_digest = resolution
+                .expected_digest
+                .map(|d| Cow::Owned(d.to_string()));
+
+            if !warnings.is_empty() {
+                summary.warnings.push(warnings);
+            }
+
+            summary.resolved_count += 1;
+            true
+        } else {
+            summary.unresolved.push(digest);
+            summary.unresolved_count += 1;
+            false
+        };
+
+        if !skip_unresolved || is_resolved {
+            writers[index].write_snapshot(&snapshot)?;
         }
     }
 
-    flat_writer.finish()?;
-    data_writer.finish()?;
+    for writer in writers {
+        writer.finish()?;
+    }
 
     Ok(summary)
 }

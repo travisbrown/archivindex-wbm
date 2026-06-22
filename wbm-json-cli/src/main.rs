@@ -4,31 +4,39 @@
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
     Snapshot,
-    configuration::instances::wxj::{
-        WxjGenericConfiguration, data::WxjDataConfiguration, flat::WxjFlatConfiguration,
-    },
+    configuration::instances::{wts, wxj},
+    context::Context,
+    exact::ExactSnapshot,
+    format::FormatInfo,
     io::{read::SnapshotReader, write::SnapshotWriter},
 };
 use birdsite::model::wxj::{TweetSnapshot, data, flat};
 use chrono::DateTime;
 use cli_helpers::prelude::*;
-use sha1::Digest as _;
-use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod cdx;
 mod snapshot;
 
-type WxjGenericSnapshot<'a, S> = Snapshot<'a, WxjGenericConfiguration, S>;
-type WxjDataSnapshot<'a, S> = Snapshot<'a, WxjDataConfiguration, S>;
-type WxjFlatSnapshot<'a, S> = Snapshot<'a, WxjFlatConfiguration, S>;
-type WxjDataSnapshotReader<R> = SnapshotReader<R, WxjDataConfiguration>;
-type WxjFlatSnapshotReader<R> = SnapshotReader<R, WxjFlatConfiguration>;
-type WxjDataSnapshotWriter<W> = SnapshotWriter<W, WxjDataConfiguration>;
-type WxjFlatSnapshotWriter<W> = SnapshotWriter<W, WxjFlatConfiguration>;
+// A snapshot's content representation no longer depends on its format, and writers and readers now
+// carry their format via a runtime context, so these aliases are all the same shape; the distinct
+// names document the format expected at each call site.
+type WxjDataSnapshot<'a, C> = Snapshot<'a, C>;
+type WxjFlatSnapshot<'a, C> = Snapshot<'a, C>;
+type WxjDataSnapshotReader<R> = SnapshotReader<R>;
+type WxjFlatSnapshotReader<R> = SnapshotReader<R>;
+
+/// Output partition for the WXJ `compact` command: the data and flat formats, plus an `Other`
+/// catch-all (not in the partition list) for content that matches neither.
+#[derive(PartialEq, Eq)]
+enum WxjPartition {
+    Flat,
+    Data,
+    Other,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -36,45 +44,22 @@ async fn main() -> Result<(), Error> {
     opts.verbose.init_logging()?;
 
     match opts.command {
-        Command::Validate { input } => {
-            let mut count = 0;
-            let mut hasher = sha1::Sha1::new();
+        Command::Validate { format, input } => {
+            let mut count = 0u64;
+            let mut hasher = sha1::Sha1::default();
 
-            for path in input {
-                let reader = BufReader::new(zstd::Decoder::new(File::open(&path)?)?);
+            for path in &input {
                 log::info!("Reading file: {}", path.as_os_str().to_string_lossy());
-
-                let mut last_digest = Sha1Digest::MIN;
-
-                for line in reader.lines() {
-                    let line = line?;
-
-                    let snapshot = WxjGenericSnapshot::<Cow<'_, str>>::parse(&line)?;
-
-                    if snapshot.digest <= last_digest {
-                        log::error!("Out of order: {}", snapshot.digest);
-                    }
-
-                    last_digest = snapshot.digest;
-
-                    if let Err(found_digest) = snapshot.validate(&mut hasher) {
-                        log::error!(
-                            "Invalid: expected {}, found {}",
-                            snapshot.digest,
-                            found_digest
-                        );
-                    } else {
-                        count += 1;
-                    }
-                }
+                let context = resolve_context(format.as_ref(), path)?;
+                validate_file(path, &context, &mut hasher, &mut count)?;
             }
 
             log::info!("{count} valid");
         }
-        Command::StreamingValidate { input, n } => {
-            let validation =
-                archivindex_wbm_json::stream::validate_zstd::<_, WxjGenericConfiguration>(input, n)
-                    .await?;
+        Command::StreamingValidate { format, input, n } => {
+            let context = resolve_context(format.as_ref(), &input)?;
+
+            let validation = archivindex_wbm_json::stream::validate_zstd(input, n, context).await?;
 
             println!("{validation:?}");
         }
@@ -88,7 +73,7 @@ async fn main() -> Result<(), Error> {
                 for line in reader.lines() {
                     let line = line?;
 
-                    let snapshot = WxjDataSnapshot::<Cow<'_, str>>::parse(&line)?;
+                    let snapshot = ExactSnapshot::parse(&line)?;
 
                     if snapshot.timestamp.is_none() {
                         count += 1;
@@ -132,10 +117,16 @@ async fn main() -> Result<(), Error> {
 
             std::fs::create_dir_all(&output)?;
 
-            let mut flat_output =
-                WxjFlatSnapshotWriter::create(output.join(FLAT_FILE_NAME), compression)?;
-            let mut data_output =
-                WxjDataSnapshotWriter::create(output.join(DATA_FILE_NAME), compression)?;
+            let mut flat_output = SnapshotWriter::create(
+                output.join(FLAT_FILE_NAME),
+                compression,
+                wxj::flat::context(),
+            )?;
+            let mut data_output = SnapshotWriter::create(
+                output.join(DATA_FILE_NAME),
+                compression,
+                wxj::data::context(),
+            )?;
 
             for (digest, path, _) in paths {
                 let mut flat_next = flat_input
@@ -263,7 +254,7 @@ async fn main() -> Result<(), Error> {
                                 Some((
                                     snapshot.content.user.id,
                                     snapshot.content.user.screen_name.to_string(),
-                                    country_codes.clone(),
+                                    country_codes,
                                 ))
                             }
                         })
@@ -704,19 +695,32 @@ async fn main() -> Result<(), Error> {
             data_output,
             summary_output,
             compression,
+            skip_unresolved,
         } => {
-            let summary = archivindex_wbm_json::process::compact::compact::<
-                WxjFlatConfiguration,
-                WxjDataConfiguration,
-                _,
-                _,
-            >(
+            let flat_context = wxj::flat::context();
+            let data_context = wxj::data::context();
+            let summary = archivindex_wbm_json::process::compact::compact(
                 &data,
                 &cdx,
                 &invalid_db,
-                &flat_output,
-                &data_output,
+                vec![
+                    (WxjPartition::Flat, flat_output.as_path(), &flat_context),
+                    (WxjPartition::Data, data_output.as_path(), &data_context),
+                ],
                 compression,
+                skip_unresolved,
+                |bytes, _resolution| {
+                    // WXJ content is always plain UTF-8 text; only the output partition varies.
+                    let partition = if bytes.starts_with(b"{\"created_at\":") {
+                        WxjPartition::Flat
+                    } else if bytes.starts_with(b"{\"data\":") {
+                        WxjPartition::Data
+                    } else {
+                        WxjPartition::Other
+                    };
+                    // WXJ content is always the default UTF-8 format (no metadata).
+                    (partition, FormatInfo::default())
+                },
             )?;
 
             log::info!(
@@ -750,6 +754,85 @@ async fn main() -> Result<(), Error> {
             );
 
             println!("{}", serde_json::json!(summary));
+        }
+        Command::CompactTs {
+            data,
+            cdx,
+            invalid_db,
+            output,
+            summary_output,
+            compression,
+            skip_unresolved,
+        } => {
+            let context = wts::context();
+            let summary = archivindex_wbm_json::process::compact::compact(
+                &data,
+                &cdx,
+                &invalid_db,
+                vec![((), output.as_path(), &context)],
+                compression,
+                skip_unresolved,
+                |_bytes, _resolution| ((), FormatInfo::default()),
+            )?;
+
+            log::info!(
+                "{} resolved, {} unresolved, {} skipped, {} warnings",
+                summary.resolved_count,
+                summary.unresolved_count,
+                summary.skipped_count,
+                summary.warnings.len(),
+            );
+
+            std::fs::write(summary_output, serde_json::json!(summary).to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Determine the validation context for a file: use the explicitly requested `format` if given,
+/// otherwise infer the closing whitespace from the file itself.
+fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Error> {
+    let context = match format {
+        Some(Format::Wxj) => wxj::context(),
+        Some(Format::Ts) => wts::context(),
+        None => Context::infer(path, 10)?.map_or_else(
+            || {
+                log::warn!("Could not infer closing whitespace; assuming none");
+                Context::default()
+            },
+            |context| {
+                log::info!("Inferred closing whitespace: \"{context}\"");
+                context
+            },
+        ),
+    };
+
+    Ok(context)
+}
+
+fn validate_file(
+    path: &Path,
+    context: &Context,
+    hasher: &mut sha1::Sha1,
+    count: &mut u64,
+) -> Result<(), Error> {
+    let reader = BufReader::new(zstd::Decoder::new(File::open(path)?)?);
+    let mut last_digest = Sha1Digest::MIN;
+
+    for line in reader.lines() {
+        let line = line?;
+        let snapshot = ExactSnapshot::parse(&line)?;
+
+        if snapshot.digest <= last_digest {
+            log::error!("Out of order: {}", snapshot.digest);
+        }
+        last_digest = snapshot.digest;
+
+        if let Err(error) = context.validate(&snapshot, hasher) {
+            log::error!("Invalid {}: {error}", snapshot.digest);
+        } else {
+            *count += 1;
         }
     }
 
@@ -788,6 +871,15 @@ pub enum Error {
     Merge(#[from] archivindex_wbm_json::process::merge::Error),
 }
 
+#[derive(Clone, Debug, Default, clap::ValueEnum)]
+enum Format {
+    /// Twitter/WXJ Zstandard-compressed NDJSON.
+    #[default]
+    Wxj,
+    /// Truth Social/WTJ Zstandard-compressed NDJSON.
+    Ts,
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "archivindex-wxj-cli", version, author)]
 struct Opts {
@@ -801,9 +893,13 @@ struct Opts {
 enum Command {
     Validate {
         #[clap(long)]
+        format: Option<Format>,
+        #[clap(long)]
         input: Vec<PathBuf>,
     },
     StreamingValidate {
+        #[clap(long)]
+        format: Option<Format>,
         #[clap(long)]
         input: PathBuf,
         #[clap(long)]
@@ -886,7 +982,7 @@ enum Command {
         /// Output path for resolved CSV data.
         #[clap(long)]
         output: PathBuf,
-        /// Output path for ND-JSON warnings.
+        /// Output path for NDJSON warnings.
         #[clap(long)]
         warnings: PathBuf,
         /// Output path for missing (unresolved) digests, one per line.
@@ -899,7 +995,7 @@ enum Command {
         data: Vec<PathBuf>,
     },
     /// Load data files, resolve CDX metadata, and write enriched snapshots to a
-    /// ZST-compressed ND-JSON file.
+    /// Zstandard-compressed NDJSON file.
     Compact {
         /// Directories containing data files (keyed by SHA-1 digest).
         #[clap(long)]
@@ -911,17 +1007,20 @@ enum Command {
         /// Path to the invalid digest SQLite database.
         #[clap(long)]
         invalid_db: PathBuf,
-        /// Output path for the ZST-compressed ND-JSON file for the flat format.
+        /// Output path for the Zstandard-compressed NDJSON file for the flat format.
         #[clap(long)]
         flat_output: PathBuf,
-        /// Output path for the ZST-compressed ND-JSON file for the data format.
+        /// Output path for the Zstandard-compressed NDJSON file for the data format.
         #[clap(long)]
         data_output: PathBuf,
         #[clap(long)]
         summary_output: PathBuf,
-        /// ZSTD compression level.
+        /// Zstandard compression level.
         #[clap(long, default_value = "14")]
         compression: u16,
+        /// Omit snapshots with no CDX resolution from the output.
+        #[clap(long)]
+        skip_unresolved: bool,
     },
     Merge {
         #[clap(long)]
@@ -930,8 +1029,33 @@ enum Command {
         second: PathBuf,
         #[clap(long)]
         output: PathBuf,
-        /// Zstd compression level.
+        /// Zstandard compression level.
         #[clap(long, default_value = "14")]
         compression: u16,
+    },
+    /// Load Truth Social (WTJ) data files, resolve CDX metadata, and write enriched snapshots to a
+    /// Zstandard-compressed NDJSON file.
+    CompactTs {
+        /// Directories containing data files (keyed by SHA-1 digest).
+        #[clap(long)]
+        data: Vec<PathBuf>,
+        /// Directories containing CDX JSON files.
+        #[clap(long)]
+        cdx: Vec<PathBuf>,
+        #[allow(clippy::doc_markdown)]
+        /// Path to the invalid digest SQLite database.
+        #[clap(long)]
+        invalid_db: PathBuf,
+        /// Output path for the Zstandard-compressed NDJSON file.
+        #[clap(long)]
+        output: PathBuf,
+        #[clap(long)]
+        summary_output: PathBuf,
+        /// Zstandard compression level.
+        #[clap(long, default_value = "14")]
+        compression: u16,
+        /// Omit snapshots with no CDX resolution from the output.
+        #[clap(long)]
+        skip_unresolved: bool,
     },
 }

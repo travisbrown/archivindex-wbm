@@ -19,28 +19,26 @@ pub fn snapshot_import<P: AsRef<Path>>(
 
     let mut result = SnapshotImport::default();
 
-    for importer in importers {
-        for file in importer {
-            match file {
-                Ok(archivindex_wbm_cas::legacy::import::File::Valid {
-                    digest,
-                    path,
-                    compression_type,
-                }) => result.paths.push((digest, path, compression_type)),
-                Ok(archivindex_wbm_cas::legacy::import::File::Skipped { path }) => {
-                    result.skipped.push(path);
-                }
-                Err(archivindex_wbm_cas::legacy::import::Error::InvalidDigest {
-                    expected,
-                    found,
-                }) => {
-                    result.invalid_digests.push((expected, found));
-                }
-                Err(other) => {
-                    return Err(other);
-                }
+    for mut importer in importers {
+        importer.try_for_each(|file| match file {
+            Ok(archivindex_wbm_cas::legacy::import::File::Valid {
+                digest,
+                path,
+                compression_type,
+            }) => {
+                result.paths.push((digest, path, compression_type));
+                Ok(())
             }
-        }
+            Ok(archivindex_wbm_cas::legacy::import::File::Skipped { path }) => {
+                result.skipped.push(path);
+                Ok(())
+            }
+            Err(archivindex_wbm_cas::legacy::import::Error::InvalidDigest { expected, found }) => {
+                result.invalid_digests.push((expected, found));
+                Ok(())
+            }
+            Err(other) => Err(other),
+        })?;
     }
 
     result.paths.sort_by_key(|(digest, _, _)| *digest);
