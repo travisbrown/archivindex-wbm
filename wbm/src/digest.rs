@@ -1,8 +1,7 @@
-//! Utilities for computing digests used by the Wayback Machine.
+//! Provides utilities for computing digests used by the Wayback Machine.
 //!
-//! The Wayback Machine's CDX index provides a digest for each page in its
-//! search results. In most cases these are Base32-encoded SHA-1 digests,
-//! but some use unknown encodings.
+//! The Wayback Machine's CDX index provides a digest for each page in its search results. In most
+//! cases these are Base32-encoded SHA-1 digests, but some use unknown encodings.
 
 use data_encoding::BASE32;
 use serde::{
@@ -18,10 +17,9 @@ use std::sync::{Arc, Mutex};
 
 /// Bridges `std::io::Write` to `sha1::Sha1` until `digest-io` is released.
 ///
-/// `sha1::Sha1` (via `digest 0.11`) no longer implements `std::io::Write`
-/// directly. This shim forwards `write` calls to `sha1::Digest::update` so
-/// that callers can use `std::io::copy` and other `Write`-based utilities,
-/// including wrapping in `BufWriter`.
+/// `sha1::Sha1` (via `digest 0.11`) no longer implements `std::io::Write` directly. This shim
+/// forwards `write` calls to `sha1::Digest::update` so that callers can use `std::io::copy` and
+/// other `Write`-based utilities, including wrapping in `BufWriter`.
 struct Sha1WriteShim(sha1::Sha1);
 
 impl Write for Sha1WriteShim {
@@ -66,7 +64,7 @@ impl Sha1Computer {
         Sha1Digest(sha1.finalize().into())
     }
 
-    /// Compute the SHA-1 hash for bytes read from a source.
+    /// Computes the SHA-1 hash for bytes read from a source.
     pub fn digest_bytes<R: Read>(&self, input: &mut R) -> std::io::Result<[u8; 20]> {
         // Only panics on poisoning, so we don't care what Clippy says here.
         #[allow(clippy::missing_panics_doc)]
@@ -79,15 +77,14 @@ impl Sha1Computer {
         Ok(bytes.into())
     }
 
-    /// Compute the SHA-1 hash for bytes read from a source.
+    /// Computes the SHA-1 hash for bytes read from a source.
     pub fn digest<R: Read>(&self, input: &mut R) -> std::io::Result<Sha1Digest> {
         let bytes = self.digest_bytes(input)?;
 
         Ok(Sha1Digest(bytes))
     }
 
-    /// Compute the SHA-1 hash for bytes read from a source and encode it as a
-    /// Base32 string.
+    /// Computes the SHA-1 hash for bytes read from a source and encodes it as a Base32 string.
     pub fn digest_base32<R: Read>(&self, input: &mut R) -> std::io::Result<String> {
         let bytes = self.digest_bytes(input)?;
 
@@ -390,9 +387,9 @@ mod tests {
 
     impl Arbitrary for super::Digest<'static> {
         fn arbitrary(g: &mut Gen) -> Self {
-            // Generate either a valid or invalid digest
-            // For valid: convert random Sha1Digest to string and parse
-            // For invalid: generate wrong length string with valid Base32 chars
+            // Generate either a valid or invalid digest:
+            // For valid: convert random `Sha1Digest to string and parse.
+            // For invalid: generate wrong length string with valid Base32 chars.
             if bool::arbitrary(g) {
                 // Valid digest
                 let digest = super::Sha1Digest::arbitrary(g);
@@ -416,16 +413,17 @@ mod tests {
         fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
             match self {
                 Self::Valid(_) => {
-                    // Don't shrink valid digests, since they're already minimal
+                    // Don't shrink valid digests, since they're already minimal.
                     Box::new(std::iter::empty())
                 }
                 Self::Invalid(s) => {
-                    // Shrink invalid digests by shortening the string
+                    // Shrink invalid digests by shortening the string.
                     let s = s.to_string();
                     Box::new(
                         (1..s.len())
                             .rev()
-                            .filter(|&len| len != 32) // Skip length 32 to avoid creating valid digests
+                            // Skip length 32 to avoid creating valid digests.
+                            .filter(|&len| len != 32)
                             .map(move |len| {
                                 Self::Invalid(std::borrow::Cow::Owned(s[..len].to_string()))
                             }),

@@ -18,7 +18,7 @@ pub enum Error {
     UnexpectedUrl(String),
 }
 
-/// Simplified Sort-friendly URI Reordering Transform representation.
+/// Represents a simplified Sort-friendly URI Reordering Transform.
 ///
 /// Currently only implements features necessary to handle Wayback Machine CDX results.
 ///
@@ -278,7 +278,7 @@ impl<'a> Iterator for DomainNamePartIter<'a> {
             let len = *len as usize;
             let part = &self.source[0..len];
 
-            // Skip past the domain part and the comma separator
+            // Skip past the domain part and the comma separator.
             self.source = if self.source.len() > len {
                 &self.source[len + 1..]
             } else {
@@ -296,7 +296,7 @@ impl DoubleEndedIterator for DomainNamePartIter<'_> {
             let len = *len as usize;
             let part = &self.source[self.source.len() - len..];
 
-            // Skip back past the domain part and the comma separator
+            // Skip back past the domain part and the comma separator.
             let new_len = self.source.len() - len;
             self.source = if new_len > 0 {
                 &self.source[0..new_len - 1]
@@ -356,7 +356,7 @@ mod tests {
         }
     }
 
-    // Bug #3: Test bidirectional iteration of DomainNamePartIter
+    // Bug #3: Test bidirectional iteration of `DomainNamePartIter`
     #[test]
     fn domain_name_parts_bidirectional_iteration() {
         let input = "com,twitter,api)/v1/endpoint";
@@ -400,7 +400,7 @@ mod tests {
         let input = format!("{long_part})path");
 
         let result = Surt::parse_str(&input);
-        // Should return an error, not panic or overflow
+        // Should return an error, not panic or overflow.
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::InvalidSurt(_))));
     }
@@ -427,7 +427,7 @@ mod tests {
     fn from_url_with_no_domain_parts() {
         // URL that results in no domain parts (e.g., after filtering "www")
         let result = Surt::from_url("https://www/path");
-        // Should return an error, not panic from underflow
+        // Should return an error, not panic from underflow.
         assert!(result.is_err());
     }
 
@@ -438,7 +438,7 @@ mod tests {
         let url = format!("https://{long_part}.com/path");
 
         let result = Surt::from_url(&url);
-        // Should return an error due to domain part length check
+        // Should return an error due to domain part length check.
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::InvalidDomainPart(_))));
     }

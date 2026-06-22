@@ -34,7 +34,7 @@ pub enum Error {
     Unsupported,
 }
 
-/// An HTTP status code.
+/// Represents an HTTP status code.
 ///
 /// This is a simplified representation that only provides coverage for values relevant to our CDX
 /// index results. The serialization encoding provided here is the one seen in these results.
@@ -47,10 +47,10 @@ pub enum StatusCode {
     Empty,
     #[serde(alias = "200")]
     Ok,
-    // Temporary redirect.
+    // Temporary redirect
     #[serde(alias = "301")]
     MovedPermanently,
-    // Temporary redirect.
+    // Temporary redirect
     #[serde(alias = "302")]
     Found,
     #[serde(alias = "303")]
@@ -71,7 +71,7 @@ pub enum StatusCode {
     RequestTimeout,
     #[serde(alias = "426")]
     UpgradeRequired,
-    // Temporary redirect.
+    // Temporary redirect
     #[serde(alias = "429")]
     TooManyRequests,
     #[serde(alias = "431")]
@@ -99,11 +99,11 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    /// Integer value of the status code.
+    /// Returns the integer value of the status code.
     ///
-    /// Note that this returns zero for an empty value, even though these typically indicate a
-    /// `200` response. Use the `From` instance for `http::status::StatusCode` if you want a
-    /// logical status code.
+    /// Note that this returns zero for an empty value, even though these typically indicate a `200`
+    /// response. Use the `From` instance for `http::status::StatusCode` if you want a logical
+    /// status code.
     #[must_use]
     pub const fn value(&self) -> u16 {
         match self {

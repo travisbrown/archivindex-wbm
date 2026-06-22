@@ -98,9 +98,10 @@ impl FromStr for Timestamp {
             let date_time = NaiveDateTime::parse_from_str(s, TIMESTAMP_FMT)?.and_utc();
             let timestamp = Self(date_time);
 
-            // This validation confirms that the input can be round-tripped through our representation. I've never seen
-            // an input where this fails, and the check is expensive enough that I think it deserves a feature flag
-            // (for example in one quick test it makes a 13-minute job take over 15 minutes).
+            // This validation confirms that the input can be round-tripped through our
+            // representation. I've never seen an input where this fails, and the check is expensive
+            // enough that I think it deserves a feature flag (for example in one quick test it
+            // makes a 13-minute job take over 15 minutes).
             #[cfg(feature = "validation")]
             if timestamp.to_string() == s {
                 Ok(timestamp)
@@ -229,7 +230,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     #[test]
     fn test_timestamp_from_sql_out_of_range() {
-        // Test with a value that's out of range for `DateTime`
+        // Test with a value that's out of range for `DateTime`.
         let value = rusqlite::types::ValueRef::Integer(i64::MAX);
         let result = <Timestamp as rusqlite::types::FromSql>::column_result(value);
 
