@@ -371,3 +371,206 @@ pub fn register(context: &mut Context) {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(feature = "zlib")]
+    use archivindex_wbm::digest::Sha1Computer;
+    #[cfg(feature = "zlib")]
+    use archivindex_wbm_json::exact::ExactSnapshot;
+
+    /// A non-trivial JSON content string (no trailing whitespace) for the round-trips.
+    #[cfg(feature = "zlib")]
+    fn content() -> String {
+        use std::fmt::Write as _;
+        let mut s = String::from("{\"items\":[");
+        for i in 0..200 {
+            if i > 0 {
+                s.push(',');
+            }
+            write!(s, "{{\"id\":{i},\"text\":\"the quick brown fox {i}\"}}").unwrap();
+        }
+        s.push_str("]}");
+        s
+    }
+
+    /// The representative parameter sets, one per family (and a multi-flush variant).
+    #[cfg(feature = "zlib")]
+    fn cases() -> Vec<GzipParams> {
+        vec![
+            GzipParams {
+                compressor: Compressor::GoFlate,
+                level: 5,
+                mtime: 0,
+                os: OsByte::Unknown,
+                extra_flushes: 0,
+            },
+            GzipParams {
+                compressor: Compressor::GoFlate,
+                level: 6,
+                mtime: 0,
+                os: OsByte::Unknown,
+                extra_flushes: 0,
+            },
+            GzipParams {
+                compressor: Compressor::Zlib,
+                level: 5,
+                mtime: 1_660_840_129,
+                os: OsByte::Unix,
+                extra_flushes: 0,
+            },
+            GzipParams {
+                compressor: Compressor::Zlib,
+                level: 6,
+                mtime: 0,
+                os: OsByte::Unknown,
+                extra_flushes: 0,
+            },
+            GzipParams {
+                compressor: Compressor::Zlib,
+                level: 5,
+                mtime: 1_660_840_129,
+                os: OsByte::Unix,
+                extra_flushes: 1,
+            },
+            GzipParams {
+                compressor: Compressor::ZlibNg,
+                level: 7,
+                mtime: 1_675_849_400,
+                os: OsByte::Unix,
+                extra_flushes: 0,
+            },
+        ]
+    }
+
+    /// `infer` recovers parameters that reproduce each archive byte-for-byte, with the header
+    /// fields (mtime, os) read exactly and every family exercised.
+    ///
+    /// The exact *level* is not asserted: for short, repetitive content several levels can produce
+    /// identical bytes, so `infer` legitimately returns the first that reproduces the archive. The
+    /// per-level fidelity against real-world archives is covered downstream.
+    #[test]
+    #[cfg(feature = "zlib")]
+    fn infer_round_trips_each_family() {
+        let content = content();
+        let mut families = std::collections::BTreeSet::new();
+        for params in cases() {
+            let archive = params.reproduce(content.as_bytes());
+            let inferred =
+                GzipParams::infer(&archive).expect("inferred params for a reproduced archive");
+            assert_eq!(
+                inferred.reproduce(content.as_bytes()),
+                archive,
+                "re-reproduction differs for {params:?}"
+            );
+            // Header fields are read from the archive, so they are recovered exactly.
+            assert_eq!(inferred.mtime, params.mtime, "mtime differs for {params:?}");
+            assert_eq!(inferred.os, params.os, "os differs for {params:?}");
+            families.insert(inferred.compressor);
+        }
+        assert!(
+            families.contains(&Compressor::GoFlate),
+            "no Go archive inferred"
+        );
+        assert!(
+            families.iter().any(|c| *c != Compressor::GoFlate),
+            "no streamed-zlib archive inferred"
+        );
+    }
+
+    /// Content larger than two 32 KiB windows (forcing the Go port to slide its window) still
+    /// reproduces and round-trips through `infer` for every family — exercising multi-window Go.
+    #[test]
+    #[cfg(feature = "zlib")]
+    fn infer_round_trips_multi_window() {
+        use std::fmt::Write as _;
+
+        let mut content = String::new();
+        for i in 0..5000u32 {
+            writeln!(
+                content,
+                "{{\"id\":{i},\"text\":\"status number {i} with a few words to compress\"}}"
+            )
+            .unwrap();
+        }
+        assert!(
+            content.len() > 2 * (1 << 15),
+            "content must exceed two windows to force a shift"
+        );
+
+        for compressor in [Compressor::GoFlate, Compressor::Zlib, Compressor::ZlibNg] {
+            let params = GzipParams {
+                compressor,
+                level: 6,
+                mtime: 0,
+                os: OsByte::Unknown,
+                extra_flushes: 0,
+            };
+            let archive = params.reproduce(content.as_bytes());
+            let inferred = GzipParams::infer(&archive)
+                .unwrap_or_else(|| panic!("inferred params for {compressor:?}"));
+            assert_eq!(inferred.compressor, compressor, "family for {compressor:?}");
+            assert_eq!(
+                inferred.reproduce(content.as_bytes()),
+                archive,
+                "round-trip for {compressor:?}"
+            );
+        }
+    }
+
+    /// A `gzip`-format snapshot whose `format` object holds the [`GzipParams`] metadata validates
+    /// against a context with the gzip codec registered, and round-trips through display.
+    #[test]
+    #[cfg(feature = "zlib")]
+    fn validates_via_context() {
+        let text = content();
+        let mut context = Context::from_static(&[]);
+        register(&mut context);
+
+        for params in cases() {
+            let archive = params.reproduce(text.as_bytes());
+            let digest = Sha1Computer::compute_digest(&archive);
+            let format = serde_json::to_string(&params.format_info()).unwrap();
+            let line =
+                format!("{{\"digest\":\"{digest}\",\"format\":{format},\"content\":{text}}}");
+
+            let snapshot = ExactSnapshot::parse(&line).expect("parse snapshot");
+            assert_eq!(
+                line,
+                snapshot.display(&context).to_string(),
+                "round-trip {params:?}"
+            );
+            assert_eq!(
+                context.validate(&snapshot, &mut sha1::Sha1::default()),
+                Ok(()),
+                "validation failed for {params:?}"
+            );
+        }
+    }
+
+    /// [`GzipParams`] round-trips through its metadata map, and the defaults are omitted.
+    #[test]
+    fn metadata_round_trip() {
+        #[cfg(feature = "zlib")]
+        for params in cases() {
+            let metadata = params.metadata();
+            let restored: GzipParams =
+                serde_json::from_value(serde_json::Value::Object(metadata)).unwrap();
+            assert_eq!(restored, params);
+        }
+
+        // Go's defaults (mtime 0, os 255, no extra flushes) are omitted from the metadata.
+        let go = GzipParams {
+            compressor: Compressor::GoFlate,
+            level: 6,
+            mtime: 0,
+            os: OsByte::Unknown,
+            extra_flushes: 0,
+        };
+        assert_eq!(
+            serde_json::to_string(&go.metadata()).unwrap(),
+            r#"{"compressor":"go","level":6}"#
+        );
+    }
+}
