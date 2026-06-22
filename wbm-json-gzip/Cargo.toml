@@ -1,0 +1,26 @@
+[package]
+name = "archivindex-wbm-json-gzip"
+description = "Byte-exact gzip reproduction for archivindex-wbm-json snapshots"
+authors = { workspace = true }
+repository = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+version = { workspace = true }
+
+[features]
+default = ["zlib"]
+zlib = ["dep:libz-sys", "dep:libz-ng-sys"]
+
+[dependencies]
+archivindex-wbm-json = { path = "../wbm-json/" }
+flate2 = { workspace = true }
+libz-sys = { workspace = true, optional = true }
+libz-ng-sys = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+archivindex-wbm = { path = "../wbm/" }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+tempfile = { workspace = true }

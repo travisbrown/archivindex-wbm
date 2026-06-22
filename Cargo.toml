@@ -9,6 +9,7 @@ members = [
     "wbm-invalid-log",
     "wbm-json",
     "wbm-json-cli",
+    "wbm-json-gzip",
 ]
 
 [workspace.package]
@@ -31,6 +32,8 @@ futures = "0.3"
 data-encoding = "2"
 flate2 = "1"
 http = "1"
+libz-sys = "1.1.29"
+libz-ng-sys = "1.1.29"
 log = "0.4"
 prefix-file-tree = "0.4"
 quickcheck = "1"
