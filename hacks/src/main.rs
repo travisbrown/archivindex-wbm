@@ -937,3 +937,30 @@ struct TodoItem {
     timestamp: archivindex_wbm::timestamp::Timestamp,
     expected_digest: archivindex_wbm::digest::Sha1Digest,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_snapshot_line;
+
+    #[test]
+    fn migrate_preserves_byte_exact_content() {
+        // Content with `\/` and `\uXXXX` escapes and a trailing-zero number — all of which a
+        // `serde_json::Value` round-trip would rewrite, breaking the digest.
+        let content = r#"{"url":"https:\/\/example.com\/x","name":"café","n":1.50}"#;
+        let line = format!(
+            r#"{{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","closing_whitespace":"\r\r\n","content":{content}}}"#
+        );
+
+        let migrated = migrate_snapshot_line(&line).unwrap();
+
+        assert!(
+            migrated.contains(content),
+            "content not preserved verbatim:\n  in:  {content}\n  out: {migrated}"
+        );
+        // The old top-level `closing_whitespace` moved into the new `format` object.
+        assert!(
+            migrated.contains(r#""format":{"closing_whitespace":"\r\r\n"}"#),
+            "format object not built: {migrated}"
+        );
+    }
+}
