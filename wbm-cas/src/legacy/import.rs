@@ -48,25 +48,26 @@ impl File {
                     let parts = file_name.split('.').take(3).collect::<Vec<_>>();
 
                     let compression_type = match parts.len() {
-                        1 => None,
+                        1 => Some(None),
                         2 => match parts[1].to_ascii_lowercase().as_str() {
-                            "zst" => Some(CompressionType::Zstd),
-                            "gz" => Some(CompressionType::Gzip),
-                            _ => {
-                                return Self::skipped(path);
-                            }
+                            "zst" => Some(Some(CompressionType::Zstd)),
+                            "gz" => Some(Some(CompressionType::Gzip)),
+                            _ => None,
                         },
-                        _ => {
-                            return Self::skipped(path);
-                        }
+                        _ => None,
                     };
 
-                    parts[0].parse::<Sha1Digest>().map_or_else(
-                        |_| Self::skipped(path),
-                        |digest| Self::Valid {
-                            path: path.to_path_buf(),
-                            compression_type,
-                            digest,
+                    compression_type.map_or_else(
+                        || Self::skipped(path),
+                        |compression_type| {
+                            parts[0].parse::<Sha1Digest>().map_or_else(
+                                |_| Self::skipped(path),
+                                |digest| Self::Valid {
+                                    path: path.to_path_buf(),
+                                    compression_type,
+                                    digest,
+                                },
+                            )
                         },
                     )
                 },
