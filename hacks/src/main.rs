@@ -6,11 +6,14 @@ use archivindex_wbm::{
     digest::{Digest, Sha1Digest},
     item::{ItemInfo, UrlParts},
     surt::Surt,
+    timestamp::Timestamp,
 };
 use archivindex_wbm_downloader::DownloadResult;
 use archivindex_wbm_json::{
-    GenericSnapshot, Snapshot,
-    configuration::instances::wxj::{data::WxjDataSnapshot, flat::WxjFlatSnapshot},
+    Snapshot,
+    configuration::instances::{wts, wxj as wbm_wxj},
+    context::Context,
+    exact::ExactSnapshot,
 };
 use birdsite::model::wxj::data;
 use bounded_static::IntoBoundedStatic;
@@ -18,17 +21,18 @@ use chrono::DateTime;
 use cli_helpers::prelude::*;
 use futures::stream::StreamExt;
 use itertools::Itertools;
-use std::collections::BTreeSet;
+use serde_json::value::RawValue;
+use std::borrow::Cow;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use std::{borrow::Cow, collections::HashSet};
 
 mod configuration;
 mod wxj;
 
-type BirdsiteWxjDataSnapshot<'a, C> = Snapshot<'a, configuration::WxjDataConfig, C>;
+type BirdsiteWxjDataSnapshot<'a, C> = Snapshot<'a, C>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -41,40 +45,23 @@ async fn main() -> Result<(), Error> {
             flat,
             include_timestamped,
         } => {
+            let context = if flat {
+                wbm_wxj::flat::context()
+            } else {
+                wbm_wxj::data::context()
+            };
             let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
-            for (i, result) in lines.enumerate() {
-                let line_number = i + 1;
+            for result in lines {
                 let line = result?;
+                let snapshot = ExactSnapshot::parse(&line)?;
 
-                let (digest, has_metadata, inferred_url, provided_url) = if flat {
-                    let snapshot = serde_json::from_str::<WxjFlatSnapshot<'_>>(&line)
-                        .map_err(|error| Error::JsonLine(error, line_number))?;
-
-                    (
-                        snapshot.digest,
-                        snapshot.has_metadata(),
-                        snapshot.infer_url().into_static(),
-                        snapshot.url,
-                    )
-                } else {
-                    let snapshot = serde_json::from_str::<WxjDataSnapshot<'_>>(&line)
-                        .map_err(|error| Error::JsonLine(error, line_number))?;
-
-                    (
-                        snapshot.digest,
-                        snapshot.has_metadata(),
-                        snapshot.infer_url().into_static(),
-                        snapshot.url,
-                    )
-                };
-
-                if provided_url.is_none() && (include_timestamped || !has_metadata) {
-                    if let Some(url) = inferred_url {
-                        println!("{digest},{url}");
+                if snapshot.url.is_none() && (include_timestamped || !snapshot.has_metadata()) {
+                    if let Some(url) = context.infer_url(snapshot.content.as_str()) {
+                        println!("{},{url}", snapshot.digest);
                     } else {
-                        println!("{digest},");
-                        log::error!("No canonical URL: {digest}");
+                        println!("{},", snapshot.digest);
+                        log::error!("No canonical URL: {}", snapshot.digest);
                     }
                 }
             }
@@ -113,7 +100,7 @@ async fn main() -> Result<(), Error> {
             for line in lines {
                 let line = line?;
 
-                let mut snapshot_line = GenericSnapshot::parse(&line)?;
+                let mut snapshot_line = ExactSnapshot::parse(&line)?;
                 let new_line = match digest_metadata.get(&snapshot_line.digest) {
                     Some(metadata) => {
                         let replacement_digest =
@@ -150,7 +137,9 @@ async fn main() -> Result<(), Error> {
                         }
 
                         snapshot_line.url = new_url;
-                        snapshot_line.to_string()
+                        // No URL inference and an empty default closing whitespace: never omit a
+                        // `url`, and always write any explicit `closing_whitespace` verbatim.
+                        snapshot_line.display(&Context::default()).to_string()
                     }
                     None => line,
                 };
@@ -161,14 +150,15 @@ async fn main() -> Result<(), Error> {
             output.do_finish()?;
         }
         Command::ValidatedWxjLines { input } => {
+            let context = Context::default();
             let validation = if input.as_os_str().to_string_lossy().ends_with("zst") {
                 let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
-                GenericSnapshot::validate_lines(lines)
+                context.validate_lines(lines)
             } else {
                 let lines = BufReader::new(File::open(input)?).lines();
 
-                GenericSnapshot::validate_lines(lines)
+                context.validate_lines(lines)
             }?;
 
             println!("Successful: {}", validation.valid_count);
@@ -242,7 +232,10 @@ async fn main() -> Result<(), Error> {
                                     .url
                                     .as_ref()
                                     .map(std::string::ToString::to_string)
-                                    .or_else(|| snapshot.infer_url().map(|url| url.to_string())),
+                                    .or_else(|| {
+                                        configuration::infer_url(&snapshot.content)
+                                            .map(|url| url.to_string())
+                                    }),
                             )
                     {
                         found.extend(tweets.into_iter().map(|tweet| {
@@ -263,7 +256,8 @@ async fn main() -> Result<(), Error> {
                 .into_iter()
                 .chunk_by(|(_, _, tweet, _)| tweet.created_at)
             {
-                // We choose the most recent snapshot indexed under the user's screen name (or just most recent, if there are none).
+                // We choose the most recent snapshot indexed under the user's screen name (or just
+                // most recent, if there are none).
                 if let Some((timestamp, url, tweet, user)) =
                     tweets.max_by_key(|(timestamp, url, _, user)| {
                         (
@@ -404,6 +398,29 @@ async fn main() -> Result<(), Error> {
                 seen_invalid_digests.extend(invalid_digests);
             }
         }
+        Command::Migrate {
+            input,
+            output,
+            compression_level,
+        } => {
+            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
+            let mut writer = zstd::Encoder::new(File::create(&output)?, compression_level)?;
+            let mut count = 0u64;
+            let mut changed = 0u64;
+
+            for line in reader.lines() {
+                let line = line?;
+                let new_line = migrate_snapshot_line(&line)?;
+                if new_line != line {
+                    changed += 1;
+                }
+                writeln!(writer, "{new_line}")?;
+                count += 1;
+            }
+
+            writer.do_finish()?;
+            log::info!("{changed} of {count} lines changed");
+        }
         Command::CleanFlat {
             known,
             files,
@@ -456,6 +473,176 @@ async fn main() -> Result<(), Error> {
                 "Deleted {count_deleted} of {count_total} files ({count_valid} valid digest names)"
             );
         }
+        Command::ReconcileCdx {
+            cdx,
+            input,
+            format,
+            report,
+            corrected,
+            compression_level,
+        } => {
+            // First pass over the snapshot file: collect every digest and expected digest it
+            // references, so we only need to hold the relevant CDX entries in memory (the full CDX
+            // directory is too large to load).
+            let mut referenced: HashSet<String> = HashSet::new();
+            let first_pass = BufReader::new(zstd::Decoder::new(File::open(&input)?)?).lines();
+            for line in first_pass {
+                let line = line?;
+                let snapshot = ExactSnapshot::parse(&line)?;
+                referenced.insert(snapshot.digest.to_string());
+                if let Some(expected) = snapshot.expected_digest.as_deref() {
+                    referenced.insert(expected.to_owned());
+                }
+            }
+            log::info!(
+                "First pass complete: {} distinct digests referenced",
+                referenced.len()
+            );
+
+            // Read only the referenced CDX entries into memory, keyed by digest string (valid or
+            // invalid), keeping the earliest capture per digest.
+            let mut cdx_map: HashMap<String, CdxEntry> = HashMap::new();
+            for path in find_json_files_all(std::slice::from_ref(&cdx))? {
+                let content = std::fs::read_to_string(&path)?;
+                let items = match serde_json::from_str::<ItemList<'_>>(&content) {
+                    Ok(items) => items,
+                    Err(error) => {
+                        log::warn!("Skipping unparseable CDX file {}: {error}", path.display());
+                        continue;
+                    }
+                };
+
+                for item in items.values {
+                    let key = item.digest.to_string();
+                    if !referenced.contains(&key) {
+                        continue;
+                    }
+                    let new_entry = CdxEntry {
+                        timestamp: item.timestamp,
+                        url: item.original.into_owned(),
+                    };
+                    let replace = cdx_map
+                        .get(&key)
+                        .is_none_or(|existing| new_entry.timestamp < existing.timestamp);
+                    if replace {
+                        cdx_map.insert(key, new_entry);
+                    }
+                }
+            }
+            log::info!(
+                "CDX read: {} of {} referenced digests found",
+                cdx_map.len(),
+                referenced.len()
+            );
+
+            let context = match format {
+                SnapshotFormat::WxjFlat => wbm_wxj::flat::context(),
+                SnapshotFormat::WxjData => wbm_wxj::data::context(),
+                SnapshotFormat::TruthSocial => wts::context(),
+            };
+
+            std::fs::create_dir_all(&report)?;
+            let mut unnecessary_expected =
+                csv::Writer::from_path(report.join("unnecessary_expected_digest.csv"))?;
+            let mut missing_cdx = csv::Writer::from_path(report.join("missing_cdx.csv"))?;
+            let mut incorrect_inferred =
+                csv::Writer::from_path(report.join("incorrect_inferred_url.csv"))?;
+            let mut unnecessary_url = csv::Writer::from_path(report.join("unnecessary_url.csv"))?;
+
+            let mut corrected_writer = corrected
+                .map(|path| zstd::Encoder::new(File::create(path)?, compression_level))
+                .transpose()?;
+
+            // Second pass over the snapshot file: emit reports and (optionally) a corrected copy.
+            let lines = BufReader::new(zstd::Decoder::new(File::open(&input)?)?).lines();
+            for line in lines {
+                let line = line?;
+                let mut snapshot = ExactSnapshot::parse(&line)?;
+
+                let digest = snapshot.digest.to_string();
+                let expected = snapshot.expected_digest.as_deref();
+                let specified = snapshot.url.as_deref();
+                // Owned so the snapshot can be mutated below for the corrected copy.
+                let inferred = context
+                    .infer_url(snapshot.content.as_str())
+                    .map(Cow::into_owned);
+                let inferred = inferred.as_deref();
+
+                let in_cdx = cdx_map.get(&digest);
+                let expected_in_cdx =
+                    expected.is_some_and(|expected| cdx_map.contains_key(expected));
+
+                // 1. The line carries an `expected_digest`, but the actual digest is in the CDX, so
+                //    the `expected_digest` is unnecessary.
+                if expected.is_some()
+                    && let Some(entry) = in_cdx
+                {
+                    let timestamp = entry.timestamp.to_string();
+                    unnecessary_expected.write_record([
+                        digest.as_str(),
+                        timestamp.as_str(),
+                        entry.url.as_str(),
+                    ])?;
+                }
+
+                // 2. Neither the digest nor the expected digest (if any) is in the CDX.
+                if in_cdx.is_none() && !expected_in_cdx {
+                    let url = specified.or(inferred).unwrap_or("");
+                    missing_cdx.write_record([digest.as_str(), expected.unwrap_or(""), url])?;
+                }
+
+                // 3. No specified URL, and the inferred URL disagrees with the CDX URL.
+                if specified.is_none()
+                    && let Some(entry) = in_cdx
+                    && inferred != Some(entry.url.as_str())
+                {
+                    incorrect_inferred.write_record([
+                        digest.as_str(),
+                        inferred.unwrap_or(""),
+                        entry.url.as_str(),
+                    ])?;
+                }
+
+                // 4. A specified URL that is exactly the inferred URL, so it is unnecessary.
+                if let Some(specified) = specified
+                    && Some(specified) == inferred
+                {
+                    unnecessary_url.write_record([digest.as_str(), specified])?;
+                }
+
+                if let Some(writer) = &mut corrected_writer {
+                    // Decisions computed before mutating the snapshot (these borrow it).
+                    let remove_expected = expected.is_some() && in_cdx.is_some();
+                    let add_url = if specified.is_none() {
+                        in_cdx.and_then(|entry| {
+                            (inferred != Some(entry.url.as_str())).then(|| entry.url.clone())
+                        })
+                    } else {
+                        None
+                    };
+
+                    // 1. Drop the now-unnecessary `expected_digest`.
+                    if remove_expected {
+                        snapshot.expected_digest = None;
+                    }
+                    // 3. Pin the correct URL where the inferred one is wrong.
+                    if let Some(url) = add_url {
+                        snapshot.url = Some(Cow::Owned(url));
+                    }
+                    // 4. An unnecessary `url` (and any redundant `closing_whitespace`) is dropped
+                    //    automatically by serializing under the format's context.
+                    writeln!(writer, "{}", snapshot.display(&context))?;
+                }
+            }
+
+            unnecessary_expected.flush()?;
+            missing_cdx.flush()?;
+            incorrect_inferred.flush()?;
+            unnecessary_url.flush()?;
+            if let Some(mut writer) = corrected_writer {
+                writer.do_finish()?;
+            }
+        }
     }
 
     Ok(())
@@ -471,8 +658,6 @@ pub enum Error {
     Csv(#[from] csv::Error),
     #[error("JSON error")]
     Json(#[from] serde_json::Error),
-    #[error("JSON file parsing error")]
-    JsonLine(serde_json::Error, usize),
     #[error("JSON file error")]
     JsonFile(PathBuf, serde_json::Error),
     #[error("SURT error")]
@@ -561,6 +746,126 @@ enum Command {
         #[clap(long)]
         dry_run: bool,
     },
+    /// Migrate an NDJSON Zstandard file from the old snapshot format to the new one.
+    ///
+    /// The old format stored `closing_whitespace` as a top-level string field and `format` as an
+    /// optional string. The new format nests both inside a `format` object (with `closing_whitespace`
+    /// as a field and the old string as the `type` key).
+    Migrate {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        output: PathBuf,
+        #[clap(long, default_value = "14")]
+        compression_level: i32,
+    },
+    /// Reconcile a modern snapshot NDJSON Zstandard file against a directory of CDX JSON files,
+    /// writing discrepancy reports (as CSV) to a report directory.
+    ReconcileCdx {
+        /// Directory of CDX JSON files (read recursively).
+        #[clap(long)]
+        cdx: PathBuf,
+        /// The modern snapshot NDJSON Zstandard file.
+        #[clap(long)]
+        input: PathBuf,
+        /// The snapshot format, selecting the URL-inference context.
+        #[clap(long, value_enum)]
+        format: SnapshotFormat,
+        /// Output directory for the CSV reports.
+        #[clap(long)]
+        report: PathBuf,
+        /// Optional output file (NDJSON Zstandard) for a corrected copy of the input: unnecessary
+        /// `url` / `expected_digest` fields are removed, and a `url` is added where the inferred URL
+        /// disagrees with the CDX URL.
+        #[clap(long)]
+        corrected: Option<PathBuf>,
+        /// Zstandard compression level for the corrected output.
+        #[clap(long, default_value = "14")]
+        compression_level: i32,
+    },
+}
+
+/// The format of a modern snapshot file, selecting the [`Context`] used for URL inference.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SnapshotFormat {
+    WxjFlat,
+    WxjData,
+    TruthSocial,
+}
+
+/// A CDX entry kept in memory for reconciliation: the (earliest) capture timestamp and original URL.
+struct CdxEntry {
+    timestamp: Timestamp,
+    url: String,
+}
+
+fn migrate_snapshot_line(line: &str) -> Result<String, serde_json::Error> {
+    // Each field is kept as its raw JSON text. This is essential for `content`, whose exact bytes
+    // (including `\/` and `\uXXXX` escapes, internal whitespace, and number formatting) are what the
+    // digest is computed over: round-tripping it through `serde_json::Value` would rewrite those
+    // bytes and break validation. The passthrough fields are likewise preserved verbatim.
+    let mut fields: HashMap<String, Box<RawValue>> = serde_json::from_str(line)?;
+
+    // The two fields that move into the format object are small; parse their values.
+    let closing_whitespace = fields
+        .remove("closing_whitespace")
+        .map(|raw| serde_json::from_str::<serde_json::Value>(raw.get()))
+        .transpose()?;
+    let old_format = fields
+        .remove("format")
+        .map(|raw| serde_json::from_str::<serde_json::Value>(raw.get()))
+        .transpose()?;
+
+    // Build the new format object.
+    let mut format_obj = match old_format {
+        // Old format was a plain string (e.g. "gzip"); promote it to {"type": "gzip"}.
+        Some(serde_json::Value::String(type_str)) if type_str != "utf8" => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".to_owned(), serde_json::Value::String(type_str));
+            m
+        }
+        // Already an object (file was partially or fully migrated); preserve as-is.
+        Some(serde_json::Value::Object(obj)) => obj,
+        _ => serde_json::Map::new(),
+    };
+
+    if let Some(cw) = closing_whitespace {
+        format_obj.insert("closing_whitespace".to_owned(), cw);
+    }
+
+    let format_json = if format_obj.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&format_obj)?)
+    };
+
+    // Reconstruct in the new canonical field order, emitting each field's raw JSON verbatim.
+    let mut parts: Vec<(&str, &str)> = Vec::new();
+    for key in ["digest", "expected_digest", "timestamp", "url"] {
+        if let Some(raw) = fields.get(key) {
+            parts.push((key, raw.get()));
+        }
+    }
+    if let Some(format_json) = format_json.as_deref() {
+        parts.push(("format", format_json));
+    }
+    if let Some(raw) = fields.get("content") {
+        parts.push(("content", raw.get()));
+    }
+
+    let mut out = String::from("{");
+    for (i, (key, raw)) in parts.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push('"');
+        out.push_str(key);
+        out.push_str("\":");
+        out.push_str(raw);
+    }
+    out.push('}');
+
+    Ok(out)
 }
 
 fn find_cdx_files_structured<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {

@@ -1,23 +1,15 @@
-use archivindex_wbm_json::configuration::Configuration;
 use std::borrow::Cow;
 
-/// Configuration for WXJ data format (v2 API format).
-pub struct WxjDataConfig;
-
-impl Configuration for WxjDataConfig {
-    type Content<'a> = birdsite::model::wxj::data::TweetSnapshot<'a>;
-
-    fn default_closing_whitespace() -> &'static [char] {
-        &['\r', '\r', '\n']
-    }
-
-    fn infer_url<'a>(content: &Self::Content<'a>) -> Option<Cow<'a, str>> {
-        content.lookup_user(content.data.author_id).map(|user| {
-            format!(
-                "https://twitter.com/{}/status/{}",
-                user.username, content.data.id
-            )
-            .into()
-        })
-    }
+/// Infer the canonical URL for a WXJ data format (v2 API) tweet snapshot from its birdsite content.
+#[must_use]
+pub fn infer_url<'a>(
+    content: &birdsite::model::wxj::data::TweetSnapshot<'a>,
+) -> Option<Cow<'a, str>> {
+    content.lookup_user(content.data.author_id).map(|user| {
+        format!(
+            "https://twitter.com/{}/status/{}",
+            user.username, content.data.id
+        )
+        .into()
+    })
 }
