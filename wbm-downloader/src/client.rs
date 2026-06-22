@@ -10,7 +10,7 @@ use reqwest::Response;
 use std::time::Duration;
 
 const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(45);
-const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(60);
+const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_mins(1);
 const DEFAULT_MAX_RETRIES: usize = 7;
 const DEFAULT_RETRY_BASE_DURATION_MS: u64 = 60_000;
 const DEFAULT_MAX_REDIRECT_DEPTH: usize = 10;
@@ -154,7 +154,7 @@ impl Client {
             .map(tokio_retry::strategy::jitter)
             .take(self.configuration.max_retries);
 
-        let download = tokio_retry::RetryIf::spawn(
+        let download = tokio_retry::RetryIf::start(
             strategy,
             || self.download_once(url.into(), timestamp, original, 0),
             Error::can_retry,
@@ -223,7 +223,8 @@ impl Client {
                                 .await?;
 
                             if let Ok(ref mut download) = result {
-                                // Check for redirect loops by seeing if this URL and timestamp are already in the chain.
+                                // Check for redirect loops by seeing if this URL and timestamp are
+                                // already in the chain.
                                 if download.redirects.iter().any(|redirect_url_parts| {
                                     redirect_url_parts.url == url_parts.url
                                         && redirect_url_parts.timestamp == redirect_timestamp

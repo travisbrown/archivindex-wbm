@@ -49,7 +49,8 @@ impl Downloader {
     ) -> Result<Option<DownloadResult<'a>>, Error> {
         let now = Utc::now();
 
-        // We're checking the digest, so we always want the original archive snapshot (not the rewritten one).
+        // We're checking the digest, so we always want the original archive snapshot (not the
+        // rewritten one).
         let result = self.client.download(url, timestamp, true).await?;
 
         match result {
