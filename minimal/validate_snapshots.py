@@ -1,4 +1,4 @@
-"""Validate ND-JSON snapshot files (optionally compressed).
+"""Validate NDJSON snapshot files (optionally compressed).
 
 Each line is a JSON wrapper whose ``digest`` field must match the Base32-encoding of the SHA-1 hash
 of the content (including the closing whitespace, which by default is "\r\r\n").
@@ -193,7 +193,7 @@ def validate_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Validate ND-JSON snapshot files (optionally ZST-compressed).",
+        description="Validate NDJSON snapshot files (optionally Zstandard-compressed).",
     )
     parser.add_argument(
         "file",
