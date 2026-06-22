@@ -3,8 +3,8 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 
 /// A wrapper around `DateTime<Utc>` that implements `FromSql` and `ToSql`.
 ///
-/// This type stores timestamps as Unix epoch seconds (i64) in the database
-/// and converts them to/from `DateTime<Utc>` when reading from or writing to SQLite.
+/// This type stores timestamps as Unix epoch seconds in the database and converts them to and from
+/// `DateTime<Utc>` when reading from or writing to SQLite.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct TimestampSecond(DateTime<Utc>);
 

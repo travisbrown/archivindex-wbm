@@ -1,7 +1,7 @@
 //! Database logging for Wayback Machine invalid digests and withheld URLs.
 //!
-//! This crate provides SQLite-backed storage for tracking two types of issues
-//! encountered when working with the Wayback Machine:
+//! This crate provides SQLite-backed storage for tracking two types of issues encountered when
+//! working with the Wayback Machine:
 //!
 //! 1. **Invalid digests**: URLs where the downloaded content's SHA-1 digest
 //!    doesn't match the expected digest from the CDX index.
@@ -29,8 +29,8 @@ pub mod types;
 
 /// An entry representing a Wayback Machine download with a digest mismatch.
 ///
-/// Contains the item information (URL and expected digest) along with the
-/// actual digest computed from the downloaded content.
+/// Contains the item information (URL and expected digest) along with the actual digest computed
+/// from the downloaded content.
 #[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic, serde::Serialize)]
 pub struct Entry<'a> {
     /// The Wayback Machine item information, including URL and expected digest
@@ -112,33 +112,33 @@ impl Database {
 
     /// Opens a database at the specified file path.
     ///
-    /// Creates the database file if it doesn't exist. Call [`initialize`](Self::initialize)
-    /// after opening to create the required tables.
+    /// Creates the database file if it doesn't exist. Call [`initialize`](Self::initialize) after
+    /// opening to create the required tables.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, rusqlite::Error> {
         Self::new(Connection::open(path)?)
     }
 
     /// Creates an in-memory database.
     ///
-    /// Useful for testing or temporary storage. Call [`initialize`](Self::initialize)
-    /// after creation to create the required tables.
+    /// Useful for testing or temporary storage. Call [`initialize`](Self::initialize) after
+    /// creation to create the required tables.
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
         Self::new(Connection::open_in_memory()?)
     }
 
     /// Initializes the database schema.
     ///
-    /// Creates the `invalid_digest` and `withheld_url` tables along with their
-    /// indices. Safe to call multiple times.
+    /// Creates the `invalid_digest` and `withheld_url` tables along with their indices. Safe to
+    /// call multiple times.
     fn initialize(connection: &Connection) -> Result<(), rusqlite::Error> {
         connection.execute_batch(include_str!("schemas/db.sql"))
     }
 
     /// Inserts an invalid digest entry into the database.
     ///
-    /// Records a URL where the downloaded content's digest doesn't match the
-    /// expected digest from the CDX index. Duplicate entries (same URL, archive
-    /// timestamp, expected digest, and actual digest) are automatically skipped.
+    /// Records a URL where the downloaded content's digest doesn't match the expected digest from
+    /// the CDX index. Duplicate entries (same URL, archive timestamp, expected digest, and actual
+    /// digest) are automatically skipped.
     ///
     /// # Arguments
     ///
@@ -150,6 +150,11 @@ impl Database {
     /// * `Ok(true)` - A new row was inserted
     /// * `Ok(false)` - Entry already exists (duplicate, no insertion)
     /// * `Err(_)` - Database error occurred
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn insert_invalid_digest(
         &self,
         entry: &Entry<'_>,
@@ -172,8 +177,8 @@ impl Database {
 
     /// Inserts a withheld URL into the database.
     ///
-    /// Records a URL that has been withheld from the Wayback Machine archive.
-    /// Duplicate URLs are automatically skipped based on the URL alone (not timestamp).
+    /// Records a URL that has been withheld from the Wayback Machine archive. Duplicate URLs are
+    /// automatically skipped based on the URL alone (not timestamp).
     ///
     /// # Arguments
     ///
@@ -185,6 +190,11 @@ impl Database {
     /// * `Ok(true)` - A new row was inserted
     /// * `Ok(false)` - URL already exists in the database (duplicate, no insertion)
     /// * `Err(_)` - Database error occurred
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn insert_withheld(
         &self,
         url: &str,
@@ -201,15 +211,20 @@ impl Database {
 
     /// Iterates over all invalid digest entries in the database.
     ///
-    /// Returns an iterator that yields tuples of `(timestamp, entry)` where the
-    /// timestamp indicates when the invalid digest was detected. Results are
-    /// ordered by detection timestamp in ascending order.
+    /// Returns an iterator that yields tuples of `(timestamp, entry)` where the timestamp indicates
+    /// when the invalid digest was detected. Results are ordered by detection timestamp in
+    /// ascending order.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
     ///   detected at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn invalid_digests(
         &self,
         from: Option<DateTime<Utc>>,
@@ -257,15 +272,20 @@ impl Database {
 
     /// Iterates over all withheld URL entries in the database.
     ///
-    /// Returns an iterator that yields tuples of `(timestamp, url)` where the
-    /// timestamp indicates when the withheld status was detected. Results are
-    /// ordered by detection timestamp in ascending order.
+    /// Returns an iterator that yields tuples of `(timestamp, url)` where the timestamp indicates
+    /// when the withheld status was detected. Results are ordered by detection timestamp in
+    /// ascending order.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
     ///   detected at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn withheld_urls(
         &self,
         from: Option<DateTime<Utc>>,
@@ -301,9 +321,9 @@ impl Database {
 
     /// Merges entries from another database into this database.
     ///
-    /// For each entry in the source database, if it doesn't exist in this database,
-    /// it will be inserted. If it already exists but the source has an older timestamp,
-    /// the entry in this database will be updated with the older timestamp.
+    /// For each entry in the source database, if it doesn't exist in this database, it will be
+    /// inserted. If it already exists but the source has an older timestamp, the entry in this
+    /// database will be updated with the older timestamp.
     ///
     /// This operation is performed in a transaction for consistency.
     ///
@@ -315,6 +335,11 @@ impl Database {
     ///
     /// * `Ok(())` - Merge completed successfully
     /// * `Err(_)` - Database error occurred
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
     pub fn merge(&self, other: &Self) -> Result<(), rusqlite::Error> {
         let mut connection = self.connection.lock().unwrap();
         let transaction = connection.transaction()?;
@@ -403,8 +428,8 @@ impl Database {
 
 /// Iterator over invalid digest entries in the database.
 ///
-/// Yields tuples of `(DateTime<Utc>, Entry<'static>)` where the timestamp
-/// indicates when the invalid digest was detected.
+/// Yields tuples of `(DateTime<Utc>, Entry<'static>)` where the timestamp indicates when the
+/// invalid digest was detected.
 pub struct InvalidDigestIterator {
     entries: std::vec::IntoIter<(DateTime<Utc>, Entry<'static>)>,
 }
@@ -419,8 +444,8 @@ impl Iterator for InvalidDigestIterator {
 
 /// Iterator over withheld URL entries in the database.
 ///
-/// Yields tuples of `(DateTime<Utc>, String)` where the timestamp
-/// indicates when the withheld status was detected.
+/// Yields tuples of `(DateTime<Utc>, String)` where the timestamp indicates when the withheld
+/// status was detected.
 pub struct WithheldUrlIterator {
     entries: std::vec::IntoIter<(DateTime<Utc>, String)>,
 }
