@@ -134,7 +134,7 @@ impl Surt<'static> {
                     let mut query_pairs = url.query_pairs().collect::<Vec<_>>();
 
                     if !query_pairs.is_empty() {
-                        query_pairs.sort_by_key(|(key, _)| key.clone());
+                        query_pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
 
                         source.push('?');
 
