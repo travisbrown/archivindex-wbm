@@ -1,4 +1,4 @@
-//! The exact-bytes snapshot representation and its parsing / display machinery.
+//! The exact-bytes snapshot representation and its parsing and display machinery.
 //!
 //! [`ExactContent`] and the [`ExactSnapshot`] alias are the types produced by the hand-written
 //! [`ExactSnapshot::parse`] parser. They are the sole input to
@@ -9,19 +9,17 @@ use crate::{Snapshot, context::Context, format::FormatInfo};
 use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 
-// ── ExactContent ───────────────────────────────────────────────────────────────
-
 /// The exact serialized JSON content of a snapshot.
 ///
-/// This is the raw text served by the Wayback Machine for the snapshot's final field — minus any
-/// closing whitespace — stored verbatim rather than as a parsed JSON value. It is the
+/// This is the raw text served by the Wayback Machine for the snapshot's final field (minus any
+/// closing whitespace) stored verbatim rather than as a parsed JSON value. It is the
 /// representation produced by [`ExactSnapshot::parse`] and consumed by digest validation and
 /// serialization.
 ///
-/// It is a distinct newtype around [`Cow<str>`] on purpose: a bare `Snapshot<'_, Cow<'_, str>>`
+/// It is a distinct newtype around [`Cow<str>`] on purpose. A bare `Snapshot<'_, Cow<'_, str>>`
 /// would be ambiguous, since a `Cow<str>` content also arises from deserializing a snapshot whose
 /// content is a JSON *string value*. Keeping `ExactContent` separate ensures the exact-bytes
-/// representation — the only one for which `parse` and validation are meaningful — cannot be
+/// representation (the only one for which `parse` and validation are meaningful) cannot be
 /// confused with such a value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactContent<'a>(Cow<'a, str>);
@@ -114,72 +112,74 @@ const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 impl<'a> ExactSnapshot<'a> {
     /// Parse a single NDJSON line into a snapshot.
     ///
-    /// This is a hand-written parser that borrows from `line`; it requires no configuration. It is
+    /// This is a hand-written parser that borrows from `line`. It requires no configuration. It is
     /// available only for snapshots whose content is [`ExactContent`], since parsing yields the
     /// exact serialized bytes (not a deserialized JSON value).
     pub fn parse(line: &'a str) -> Result<Self, crate::Error> {
+        // Every slice goes through `slice` and `rest`, which map an out-of-range or
+        // non-character-boundary index to `InvalidLine` rather than panicking on truncated or
+        // malformed input.
         let mut index = DIGEST_KEY_LEN + 5;
 
-        let digest = line[index..index + DIGEST_LEN]
+        let digest = slice(line, index..index + DIGEST_LEN)?
             .parse::<Sha1Digest>()
             .map_err(|_| crate::Error::InvalidLine)?;
 
         index += DIGEST_LEN + 3;
 
-        if line.len() >= index + 2 {
-            let expected_digest = if line[index..].starts_with(EXPECTED_DIGEST_KEY) {
-                index += EXPECTED_DIGEST_KEY_LEN + 3;
-                let expected_digest = Cow::Borrowed(&line[index..index + DIGEST_LEN]);
-                index += DIGEST_LEN + 3;
-                Some(expected_digest)
-            } else {
-                None
-            };
-
-            let timestamp = if line[index..].starts_with(TIMESTAMP_KEY) {
-                index += TIMESTAMP_KEY_LEN + 3;
-                let timestamp = line[index..index + TIMESTAMP_LEN]
-                    .parse::<Timestamp>()
-                    .map_err(|_| crate::Error::InvalidLine)?;
-                index += TIMESTAMP_LEN + 3;
-                Some(timestamp)
-            } else {
-                None
-            };
-
-            let url = if line[index..].starts_with(URL_KEY) {
-                index += URL_KEY_LEN + 3;
-                let (value, next) = read_string_value(line, index)?;
-                index = next;
-                Some(Cow::Borrowed(value))
-            } else {
-                None
-            };
-
-            // The `format` object is parsed with `serde_json` (it carries `type`,
-            // `closing_whitespace`, and arbitrary metadata); the rest of the line is read by hand.
-            let format = if line[index..].starts_with(FORMAT_KEY) {
-                index += FORMAT_KEY_LEN + 2;
-                let (object, next) = read_object_value(line, index)?;
-                index = next + 2;
-                serde_json::from_str::<FormatInfo>(object).map_err(|_| crate::Error::InvalidLine)?
-            } else {
-                FormatInfo::default()
-            };
-
-            index += CONTENT_KEY_LEN + 2;
-
-            Ok(Self {
-                digest,
-                expected_digest,
-                timestamp,
-                url,
-                format,
-                content: line[index..line.len() - 1].into(),
-            })
+        let expected_digest = if rest(line, index)?.starts_with(EXPECTED_DIGEST_KEY) {
+            index += EXPECTED_DIGEST_KEY_LEN + 3;
+            let expected_digest = Cow::Borrowed(slice(line, index..index + DIGEST_LEN)?);
+            index += DIGEST_LEN + 3;
+            Some(expected_digest)
         } else {
-            Err(crate::Error::InvalidLine)
-        }
+            None
+        };
+
+        let timestamp = if rest(line, index)?.starts_with(TIMESTAMP_KEY) {
+            index += TIMESTAMP_KEY_LEN + 3;
+            let timestamp = slice(line, index..index + TIMESTAMP_LEN)?
+                .parse::<Timestamp>()
+                .map_err(|_| crate::Error::InvalidLine)?;
+            index += TIMESTAMP_LEN + 3;
+            Some(timestamp)
+        } else {
+            None
+        };
+
+        let url = if rest(line, index)?.starts_with(URL_KEY) {
+            index += URL_KEY_LEN + 3;
+            let (value, next) = read_string_value(line, index)?;
+            index = next;
+            Some(Cow::Borrowed(value))
+        } else {
+            None
+        };
+
+        // The `format` object is parsed with `serde_json` (it carries `type`, `closing_whitespace`,
+        // and arbitrary metadata), while the rest of the line is read by hand.
+        let format = if rest(line, index)?.starts_with(FORMAT_KEY) {
+            index += FORMAT_KEY_LEN + 2;
+            let (object, next) = read_object_value(line, index)?;
+            index = next + 2;
+            serde_json::from_str::<FormatInfo>(object).map_err(|_| crate::Error::InvalidLine)?
+        } else {
+            FormatInfo::default()
+        };
+
+        index += CONTENT_KEY_LEN + 2;
+
+        // The content runs from here to just before the closing `}`.
+        let content_end = line.len().checked_sub(1).ok_or(crate::Error::InvalidLine)?;
+
+        Ok(Self {
+            digest,
+            expected_digest,
+            timestamp,
+            url,
+            format,
+            content: slice(line, index..content_end)?.into(),
+        })
     }
 
     /// Borrow a serializable view of this snapshot under `context`.
@@ -246,6 +246,18 @@ impl std::fmt::Display for SnapshotDisplay<'_, '_> {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+/// Borrow `line[range]`, mapping an out-of-range or non-character-boundary range to
+/// [`Error::InvalidLine`](crate::Error::InvalidLine) instead of panicking.
+fn slice(line: &str, range: std::ops::Range<usize>) -> Result<&str, crate::Error> {
+    line.get(range).ok_or(crate::Error::InvalidLine)
+}
+
+/// Borrow `line[start..]`, mapping an out-of-range or non-character-boundary `start` to
+/// [`Error::InvalidLine`](crate::Error::InvalidLine) instead of panicking.
+fn rest(line: &str, start: usize) -> Result<&str, crate::Error> {
+    line.get(start..).ok_or(crate::Error::InvalidLine)
+}
+
 /// Read a JSON object value during [`ExactSnapshot::parse`].
 ///
 /// `index` must point at the value's opening `{`. Returns the borrowed object span (including the
@@ -296,14 +308,20 @@ fn read_object_value(line: &str, index: usize) -> Result<(&str, usize), crate::E
 /// borrowed value and the index just past the value's trailing `","`. Returns
 /// [`Error::InvalidLine`](crate::Error::InvalidLine) if the closing quote is missing.
 fn read_string_value(line: &str, index: usize) -> Result<(&str, usize), crate::Error> {
-    let mut i = 0;
-    while index + i < line.len() && &line[(index + i)..=(index + i)] != "\"" {
-        i += 1;
+    // Scan bytes (not `str` slices) for the closing quote so a multi-byte character in the value
+    // cannot trigger a mid-codepoint slice panic. `display` writes `url` values verbatim (without
+    // escaping), so a raw `"` terminates the value here too.
+    let bytes = line.as_bytes();
+    let mut end = index;
+    while end < bytes.len() && bytes[end] != b'"' {
+        end += 1;
     }
-    if index + i >= line.len() {
+    if end >= bytes.len() {
         Err(crate::Error::InvalidLine)
     } else {
-        Ok((&line[index..index + i], index + i + 3))
+        // `index` (just past the opening `"`) and `end` (the closing `"`) are byte boundaries; the
+        // returned index skips the closing `"`, the `,`, and the next field's opening `"`.
+        Ok((slice(line, index..end)?, end + 3))
     }
 }
 
@@ -323,8 +341,6 @@ pub fn format_closing_whitespace(whitespace: &[char]) -> String {
         })
         .collect()
 }
-
-// ── Tests ──────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -434,6 +450,29 @@ mod tests {
     fn parse_with_url_at_end_of_line() {
         let line = r#"{"digest":"ZHYT52YPEOCHJD5FZINSDYXGQZI22WJ4","url":""#;
         assert!(RawSnapshot::parse(line).is_err());
+    }
+
+    #[test]
+    fn parse_truncations_never_panic() {
+        // Truncating a valid line at any byte offset must yield `Ok`/`Err`, never a panic from an
+        // out-of-bounds or non-character-boundary slice.
+        for line in include_str!("../../examples/wbm/wxj/lines-01.ndjson").lines() {
+            for n in 0..=line.len() {
+                if let Ok(prefix) = std::str::from_utf8(&line.as_bytes()[..n]) {
+                    let _ = RawSnapshot::parse(prefix);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_multibyte_url() {
+        // A multi-byte character in the `url` value must not cause a mid-codepoint slice panic.
+        let line = "{\"digest\":\"AAAA3HVFIBJARGQ4ISEHROP6XWNULWTC\",\
+                     \"url\":\"https://\u{a1}.example/\u{bf}\",\"content\":{}}";
+        let parsed = RawSnapshot::parse(line).expect("parses");
+        assert_eq!(parsed.url.as_deref(), Some("https://\u{a1}.example/\u{bf}"));
+        assert_eq!(parsed.content.as_str(), "{}");
     }
 
     #[test]
