@@ -221,10 +221,11 @@ impl std::fmt::Display for SnapshotDisplay<'_, '_> {
             write!(f, "\"{TIMESTAMP_KEY}\":\"{timestamp}\",")?;
         }
 
-        let inferred_url = self.context.infer_url(&snapshot.content);
-
+        // A `url` is omitted when it equals the inferred URL. The inference parses the content as
+        // JSON and runs a CEL program, so only do it when there is actually a `url` to compare
+        // against (the let chain short-circuits before the right-hand side otherwise).
         if let Some(url) = &snapshot.url
-            && Some(url.as_ref()) != inferred_url.as_deref()
+            && Some(url.as_ref()) != self.context.infer_url(&snapshot.content).as_deref()
         {
             write!(f, "\"{URL_KEY}\":\"{url}\",")?;
         }
