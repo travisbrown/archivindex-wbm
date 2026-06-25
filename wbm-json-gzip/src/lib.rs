@@ -186,12 +186,26 @@ impl GzipParams {
             .or_else(|| infer_zlib(content, archive))
     }
 
+    /// Whether [`reproduce`](Self::reproduce) can run without panicking (i.e. the `level` is in the
+    /// supported range for the `compressor`).
+    ///
+    /// [`infer`](Self::infer) only ever produces reproducible parameters; this guards against a
+    /// `level` taken from untrusted metadata (e.g. a snapshot's `format` object).
+    #[must_use]
+    pub const fn is_reproducible(&self) -> bool {
+        match self.compressor {
+            // The Go-flate port only implements levels 4..=9.
+            Compressor::GoFlate => self.level >= 4 && self.level <= 9,
+            // zlib and zlib-ng accept levels 0..=9.
+            Compressor::Zlib | Compressor::ZlibNg => self.level <= 9,
+        }
+    }
+
     /// Reproduces the original gzip archive for the decompressed `content`, byte-for-byte.
     ///
     /// # Panics
     ///
-    /// Panics for [`Compressor::GoFlate`] if `level` is outside 4..=9; [`infer`](Self::infer) never
-    /// returns such a level.
+    /// Panics when [`is_reproducible`](Self::is_reproducible) is false.
     #[must_use]
     pub fn reproduce(&self, content: &[u8]) -> Vec<u8> {
         match self.compressor {
@@ -216,7 +230,7 @@ impl GzipParams {
             ),
             #[cfg(not(feature = "zlib"))]
             Compressor::Zlib | Compressor::ZlibNg => {
-                panic!("reproducing zlib/zlib-ng archives requires the `zlib` feature")
+                panic!("reproducing zlib or zlib-ng archives requires the `zlib` feature")
             }
         }
     }
@@ -357,6 +371,7 @@ pub fn codec() -> Codec {
         |content: &str, metadata: &Map<String, Value>| {
             serde_json::from_value::<GzipParams>(Value::Object(metadata.clone()))
                 .ok()
+                .filter(GzipParams::is_reproducible)
                 .map_or_else(
                     || Cow::Borrowed(content.as_bytes()),
                     |params| Cow::Owned(params.reproduce(content.as_bytes())),
@@ -379,6 +394,48 @@ mod tests {
     use archivindex_wbm::digest::Sha1Computer;
     #[cfg(feature = "zlib")]
     use archivindex_wbm_json::exact::ExactSnapshot;
+
+    #[test]
+    fn is_reproducible_bounds_levels() {
+        let go = |level| GzipParams {
+            compressor: Compressor::GoFlate,
+            level,
+            mtime: 0,
+            os: OsByte::Unknown,
+            extra_flushes: 0,
+        };
+        assert!(go(4).is_reproducible());
+        assert!(go(9).is_reproducible());
+        assert!(!go(3).is_reproducible());
+        assert!(!go(10).is_reproducible());
+
+        let zlib = |level| GzipParams {
+            compressor: Compressor::Zlib,
+            level,
+            mtime: 0,
+            os: OsByte::Unix,
+            extra_flushes: 0,
+        };
+        assert!(zlib(0).is_reproducible());
+        assert!(zlib(9).is_reproducible());
+        assert!(!zlib(10).is_reproducible());
+    }
+
+    #[test]
+    fn codec_falls_back_on_unreproducible_level() {
+        // An invalid GoFlate level from untrusted metadata must not panic. The codec returns the
+        // content unchanged (which then fails digest validation, which is the safe outcome).
+        let bad = GzipParams {
+            compressor: Compressor::GoFlate,
+            level: 99,
+            mtime: 0,
+            os: OsByte::Unknown,
+            extra_flushes: 0,
+        };
+        let content = r#"{"x":1}"#;
+        let encoded = codec().encode(content, &bad.metadata());
+        assert_eq!(encoded.as_ref(), content.as_bytes());
+    }
 
     /// A non-trivial JSON content string (no trailing whitespace) for the round-trips.
     #[cfg(feature = "zlib")]
