@@ -61,6 +61,27 @@ pub fn import(input: &Path, db: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// Print `url,archive_timestamp,expected_digest,actual_digest` CSV (no header) for every invalid
+/// digest in `db` to stdout.
+pub fn export_invalid_digests(db: &Path) -> Result<(), Error> {
+    let database = Database::open(db)?;
+
+    // `write_record` never emits a header row.
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    for result in database.invalid_digests(None)? {
+        let (_observed, entry) = result?;
+        writer.write_record([
+            entry.item_info.url_parts.url.to_string(),
+            entry.item_info.url_parts.timestamp.to_string(),
+            entry.item_info.expected_digest.to_string(),
+            entry.actual_digest.to_string(),
+        ])?;
+    }
+    writer.flush()?;
+
+    Ok(())
+}
+
 /// Convert a Unix-second observation timestamp into a [`DateTime`], the form the database expects.
 fn observation_time(seconds: i64) -> Result<DateTime<Utc>, Error> {
     DateTime::from_timestamp(seconds, 0).ok_or(Error::InvalidObservationTimestamp(seconds))

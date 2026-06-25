@@ -35,6 +35,9 @@ async fn main() -> Result<(), Error> {
             }
             InvalidLogCommand::Export { db, output } => invalid_log::export(&db, &output)?,
             InvalidLogCommand::Import { input, db } => invalid_log::import(&input, &db)?,
+            InvalidLogCommand::ExportInvalidDigests { db } => {
+                invalid_log::export_invalid_digests(&db)?
+            }
         },
     }
 
@@ -108,6 +111,12 @@ enum InvalidLogCommand {
     Import {
         #[clap(long)]
         input: PathBuf,
+        #[clap(long)]
+        db: PathBuf,
+    },
+    /// Print headerless CSV rows (URL, timestamp, expected digest, actual digest) for every invalid
+    /// digest in `db` to stdout.
+    ExportInvalidDigests {
         #[clap(long)]
         db: PathBuf,
     },
