@@ -8,7 +8,7 @@ use archivindex_wbm::{
 };
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 
@@ -77,6 +77,38 @@ pub struct Manager {
     pub receiver: Option<Receiver<DownloadResult>>,
 }
 
+/// Write a downloaded snapshot to `dir/name` without blocking the async reactor.
+///
+/// The bytes are written on the blocking thread pool to a unique temporary file and then atomically
+/// renamed into place, so a crash mid-write cannot leave a partial file under the content-addressed
+/// `name`. A file that already exists is left untouched (its name is its digest, so the bytes are
+/// identical). `unique` must be distinct per concurrent write (e.g. worker id + counter) so two
+/// workers writing the same digest do not collide on the temporary path.
+async fn write_snapshot_file(
+    dir: PathBuf,
+    name: String,
+    unique: String,
+    bytes: bytes::Bytes,
+) -> Result<(), Error> {
+    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        let path = dir.join(&name);
+        if path.try_exists()? {
+            return Ok(());
+        }
+
+        let temp = dir.join(format!("{name}.{unique}.tmp"));
+        let mut file = File::create(&temp)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temp, &path)?;
+
+        Ok(())
+    })
+    .await??;
+
+    Ok(())
+}
+
 impl Manager {
     pub fn new<P: AsRef<Path>, D: AsRef<Path>>(
         output_path: P,
@@ -96,7 +128,7 @@ impl Manager {
         let (sender, receiver) = tokio::sync::mpsc::channel(buffer);
         let mut tasks = Vec::with_capacity(worker_count);
 
-        for _ in 0..worker_count {
+        for worker_id in 0..worker_count {
             let task = tokio::task::spawn({
                 let output_path = output_path.clone();
                 let todo_queue = todo_queue.clone();
@@ -142,9 +174,13 @@ impl Manager {
                                             |digest| digest.to_string(),
                                         );
 
-                                        let mut file = File::create(output_path.join(digest))?;
-
-                                        file.write_all(&result.download.bytes)?;
+                                        write_snapshot_file(
+                                            output_path.clone(),
+                                            digest,
+                                            format!("{worker_id}.{count}"),
+                                            result.download.bytes.clone(),
+                                        )
+                                        .await?;
 
                                         count += 1;
 
