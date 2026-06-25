@@ -368,15 +368,7 @@ async fn main() -> Result<(), Error> {
                 },
             )?;
 
-            log::info!(
-                "{} resolved, {} unresolved, {} skipped, {} warnings",
-                summary.resolved_count,
-                summary.unresolved_count,
-                summary.skipped_count,
-                summary.warnings.len(),
-            );
-
-            std::fs::write(summary_output, serde_json::json!(summary).to_string())?;
+            write_compact_summary(&summary, &summary_output)?;
         }
         Command::Merge {
             first,
@@ -420,15 +412,7 @@ async fn main() -> Result<(), Error> {
                 |_bytes, _resolution| ((), FormatInfo::default()),
             )?;
 
-            log::info!(
-                "{} resolved, {} unresolved, {} skipped, {} warnings",
-                summary.resolved_count,
-                summary.unresolved_count,
-                summary.skipped_count,
-                summary.warnings.len(),
-            );
-
-            std::fs::write(summary_output, serde_json::json!(summary).to_string())?;
+            write_compact_summary(&summary, &summary_output)?;
         }
     }
 
@@ -454,6 +438,26 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Erro
     };
 
     Ok(context)
+}
+
+/// Log a `compact` [`Summary`](archivindex_wbm_json::process::compact::Summary) and write it as JSON
+/// to `summary_output`. Shared by the WXJ and Truth Social compact commands, which otherwise differ
+/// only in their output partitions, contexts, and discriminator.
+fn write_compact_summary(
+    summary: &archivindex_wbm_json::process::compact::Summary,
+    summary_output: &Path,
+) -> Result<(), Error> {
+    log::info!(
+        "{} resolved, {} unresolved, {} skipped, {} warnings",
+        summary.resolved_count,
+        summary.unresolved_count,
+        summary.skipped_count,
+        summary.warnings.len(),
+    );
+
+    std::fs::write(summary_output, serde_json::json!(summary).to_string())?;
+
+    Ok(())
 }
 
 /// Reproduce the original content bytes of `snapshot` (its content followed by the effective
