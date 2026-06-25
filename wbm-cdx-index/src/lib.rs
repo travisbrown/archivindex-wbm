@@ -66,6 +66,8 @@ pub enum Error {
     RocksDb(#[from] rocksdb::Error),
     #[error("Decode error: {0}")]
     Decode(&'static str),
+    #[error("Encode error: {0}")]
+    Encode(&'static str),
     #[error("UTF-8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
 }
@@ -98,21 +100,21 @@ fn digest_key(digest: &Sha1Digest, surl: &str, timestamp_secs: i64) -> Vec<u8> {
     key
 }
 
-fn encode_item_value(item: &Item<'_>) -> Vec<u8> {
+fn encode_item_value(item: &Item<'_>) -> Result<Vec<u8>, Error> {
     let original_bytes = item.original.as_bytes();
     let mime_bytes = item.mime_type.as_str().as_bytes();
     let mut value = Vec::new();
 
     value.extend_from_slice(
         &u16::try_from(original_bytes.len())
-            .expect("URL length fits in u16")
+            .map_err(|_| Error::Encode("URL length exceeds u16"))?
             .to_le_bytes(),
     );
     value.extend_from_slice(original_bytes);
 
     value.extend_from_slice(
         &u16::try_from(mime_bytes.len())
-            .expect("MIME type length fits in u16")
+            .map_err(|_| Error::Encode("MIME type length exceeds u16"))?
             .to_le_bytes(),
     );
     value.extend_from_slice(mime_bytes);
@@ -129,7 +131,7 @@ fn encode_item_value(item: &Item<'_>) -> Vec<u8> {
             let invalid_bytes = invalid_str.as_bytes();
             value.extend_from_slice(
                 &u16::try_from(invalid_bytes.len())
-                    .expect("digest string length fits in u16")
+                    .map_err(|_| Error::Encode("digest string length exceeds u16"))?
                     .to_le_bytes(),
             );
             value.extend_from_slice(invalid_bytes);
@@ -144,7 +146,7 @@ fn encode_item_value(item: &Item<'_>) -> Vec<u8> {
         None => value.push(0),
     }
 
-    value
+    Ok(value)
 }
 
 fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
@@ -350,7 +352,7 @@ impl CdxIndex {
             let timestamp_secs: i64 = i64::from(item.timestamp);
             let surl = item.key.as_str();
             let key = item_key(surl, timestamp_secs);
-            let value = encode_item_value(item);
+            let value = encode_item_value(item)?;
 
             batch.put_cf(cf_items, &key, &value);
 
