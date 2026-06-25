@@ -385,8 +385,12 @@ async fn main() -> Result<(), Error> {
                 };
 
                 let code = if is_unused {
-                    // Unused.
-                    "-"
+                    if valid_digests.is_empty() && invalid_digests.is_empty() {
+                        "0"
+                    } else {
+                        // Unused.
+                        "-"
+                    }
                 } else {
                     // Necessary.
                     "+"
