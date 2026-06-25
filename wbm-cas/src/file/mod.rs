@@ -151,7 +151,7 @@ impl crate::Store for Store<entry::Buffered> {
 
                 Ok(Some(bytes::Bytes::from(bytes)))
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
     }
@@ -251,7 +251,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
 
                 Ok(Some(bytes::Bytes::from(bytes)))
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
     }
