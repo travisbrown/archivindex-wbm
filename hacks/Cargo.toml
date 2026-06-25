@@ -1,29 +1,28 @@
-[workspace]
-
 [package]
 name = "archivindex-hacks"
-authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
-repository = "https://github.com/travisbrown/archivindex"
-edition = "2024"
-license = "AGPL-3.0-only"
-version = "0.1.0"
+workspace = ".."
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-downloader = { path = "../wbm-downloader/" }
 archivindex-wbm-json = { path = "../wbm-json/" }
-birdsite = { git = "https://github.com/travisbrown/birdsite.git" }
-bounded-static = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
-cli-helpers = "0.1"
-csv = "1"
-futures = "0.3"
+birdsite = { workspace = true }
+bounded-static = { workspace = true }
+chrono = { workspace = true }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+futures = { workspace = true }
 globwalk = "0.9"
 itertools = "0.15"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tokio-stream = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
 walkdir = "2"
-zstd = "0.13"
+zstd = { workspace = true }

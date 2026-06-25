@@ -1,6 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
+    "hacks",
+    "wbm",
+    "wbm-cas",
+    "wbm-cdx-index",
+    "wbm-cdx-index-cli",
+    "wbm-downloader",
+    "wbm-downloader-cli",
+    "wbm-invalid-log",
+    "wbm-json",
+    "wbm-json-cli",
+    "wbm-json-gzip",
+]
+default-members = [
     "wbm",
     "wbm-cas",
     "wbm-cdx-index",
