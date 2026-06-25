@@ -378,9 +378,9 @@ async fn main() -> Result<(), Error> {
                         .file_name()
                         .and_then(|file_name| file_name.to_str())
                     {
-                        count_valid += 1;
-
                         if let Ok(digest) = file_name.parse::<Sha1Digest>() {
+                            count_valid += 1;
+
                             if digests.contains(&digest) {
                                 count_deleted += 1;
 
