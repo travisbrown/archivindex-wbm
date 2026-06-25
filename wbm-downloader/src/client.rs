@@ -247,12 +247,17 @@ impl Client {
         .boxed()
     }
 
-    pub async fn resolve_redirect(
+    /// Shared first hop of redirect resolution: `HEAD` the snapshot, parse the `Found` location,
+    /// and resolve its content (the synthesized redirect HTML when it matches `expected_digest`,
+    /// and otherwise the directly-fetched bytes). Returns the parsed location, the content,
+    /// whether the synthesized HTML matched `valid_initial_content`, and whether the content's
+    /// digest matched.
+    async fn resolve_redirect_content(
         &self,
         url: &str,
         timestamp: Timestamp,
         expected_digest: Sha1Digest,
-    ) -> Result<RedirectResolution, Error> {
+    ) -> Result<(UrlParts<'_>, Bytes, bool, bool), Error> {
         let initial_url = self.configured_wayback_url(url, timestamp);
         let initial_response = self.underlying.head(&initial_url).send().await?;
 
@@ -264,14 +269,10 @@ impl Client {
                         .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                    let guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(guess_bytes);
+                    let guess_digest = Sha1Computer::compute_digest(guess.as_bytes());
 
-                    let mut valid_initial_content = true;
-                    let mut valid_digest = true;
-
-                    let content = if guess_digest == expected_digest {
-                        Bytes::from(guess)
+                    if guess_digest == expected_digest {
+                        Ok((info, Bytes::from(guess), true, true))
                     } else {
                         let direct_bytes = self
                             .underlying
@@ -282,32 +283,40 @@ impl Client {
                             .await?;
                         let direct_digest = Sha1Computer::compute_digest(direct_bytes.as_ref());
 
-                        valid_initial_content = false;
-                        valid_digest = direct_digest == expected_digest;
-
-                        direct_bytes
-                    };
-
-                    let actual_url = self
-                        .direct_resolve_redirect(&info.url, info.timestamp)
-                        .await?;
-
-                    let actual_info = actual_url
-                        .parse::<UrlParts<'_>>()
-                        .map_err(|_| Error::UnexpectedRedirect(Some(actual_url)))?;
-
-                    Ok(RedirectResolution {
-                        url: actual_info.url.into(),
-                        timestamp: actual_info.timestamp,
-                        content,
-                        valid_initial_content,
-                        valid_digest,
-                    })
+                        Ok((info, direct_bytes, false, direct_digest == expected_digest))
+                    }
                 }
                 None => Err(Error::UnexpectedRedirect(None)),
             },
             other => Err(Error::UnexpectedStatus(other)),
         }
+    }
+
+    pub async fn resolve_redirect(
+        &self,
+        url: &str,
+        timestamp: Timestamp,
+        expected_digest: Sha1Digest,
+    ) -> Result<RedirectResolution, Error> {
+        let (info, content, valid_initial_content, valid_digest) = self
+            .resolve_redirect_content(url, timestamp, expected_digest)
+            .await?;
+
+        let actual_url = self
+            .direct_resolve_redirect(&info.url, info.timestamp)
+            .await?;
+
+        let actual_info = actual_url
+            .parse::<UrlParts<'_>>()
+            .map_err(|_| Error::UnexpectedRedirect(Some(actual_url)))?;
+
+        Ok(RedirectResolution {
+            url: actual_info.url.into(),
+            timestamp: actual_info.timestamp,
+            content,
+            valid_initial_content,
+            valid_digest,
+        })
     }
 
     async fn direct_resolve_redirect(
@@ -338,44 +347,15 @@ impl Client {
         timestamp: Timestamp,
         expected_digest: Sha1Digest,
     ) -> Result<(UrlParts<'_>, String, bool), Error> {
-        let initial_url = self.configured_wayback_url(url, timestamp);
-        let initial_response = self.underlying.head(&initial_url).send().await?;
+        let (info, content, _valid_initial_content, valid_digest) = self
+            .resolve_redirect_content(url, timestamp, expected_digest)
+            .await?;
 
-        match initial_response.status() {
-            StatusCode::FOUND => match redirect_location(&initial_response) {
-                Some(location) => {
-                    let info = location
-                        .parse::<UrlParts<'_>>()
-                        .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
-
-                    let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                    let guess_bytes = guess.as_bytes();
-                    let guess_digest = Sha1Computer::compute_digest(guess_bytes);
-
-                    let (content, valid_digest) = if guess_digest == expected_digest {
-                        (guess, true)
-                    } else {
-                        let direct_bytes = self
-                            .underlying
-                            .get(&initial_url)
-                            .send()
-                            .await?
-                            .bytes()
-                            .await?;
-                        let direct_digest = Sha1Computer::compute_digest(direct_bytes.as_ref());
-
-                        (
-                            std::str::from_utf8(&direct_bytes)?.to_string(),
-                            direct_digest == expected_digest,
-                        )
-                    };
-
-                    Ok((info, content, valid_digest))
-                }
-                None => Err(Error::UnexpectedRedirect(None)),
-            },
-            other => Err(Error::UnexpectedStatus(other)),
-        }
+        Ok((
+            info,
+            std::str::from_utf8(&content)?.to_string(),
+            valid_digest,
+        ))
     }
 }
 
