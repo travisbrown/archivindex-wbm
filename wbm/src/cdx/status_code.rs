@@ -38,9 +38,7 @@ pub enum Error {
 ///
 /// This is a simplified representation that only provides coverage for values relevant to our CDX
 /// index results. The serialization encoding provided here is the one seen in these results.
-#[derive(
-    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
-)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize)]
 pub enum StatusCode {
     // Represents a hyphen in the CDX result, which typically indicates a `200` response.
     #[serde(alias = "-")]
@@ -204,6 +202,15 @@ impl Display for StatusCode {
     }
 }
 
+/// Serializes as the CDX string form (e.g. `"200"`, `"-"`), matching [`Display`] and the form
+/// accepted on deserialization (the derived `Deserialize` aliases). The derive would otherwise emit
+/// the Rust variant name (`"Ok"`), since `#[serde(alias = ...)]` only affects deserialization.
+impl serde::ser::Serialize for StatusCode {
+    fn serialize<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl FromStr for StatusCode {
     type Err = Error;
 
@@ -315,6 +322,9 @@ mod test {
     fn round_trip_json() {
         for status_code in super::STATUS_CODE_VALUES {
             let status_code_json = serde_json::json!(status_code);
+            // Serialization uses the CDX string form (e.g. "200"), not the Rust variant name.
+            assert_eq!(status_code_json, serde_json::json!(status_code.as_str()));
+
             let parsed: super::StatusCode =
                 serde_json::from_str(&status_code_json.to_string()).unwrap();
 
