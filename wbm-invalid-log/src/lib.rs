@@ -21,7 +21,7 @@
 use archivindex_wbm::digest::Digest;
 use archivindex_wbm::{digest::Sha1Digest, item::ItemInfo};
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -89,6 +89,15 @@ const INSERT_INVALID_DIGEST: &str = "
 const INSERT_WITHHELD: &str = "
     INSERT OR IGNORE INTO withheld_url (timestamp, url)
         VALUES (?1, ?2)
+";
+
+// Used by `merge`: insert a row, or — if it already exists (same identity columns) — keep the
+// earliest observation `timestamp`. Relies on the table's `UNIQUE` constraint as the conflict target.
+const MERGE_INVALID_DIGEST: &str = "
+    INSERT INTO invalid_digest (timestamp, url, archive_timestamp, expected_digest, actual_digest)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(url, archive_timestamp, expected_digest, actual_digest)
+        DO UPDATE SET timestamp = MIN(timestamp, excluded.timestamp)
 ";
 
 const SELECT_ALL_INVALID_DIGESTS: &str = "
@@ -368,47 +377,13 @@ impl Database {
         let mut connection = self.connection.lock().unwrap();
         let transaction = connection.transaction()?;
 
-        // Merge invalid digests.
-        for result in other.invalid_digests(None)? {
-            let (timestamp, entry) = result?;
-
-            // Check if entry exists.
-            let mut check_statement = transaction.prepare_cached(
-                "SELECT timestamp FROM invalid_digest
-                    WHERE url = ?1 AND archive_timestamp = ?2 AND expected_digest = ?3 AND actual_digest = ?4"
-            )?;
-
-            let existing_timestamp: Option<i64> = check_statement
-                .query_row(
-                    params![
-                        entry.item_info.url_parts.url,
-                        entry.item_info.url_parts.timestamp,
-                        entry.item_info.expected_digest,
-                        entry.actual_digest,
-                    ],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            if let Some(existing_ts) = existing_timestamp {
-                // Entry exists, update if source has older timestamp.
-                if timestamp.timestamp() < existing_ts {
-                    let mut update_statement = transaction.prepare_cached(
-                        "UPDATE invalid_digest SET timestamp = ?1
-                            WHERE url = ?2 AND archive_timestamp = ?3 AND expected_digest = ?4 AND actual_digest = ?5"
-                    )?;
-                    update_statement.execute(params![
-                        timestamp.timestamp(),
-                        entry.item_info.url_parts.url,
-                        entry.item_info.url_parts.timestamp,
-                        entry.item_info.expected_digest,
-                        entry.actual_digest,
-                    ])?;
-                }
-            } else {
-                // Entry doesn't exist, insert it.
-                let mut insert_statement = transaction.prepare_cached(INSERT_INVALID_DIGEST)?;
-                insert_statement.execute(params![
+        // Merge invalid digests: insert each, keeping the earliest observation timestamp on
+        // conflict (one statement per row, no separate existence check).
+        {
+            let mut merge_statement = transaction.prepare_cached(MERGE_INVALID_DIGEST)?;
+            for result in other.invalid_digests(None)? {
+                let (timestamp, entry) = result?;
+                merge_statement.execute(params![
                     timestamp.timestamp(),
                     entry.item_info.url_parts.url,
                     entry.item_info.url_parts.timestamp,
