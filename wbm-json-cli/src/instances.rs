@@ -1,7 +1,9 @@
-pub mod wts {
-    use crate::context::Context;
+use archivindex_wbm_json::context::Context;
 
-    /// The canonical [`Context`] for Truth Social post snapshots.
+pub mod wts {
+    use super::Context;
+
+    /// Returns the canonical [`Context`] for Truth Social post snapshots.
     ///
     /// # Panics
     ///
@@ -15,14 +17,11 @@ pub mod wts {
 }
 
 pub mod wxj {
-    use crate::context::Context;
+    use super::Context;
 
-    /// The canonical closing whitespace for all WXJ (Twitter) formats.
     const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
 
-    /// The canonical [`Context`] for the WXJ format, without URL inference.
-    ///
-    /// Suitable for validation when the content schema (and hence URL inference) is irrelevant.
+    /// Returns the canonical [`Context`] for the WXJ format, without URL inference.
     #[must_use]
     pub const fn context() -> Context {
         Context::from_static(WXJ_CLOSING_WHITESPACE)
@@ -30,9 +29,9 @@ pub mod wxj {
 
     pub mod data {
         use super::WXJ_CLOSING_WHITESPACE;
-        use crate::context::Context;
+        use super::super::Context;
 
-        /// The canonical [`Context`] for WXJ data format tweet snapshots.
+        /// Returns the canonical [`Context`] for WXJ data format tweet snapshots.
         ///
         /// # Panics
         ///
@@ -51,9 +50,9 @@ pub mod wxj {
 
     pub mod flat {
         use super::WXJ_CLOSING_WHITESPACE;
-        use crate::context::Context;
+        use super::super::Context;
 
-        /// The canonical [`Context`] for WXJ flat format tweet snapshots.
+        /// Returns the canonical [`Context`] for WXJ flat format tweet snapshots.
         ///
         /// # Panics
         ///

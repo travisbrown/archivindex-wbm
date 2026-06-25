@@ -21,8 +21,7 @@
 //!
 //! Interpreting a snapshot — resolving its effective closing whitespace, validating its digest, and
 //! re-deriving its canonical URL when serializing — is the job of a [`Context`](context::Context)
-//! *value*. A context can be constructed directly, obtained for a known format from
-//! [`configuration::instances`], or *inferred* from a file via
+//! *value*. A context can be constructed directly or *inferred* from a file via
 //! [`Context::infer`](context::Context::infer).
 //!
 //! Serializing a snapshot back to its canonical form (via
@@ -32,7 +31,6 @@
 //!
 //! # Modules
 //!
-//! - [`configuration`]: Site-specific [`Context`](context::Context) constructors
 //! - [`context`]: [`Context`](context::Context) — the entry point for digest validation
 //! - [`exact`]: [`ExactContent`](exact::ExactContent), [`ExactSnapshot`](exact::ExactSnapshot),
 //!   [`SnapshotDisplay`](exact::SnapshotDisplay), and parse / display
@@ -47,7 +45,6 @@ use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 
 mod closing_whitespace;
-pub mod configuration;
 pub mod context;
 pub mod exact;
 pub mod format;

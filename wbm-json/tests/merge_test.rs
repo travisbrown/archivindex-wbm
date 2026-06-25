@@ -4,11 +4,31 @@
 //! and verifies that `merge_dual_zstd` produces the expected output.
 
 use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wbm_json::configuration::instances::wxj::{data, flat};
+use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::io::read::SnapshotReader;
 use archivindex_wbm_json::stream::merge::{MergeDualConfig, MergeStats, NewSnapshotTarget};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
+
+fn wxj_flat_context() -> Context {
+    Context::from_static(WXJ_CLOSING_WHITESPACE)
+        .with_url_query(
+            "'https://twitter.com/' + content.user.screen_name + '/status/' + content.id_str",
+        )
+        .expect("valid CEL query")
+}
+
+fn wxj_data_context() -> Context {
+    Context::from_static(WXJ_CLOSING_WHITESPACE)
+        .with_url_query(
+            "'https://twitter.com/' + \
+             content.includes.users.filter(u, u.id == content.data.author_id)[0].username + \
+             '/status/' + content.data.id",
+        )
+        .expect("valid CEL query")
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,8 +142,8 @@ async fn merge_dual_zstd_end_to_end() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
-        first_context: flat::context(),
-        second_context: data::context(),
+        first_context: wxj_flat_context(),
+        second_context: wxj_data_context(),
         classify: classify_content,
     })
     .await
@@ -214,8 +234,8 @@ async fn merge_output_validates() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
-        first_context: flat::context(),
-        second_context: data::context(),
+        first_context: wxj_flat_context(),
+        second_context: wxj_data_context(),
         classify: classify_content,
     })
     .await
@@ -224,7 +244,7 @@ async fn merge_output_validates() {
     // Validate every snapshot in both outputs.
     let flat_reader = SnapshotReader::open(tmp.path().join("flat_output.ndjson.zst")).unwrap();
 
-    let flat_context = flat::context();
+    let flat_context = wxj_flat_context();
     let mut hasher = sha1::Sha1::default();
     for result in flat_reader {
         let snapshot = result.unwrap();
@@ -235,7 +255,7 @@ async fn merge_output_validates() {
 
     let data_reader = SnapshotReader::open(tmp.path().join("data_output.ndjson.zst")).unwrap();
 
-    let data_context = data::context();
+    let data_context = wxj_data_context();
     for result in data_reader {
         let snapshot = result.unwrap();
         data_context
@@ -268,8 +288,8 @@ async fn merge_parallel_matches_sequential() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 4,
-        first_context: flat::context(),
-        second_context: data::context(),
+        first_context: wxj_flat_context(),
+        second_context: wxj_data_context(),
         classify: classify_content,
     })
     .await

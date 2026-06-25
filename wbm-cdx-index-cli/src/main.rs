@@ -172,7 +172,7 @@ pub enum Error {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-cdx-index", version, author)]
+#[clap(name = "archivindex-wbm-cdx-index-cli", version, author)]
 struct Opts {
     #[clap(flatten)]
     verbose: Verbosity,

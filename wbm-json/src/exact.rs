@@ -338,7 +338,13 @@ mod tests {
     type TypedSnapshot<'a> = Snapshot<'a, serde_json::Value>;
 
     fn context() -> Context {
-        crate::configuration::instances::wxj::data::context()
+        Context::from_static(&['\r', '\r', '\n'])
+            .with_url_query(
+                "'https://twitter.com/' + \
+                 content.includes.users.filter(u, u.id == content.data.author_id)[0].username + \
+                 '/status/' + content.data.id",
+            )
+            .expect("valid CEL query")
     }
 
     #[test]

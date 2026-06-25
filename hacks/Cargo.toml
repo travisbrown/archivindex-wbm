@@ -11,14 +11,12 @@ license.workspace = true
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-downloader = { path = "../wbm-downloader/" }
 archivindex-wbm-json = { path = "../wbm-json/" }
-birdsite = { workspace = true }
 bounded-static = { workspace = true }
 chrono = { workspace = true }
 cli-helpers = { workspace = true }
 csv = { workspace = true }
 futures = { workspace = true }
 globwalk = "0.9"
-itertools = "0.15"
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = { workspace = true }

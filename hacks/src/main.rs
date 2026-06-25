@@ -9,18 +9,10 @@ use archivindex_wbm::{
     timestamp::Timestamp,
 };
 use archivindex_wbm_downloader::DownloadResult;
-use archivindex_wbm_json::{
-    Snapshot,
-    configuration::instances::{wts, wxj as wbm_wxj},
-    context::Context,
-    exact::ExactSnapshot,
-};
-use birdsite::model::wxj::data;
-use bounded_static::IntoBoundedStatic;
-use chrono::DateTime;
+use archivindex_wbm_json::{context::Context, exact::ExactSnapshot};
+use configuration::instances::{wts, wxj as wbm_wxj};
 use cli_helpers::prelude::*;
 use futures::stream::StreamExt;
-use itertools::Itertools;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -31,8 +23,6 @@ use std::time::SystemTime;
 
 mod configuration;
 mod wxj;
-
-type BirdsiteWxjDataSnapshot<'a, C> = Snapshot<'a, C>;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -209,74 +199,6 @@ async fn main() -> Result<(), Error> {
             }
 
             log::info!("Good: {success_count}; bad: {failure_count}");
-        }
-        Command::TweetDoc { input, id } => {
-            let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
-            let mut found = vec![];
-
-            for line in lines {
-                let line = line?;
-                let mut snapshot = serde_json::from_str::<
-                    BirdsiteWxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                >(&line)?;
-
-                if let Some(mut tweets) = snapshot.content.includes.tweets.take() {
-                    tweets.retain(|tweet| tweet.author_id == id);
-
-                    if !tweets.is_empty()
-                        && let Some(((timestamp, user), url)) = snapshot
-                            .timestamp
-                            .zip(snapshot.content.lookup_user(id))
-                            .zip(
-                                snapshot
-                                    .url
-                                    .as_ref()
-                                    .map(std::string::ToString::to_string)
-                                    .or_else(|| {
-                                        configuration::infer_url(&snapshot.content)
-                                            .map(|url| url.to_string())
-                                    }),
-                            )
-                    {
-                        found.extend(tweets.into_iter().map(|tweet| {
-                            (
-                                timestamp,
-                                url.clone(),
-                                tweet.into_static(),
-                                user.clone().into_static(),
-                            )
-                        }));
-                    }
-                }
-            }
-
-            found.sort_by_key(|(_, _, tweet, _)| std::cmp::Reverse(tweet.created_at));
-
-            for (_as_os_str, tweets) in &found
-                .into_iter()
-                .chunk_by(|(_, _, tweet, _)| tweet.created_at)
-            {
-                // We choose the most recent snapshot indexed under the user's screen name (or just
-                // most recent, if there are none).
-                if let Some((timestamp, url, tweet, user)) =
-                    tweets.max_by_key(|(timestamp, url, _, user)| {
-                        (
-                            url.to_lowercase().contains(&user.username.to_lowercase()),
-                            *timestamp,
-                        )
-                    })
-                {
-                    println!(
-                        "* {} (@{}) at [{}](https://web.archive.org/web/{}/{}): {}",
-                        user.name,
-                        user.username,
-                        DateTime::from(timestamp).format("%e %B %Y"),
-                        timestamp,
-                        url,
-                        tweet.text.replace('\n', " ")
-                    );
-                }
-            }
         }
         Command::Download {
             output,
@@ -720,12 +642,6 @@ enum Command {
     CdxList {
         #[clap(long)]
         base: PathBuf,
-    },
-    TweetDoc {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        id: u64,
     },
     Download {
         #[clap(long)]

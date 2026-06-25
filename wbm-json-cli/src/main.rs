@@ -3,29 +3,24 @@
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use archivindex_wbm_json::{
-    Snapshot,
-    configuration::instances::{wts, wxj},
     context::Context,
     exact::ExactSnapshot,
     format::FormatInfo,
     io::{read::SnapshotReader, write::SnapshotWriter},
 };
-use birdsite::model::wxj::{TweetSnapshot, data, flat};
-use chrono::DateTime;
 use cli_helpers::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use instances::{wts, wxj};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 mod cdx;
+mod instances;
 mod snapshot;
 
 // A snapshot's content representation no longer depends on its format, and writers and readers now
 // carry their format via a runtime context, so these aliases are all the same shape; the distinct
 // names document the format expected at each call site.
-type WxjDataSnapshot<'a, C> = Snapshot<'a, C>;
-type WxjFlatSnapshot<'a, C> = Snapshot<'a, C>;
 type WxjDataSnapshotReader<R> = SnapshotReader<R>;
 type WxjFlatSnapshotReader<R> = SnapshotReader<R>;
 
@@ -241,358 +236,6 @@ async fn main() -> Result<(), Error> {
             flat_output.finish()?;
             data_output.finish()?;
         }
-        Command::TweetIds { input, flat } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for (i, line) in reader.lines().enumerate() {
-                let line = line?;
-
-                let content = if flat {
-                    let snapshot =
-                        serde_json::from_str::<WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>>(&line)
-                            .map_err(|error| Error::JsonLine(i + 1, error))?;
-
-                    TweetSnapshot::Flat(snapshot.content)
-                } else {
-                    let snapshot =
-                        serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)
-                            .map_err(|error| Error::JsonLine(i + 1, error))?;
-
-                    TweetSnapshot::Data(snapshot.content)
-                };
-
-                let metadata =
-                    birdsite::model::wxj::metadata::tweet::TweetMetadata::from_tweet_snapshot(
-                        &content,
-                    )?;
-
-                for tweet in metadata {
-                    println!("{},{}", tweet.user.id, tweet.id);
-                }
-            }
-        }
-        Command::Withheld { input, flat } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for line in reader.lines() {
-                let line = line?;
-
-                let withheld = if flat {
-                    let snapshot = serde_json::from_str::<
-                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
-                    >(&line)?;
-
-                    snapshot
-                        .content
-                        .withheld_in_countries
-                        .and_then(|country_codes| {
-                            if country_codes.is_empty() {
-                                None
-                            } else {
-                                Some((
-                                    snapshot.content.user.id,
-                                    snapshot.content.user.screen_name.to_string(),
-                                    country_codes,
-                                ))
-                            }
-                        })
-                        .into_iter()
-                        .collect::<Vec<_>>()
-                } else {
-                    let snapshot = serde_json::from_str::<
-                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                    >(&line)?;
-
-                    snapshot
-                        .content
-                        .includes
-                        .users
-                        .into_iter()
-                        .filter_map(|user| {
-                            user.user().and_then(|user| {
-                                user.withheld.as_ref().map(|withheld| {
-                                    (
-                                        user.id,
-                                        user.username.to_string(),
-                                        withheld.country_codes.clone(),
-                                    )
-                                })
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                };
-
-                for (id, screen_name, country_codes) in withheld {
-                    println!(
-                        "{},{},{}",
-                        id,
-                        screen_name,
-                        country_codes
-                            .iter()
-                            .map(std::string::ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(";")
-                    );
-                }
-            }
-        }
-        Command::Interesting { input, flat } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for line in reader.lines() {
-                let line = line?;
-                let mut output = vec![];
-
-                if flat {
-                    let snapshot = serde_json::from_str::<
-                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
-                    >(&line)?;
-                    let user = snapshot.content.user;
-
-                    if let Some(withheld) = user.withheld_in_countries
-                        && !withheld.is_empty()
-                    {
-                        output.push(format!(
-                            "{},{},W:{}",
-                            user.id,
-                            user.screen_name,
-                            withheld
-                                .iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(";")
-                        ));
-                    }
-
-                    if let Some(followers_count) = user.followers_count
-                        && followers_count >= 10000
-                    {
-                        output.push(format!(
-                            "{},{},T:{}",
-                            user.id, user.screen_name, followers_count
-                        ));
-                    }
-
-                    if user.verified {
-                        output.push(format!("{},{},P", user.id, user.screen_name));
-                    }
-                } else {
-                    let snapshot = serde_json::from_str::<
-                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                    >(&line)?;
-
-                    for user in snapshot.content.includes.users() {
-                        if let Some(withheld) = &user.withheld
-                            && !withheld.country_codes.is_empty()
-                        {
-                            output.push(format!(
-                                "{},{},W:{}",
-                                user.id,
-                                user.username,
-                                withheld
-                                    .country_codes
-                                    .iter()
-                                    .map(std::string::ToString::to_string)
-                                    .collect::<Vec<_>>()
-                                    .join(";")
-                            ));
-                        }
-
-                        if let Some(followers_count) = user.public_metrics.followers_count
-                            && followers_count >= 10000
-                        {
-                            output.push(format!(
-                                "{},{},T:{}",
-                                user.id, user.username, followers_count
-                            ));
-                        }
-
-                        if user.verified {
-                            output.push(format!("{},{},P", user.id, user.username));
-                        }
-                    }
-                }
-
-                for line in output {
-                    println!("{line}");
-                }
-            }
-        }
-        Command::UserObservations {
-            input,
-            flat,
-            range_only,
-        } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-            let mut observations = HashMap::<(u64, String), Vec<i64>>::new();
-
-            for line in reader.lines() {
-                let line = line?;
-
-                if flat {
-                    let snapshot = serde_json::from_str::<
-                        WxjFlatSnapshot<'_, flat::TweetSnapshot<'_>>,
-                    >(&line)?;
-                    if let Some(timestamp) = snapshot.timestamp {
-                        for user in snapshot.content.users() {
-                            let entry = observations
-                                .entry((user.id, user.screen_name.to_string()))
-                                .or_default();
-
-                            entry.push(DateTime::from(timestamp).timestamp());
-                        }
-                    }
-                } else {
-                    let snapshot = serde_json::from_str::<
-                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                    >(&line)?;
-                    if let Some(timestamp) = snapshot.timestamp {
-                        for user in snapshot.content.includes.users() {
-                            let entry = observations
-                                .entry((user.id, user.username.to_string()))
-                                .or_default();
-
-                            entry.push(DateTime::from(timestamp).timestamp());
-                        }
-                    }
-                }
-            }
-
-            let mut observations = observations.into_iter().collect::<Vec<_>>();
-            observations.sort_by_key(|((id, _), _)| *id);
-
-            for ((id, screen_name), mut timestamps) in observations {
-                timestamps.sort_unstable();
-                timestamps.dedup();
-
-                let timestamps = if range_only {
-                    let mut new_timestamps = Vec::with_capacity(2);
-
-                    if let Some(first) = timestamps.first() {
-                        new_timestamps.push(*first);
-                    }
-
-                    if let Some(last) = timestamps.last() {
-                        new_timestamps.push(*last);
-                    }
-
-                    new_timestamps
-                } else {
-                    timestamps
-                };
-
-                println!(
-                    "{},{},{}",
-                    id,
-                    screen_name,
-                    timestamps
-                        .into_iter()
-                        .map(|timestamp| timestamp.to_string())
-                        .collect::<Vec<_>>()
-                        .join(",")
-                );
-            }
-        }
-        Command::UserCooccurrence { ids, input } => {
-            let target_ids = BufReader::new(File::open(ids)?)
-                .lines()
-                .map(|result| {
-                    result.and_then(|line| line.parse::<u64>().map_err(std::io::Error::other))
-                })
-                .collect::<Result<BTreeSet<_>, _>>()?;
-
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for line in reader.lines() {
-                let line = line?;
-
-                let snapshot =
-                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
-
-                let author_id = snapshot.content.data.author_id;
-
-                if target_ids.contains(&author_id)
-                    || snapshot
-                        .content
-                        .includes
-                        .users()
-                        .any(|user| target_ids.contains(&user.id))
-                {
-                    let users = snapshot
-                        .content
-                        .includes
-                        .users()
-                        .map(|user| (user.id, user.username.clone()));
-
-                    let user_list = users
-                        .map(|(id, screen_name)| format!("{id}:{screen_name}"))
-                        .collect::<Vec<_>>();
-
-                    println!(
-                        "{},{},{}",
-                        author_id,
-                        snapshot.content.data.id,
-                        user_list.join(";")
-                    );
-                }
-            }
-        }
-        Command::Replies { id, input } => {
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for line in reader.lines() {
-                let line = line?;
-
-                let snapshot =
-                    serde_json::from_str::<WxjDataSnapshot<'_, data::TweetSnapshot<'_>>>(&line)?;
-
-                let author_id = snapshot.content.data.author_id;
-
-                if author_id == id {
-                    let status_id = snapshot.content.data.id;
-                    let replied_to_user_id = snapshot.content.data.in_reply_to_user_id;
-                    let replied_to_status_id = snapshot
-                        .content
-                        .data
-                        .replied_to_id()
-                        .map_err(std::io::Error::other)?;
-
-                    let replied_to_user_screen_name = replied_to_user_id.and_then(|id| {
-                        snapshot
-                            .content
-                            .includes
-                            .users()
-                            .find(|user| user.id == id)
-                            .map(|user| user.username.to_string())
-                    });
-
-                    let replied_to_status = replied_to_status_id.and_then(|id| {
-                        snapshot
-                            .content
-                            .includes
-                            .tweets
-                            .as_ref()
-                            .and_then(|tweets| tweets.iter().find(|tweet| tweet.id == id))
-                    });
-
-                    if replied_to_status.as_ref().map(|tweet| tweet.author_id) != replied_to_user_id
-                    {
-                        log::error!("Unexpected user ID for reply to tweet {status_id}");
-                    }
-
-                    println!(
-                        "{status_id},{},{},{}",
-                        replied_to_status
-                            .map(|tweet| tweet.id.to_string())
-                            .unwrap_or_default(),
-                        replied_to_user_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_default(),
-                        replied_to_user_screen_name.unwrap_or_default(),
-                    );
-                }
-            }
-        }
         Command::DataInfo { data } => {
             let mut data_info = archivindex_wbm_json::process::data::Data::default();
 
@@ -688,42 +331,6 @@ async fn main() -> Result<(), Error> {
                 "{resolved_count} resolved, \
                  {warning_count} warnings"
             );
-        }
-        Command::MediaUrls {
-            input,
-            flat,
-            photos_only,
-            id,
-        } => {
-            let ids = id.into_iter().collect::<BTreeSet<_>>();
-            let reader = BufReader::new(zstd::Decoder::new(File::open(&input)?)?);
-
-            for line in reader.lines() {
-                let line = line?;
-
-                if flat {
-                } else {
-                    let snapshot = serde_json::from_str::<
-                        WxjDataSnapshot<'_, data::TweetSnapshot<'_>>,
-                    >(&line)?;
-                    if let Some(ref media) = snapshot.content.includes.media
-                        && snapshot
-                            .content
-                            .includes
-                            .users()
-                            .any(|user| ids.contains(&user.id))
-                    {
-                        for media in media {
-                            if !photos_only
-                                || media.media_type() == birdsite::model::media::MediaType::Photo
-                            {
-                                // Safe because photos always have a URL.
-                                println!("{}", media.url().unwrap());
-                            }
-                        }
-                    }
-                }
-            }
         }
         Command::Compact {
             data,
@@ -923,8 +530,6 @@ pub enum Error {
     WbmJson(#[from] archivindex_wbm_json::Error),
     #[error("WBM JSON write error")]
     WbmJsonWrite(#[from] archivindex_wbm_json::io::write::Error),
-    #[error("WXJ data format error")]
-    BirdsiteWxjDataFormat(#[from] birdsite::model::wxj::data::FormatError),
     #[error("Metadata resolution error")]
     Resolver(#[from] archivindex_wbm_json::process::resolver::Error),
     #[error("Data loading error")]
@@ -1005,54 +610,6 @@ enum Command {
         output: PathBuf,
         #[clap(long, default_value = "14")]
         compression: u16,
-    },
-    TweetIds {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        flat: bool,
-    },
-    Withheld {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        flat: bool,
-    },
-    Interesting {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        flat: bool,
-    },
-    UserObservations {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        flat: bool,
-        #[clap(long)]
-        range_only: bool,
-    },
-    UserCooccurrence {
-        #[clap(long)]
-        ids: PathBuf,
-        #[clap(long)]
-        input: PathBuf,
-    },
-    Replies {
-        #[clap(long)]
-        id: u64,
-        #[clap(long)]
-        input: PathBuf,
-    },
-    MediaUrls {
-        #[clap(long)]
-        input: PathBuf,
-        #[clap(long)]
-        flat: bool,
-        #[clap(long)]
-        photos_only: bool,
-        #[clap(long)]
-        id: Vec<u64>,
     },
     /// Resolve snapshot digests to CDX metadata (timestamp + URL).
     Resolve {
