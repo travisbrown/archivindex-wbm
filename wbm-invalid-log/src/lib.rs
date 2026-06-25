@@ -50,6 +50,35 @@ impl<'a> Entry<'a> {
     }
 }
 
+/// A complete `invalid_digest` record: a observed [`Entry`] together with when it was observed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InvalidDigestRecord<'a> {
+    /// When the invalidity was observed.
+    pub observed: DateTime<Utc>,
+    /// The observed entry (archived item plus the actual digest).
+    pub entry: Entry<'a>,
+}
+
+/// A complete `withheld_url` record: a URL together with when its withheld status was observed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithheldRecord {
+    /// When the withheld status was observed.
+    pub observed: DateTime<Utc>,
+    /// The withheld URL.
+    pub url: String,
+}
+
+/// The full contents of an invalid-digest database (both tables).
+///
+/// Produced by [`Database::export`] and consumed by [`Database::import`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Export {
+    /// Every `invalid_digest` record, ordered by observation time.
+    pub invalid_digests: Vec<InvalidDigestRecord<'static>>,
+    /// Every `withheld_url` record, ordered by observation time.
+    pub withheld_urls: Vec<WithheldRecord>,
+}
+
 const INSERT_INVALID_DIGEST: &str = "
     INSERT INTO invalid_digest (timestamp, url, archive_timestamp, expected_digest, actual_digest)
         SELECT ?1, ?2, ?3, ?4, ?5
@@ -417,6 +446,64 @@ impl Database {
                 // URL doesn't exist, insert it.
                 let mut insert_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
                 insert_statement.execute(params![timestamp.timestamp(), &url])?;
+            }
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    /// Reads every record from both tables into an [`Export`], each ordered by observation time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    pub fn export(&self) -> Result<Export, rusqlite::Error> {
+        let invalid_digests = self
+            .invalid_digests(None)?
+            .map(|result| result.map(|(observed, entry)| InvalidDigestRecord { observed, entry }))
+            .collect::<Result<Vec<_>, _>>()?;
+        let withheld_urls = self
+            .withheld_urls(None)?
+            .map(|result| result.map(|(observed, url)| WithheldRecord { observed, url }))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Export {
+            invalid_digests,
+            withheld_urls,
+        })
+    }
+
+    /// Inserts every record from `export` into both tables, in a single transaction.
+    ///
+    /// Duplicates are ignored (per the tables' uniqueness constraints), so importing an [`Export`]
+    /// into a fresh database reproduces the original, and importing into a populated one merges the
+    /// rows.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal connection mutex is poisoned.
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn import(&self, export: &Export) -> Result<(), rusqlite::Error> {
+        let mut connection = self.connection.lock().unwrap();
+        let transaction = connection.transaction()?;
+
+        {
+            let mut invalid_statement = transaction.prepare_cached(INSERT_INVALID_DIGEST)?;
+            for record in &export.invalid_digests {
+                invalid_statement.execute(params![
+                    record.observed.timestamp(),
+                    record.entry.item_info.url_parts.url,
+                    record.entry.item_info.url_parts.timestamp,
+                    record.entry.item_info.expected_digest,
+                    record.entry.actual_digest,
+                ])?;
+            }
+
+            let mut withheld_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
+            for record in &export.withheld_urls {
+                withheld_statement.execute(params![record.observed.timestamp(), record.url])?;
             }
         }
 

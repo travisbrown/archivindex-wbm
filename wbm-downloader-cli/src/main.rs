@@ -2,8 +2,11 @@
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
 use archivindex_wbm_cas::Store;
+use archivindex_wbm_invalid_log::Database;
 use cli_helpers::prelude::*;
 use std::path::PathBuf;
+
+mod invalid_log;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -23,27 +26,16 @@ async fn main() -> Result<(), Error> {
             println!("Valid: {}", validation_result.valid_count);
             println!("Invalid: {}", validation_result.errors.len());
         }
-        Command::ExportInvalidDigests { db } => {
-            let db = archivindex_wbm_invalid_log::Database::open(db)?;
+        Command::InvalidLog { command } => match command {
+            InvalidLogCommand::Merge { source, target } => {
+                let source_db = Database::open(source)?;
+                let target_db = Database::open(target)?;
 
-            let mut writer = csv::WriterBuilder::new()
-                .has_headers(false)
-                .from_writer(std::io::stdout());
-
-            for result in db.invalid_digests(None)? {
-                let (_, entry) = result?;
-
-                writer.serialize(entry)?;
+                target_db.merge(&source_db)?;
             }
-
-            writer.flush()?;
-        }
-        Command::MergeInvalidDigests { source, target } => {
-            let source_db = archivindex_wbm_invalid_log::Database::open(source)?;
-            let target_db = archivindex_wbm_invalid_log::Database::open(target)?;
-
-            target_db.merge(&source_db)?;
-        }
+            InvalidLogCommand::Export { db, output } => invalid_log::export(&db, &output)?,
+            InvalidLogCommand::Import { input, db } => invalid_log::import(&input, &db)?,
+        },
     }
 
     Ok(())
@@ -65,6 +57,12 @@ pub enum Error {
     StoreStructureInference(#[from] archivindex_wbm_cas::file::StructureInferenceError),
     #[error("SQLite error")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("Digest parsing error")]
+    Digest(#[from] archivindex_wbm::digest::Error),
+    #[error("Timestamp parsing error")]
+    Timestamp(#[from] archivindex_wbm::timestamp::Error),
+    #[error("Invalid observation timestamp: {0}")]
+    InvalidObservationTimestamp(i64),
 }
 
 #[derive(Debug, Parser)]
@@ -78,18 +76,39 @@ struct Opts {
 
 #[derive(Debug, Parser)]
 enum Command {
+    /// Validate a content-addressed store.
     Validate {
         #[clap(long)]
         base: PathBuf,
     },
-    ExportInvalidDigests {
-        #[clap(long)]
-        db: PathBuf,
+    /// Operate on an invalid-digest log database.
+    InvalidLog {
+        #[clap(subcommand)]
+        command: InvalidLogCommand,
     },
-    MergeInvalidDigests {
+}
+
+#[derive(Debug, Parser)]
+enum InvalidLogCommand {
+    /// Merge the `source` database into the `target` database.
+    Merge {
         #[clap(long)]
         source: PathBuf,
         #[clap(long)]
         target: PathBuf,
+    },
+    /// Export `db` to CSV files in the `output` directory (for 100% round-trip with `import`).
+    Export {
+        #[clap(long)]
+        db: PathBuf,
+        #[clap(long)]
+        output: PathBuf,
+    },
+    /// Import the CSV files in the `input` directory into a new database at `db`.
+    Import {
+        #[clap(long)]
+        input: PathBuf,
+        #[clap(long)]
+        db: PathBuf,
     },
 }
