@@ -79,22 +79,16 @@ pub struct Export {
     pub withheld_urls: Vec<WithheldRecord>,
 }
 
+// Deduplication is enforced by each table's `UNIQUE` constraint, so `OR IGNORE` is both race-safe
+// (a concurrent connection cannot slip a duplicate past a `WHERE NOT EXISTS` guard) and simpler.
 const INSERT_INVALID_DIGEST: &str = "
-    INSERT INTO invalid_digest (timestamp, url, archive_timestamp, expected_digest, actual_digest)
-        SELECT ?1, ?2, ?3, ?4, ?5
-        WHERE NOT EXISTS (
-            SELECT 1 FROM invalid_digest
-                WHERE url = ?2 AND archive_timestamp = ?3 AND expected_digest = ?4 AND actual_digest = ?5
-        )
+    INSERT OR IGNORE INTO invalid_digest (timestamp, url, archive_timestamp, expected_digest, actual_digest)
+        VALUES (?1, ?2, ?3, ?4, ?5)
 ";
 
 const INSERT_WITHHELD: &str = "
-    INSERT INTO withheld_url (timestamp, url)
-        SELECT ?1, ?2
-        WHERE NOT EXISTS (
-            SELECT 1 FROM withheld_url
-                WHERE url = ?2
-        )
+    INSERT OR IGNORE INTO withheld_url (timestamp, url)
+        VALUES (?1, ?2)
 ";
 
 const SELECT_ALL_INVALID_DIGESTS: &str = "
@@ -172,7 +166,7 @@ impl Database {
     /// # Arguments
     ///
     /// * `entry` - The invalid digest entry containing item info and actual digest
-    /// * `timestamp` - When this invalid digest was detected
+    /// * `timestamp` - When this invalid digest was observed
     ///
     /// # Returns
     ///
@@ -206,18 +200,19 @@ impl Database {
 
     /// Inserts a withheld URL into the database.
     ///
-    /// Records a URL that has been withheld from the Wayback Machine archive. Duplicate URLs are
-    /// automatically skipped based on the URL alone (not timestamp).
+    /// Records a URL that has been withheld from the Wayback Machine archive. A withheld status can
+    /// be observed repeatedly, so rows are unique per `(url, timestamp)`: the same URL observed at a
+    /// different time is a new row, while an identical `(url, timestamp)` pair is skipped.
     ///
     /// # Arguments
     ///
     /// * `url` - The URL that has been withheld
-    /// * `timestamp` - When the withheld status was detected
+    /// * `timestamp` - When the withheld status was observed
     ///
     /// # Returns
     ///
     /// * `Ok(true)` - A new row was inserted
-    /// * `Ok(false)` - URL already exists in the database (duplicate, no insertion)
+    /// * `Ok(false)` - This `(url, timestamp)` pair already exists (no insertion)
     /// * `Err(_)` - Database error occurred
     ///
     /// # Panics
@@ -241,13 +236,13 @@ impl Database {
     /// Iterates over all invalid digest entries in the database.
     ///
     /// Returns an iterator that yields tuples of `(timestamp, entry)` where the timestamp indicates
-    /// when the invalid digest was detected. Results are ordered by detection timestamp in
+    /// when the invalid digest was observed. Results are ordered by observation timestamp in
     /// ascending order.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
-    ///   detected at or after this timestamp are returned. If `None`, all entries
+    ///   observed at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
     ///
     /// # Panics
@@ -302,13 +297,13 @@ impl Database {
     /// Iterates over all withheld URL entries in the database.
     ///
     /// Returns an iterator that yields tuples of `(timestamp, url)` where the timestamp indicates
-    /// when the withheld status was detected. Results are ordered by detection timestamp in
+    /// when the withheld status was observed. Results are ordered by observation timestamp in
     /// ascending order.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
-    ///   detected at or after this timestamp are returned. If `None`, all entries
+    ///   observed at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
     ///
     /// # Panics
@@ -426,27 +421,8 @@ impl Database {
         // Merge withheld URLs.
         for result in other.withheld_urls(None)? {
             let (timestamp, url) = result?;
-
-            // Check if URL exists.
-            let mut check_statement =
-                transaction.prepare_cached("SELECT timestamp FROM withheld_url WHERE url = ?1")?;
-
-            let existing_timestamp: Option<i64> = check_statement
-                .query_row([&url], |row| row.get(0))
-                .optional()?;
-
-            if let Some(existing_ts) = existing_timestamp {
-                // URL exists, update if source has older timestamp.
-                if timestamp.timestamp() < existing_ts {
-                    let mut update_statement = transaction
-                        .prepare_cached("UPDATE withheld_url SET timestamp = ?1 WHERE url = ?2")?;
-                    update_statement.execute(params![timestamp.timestamp(), &url])?;
-                }
-            } else {
-                // URL doesn't exist, insert it.
-                let mut insert_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
-                insert_statement.execute(params![timestamp.timestamp(), &url])?;
-            }
+            let mut insert_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
+            insert_statement.execute(params![timestamp.timestamp(), &url])?;
         }
 
         transaction.commit()?;
@@ -516,7 +492,7 @@ impl Database {
 /// Iterator over invalid digest entries in the database.
 ///
 /// Yields tuples of `(DateTime<Utc>, Entry<'static>)` where the timestamp indicates when the
-/// invalid digest was detected.
+/// invalid digest was observed.
 pub struct InvalidDigestIterator {
     entries: std::vec::IntoIter<(DateTime<Utc>, Entry<'static>)>,
 }
@@ -532,7 +508,7 @@ impl Iterator for InvalidDigestIterator {
 /// Iterator over withheld URL entries in the database.
 ///
 /// Yields tuples of `(DateTime<Utc>, String)` where the timestamp indicates when the withheld
-/// status was detected.
+/// status was observed.
 pub struct WithheldUrlIterator {
     entries: std::vec::IntoIter<(DateTime<Utc>, String)>,
 }
@@ -598,10 +574,12 @@ mod tests {
         let timestamp_01 = Utc::now();
         let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
 
-        // First insert should succeed.
+        // First observation is inserted.
         assert!(database.insert_withheld(url, timestamp_01)?);
-        // Second insert of same URL should be skipped (returns false).
-        assert!(!(database.insert_withheld(url, timestamp_02)?));
+        // The same URL re-observed at a different time is a new row.
+        assert!(database.insert_withheld(url, timestamp_02)?);
+        // The same `(URL, timestamp)` pair is deduplicated.
+        assert!(!(database.insert_withheld(url, timestamp_01)?));
 
         Ok(())
     }
@@ -672,7 +650,7 @@ mod tests {
         // Insert withheld URLs at different times.
         database.insert_withheld(url_01, timestamp_01)?;
         database.insert_withheld(url_02, timestamp_02)?;
-        // Duplicate URL, should be skipped.
+        // The same URL re-observed at a different time is recorded as its own row.
         database.insert_withheld(url_01, timestamp_03)?;
 
         // Test iterating over all entries.
@@ -680,21 +658,24 @@ mod tests {
             .withheld_urls(None)?
             .collect::<Result<Vec<_>, _>>()?;
 
-        assert_eq!(all_entries.len(), 2);
+        assert_eq!(all_entries.len(), 3);
         assert_eq!(all_entries[0].1, url_01);
         assert_eq!(all_entries[1].1, url_02);
+        assert_eq!(all_entries[2].1, url_01);
 
         // Verify entries are ordered by timestamp.
         assert!(all_entries[0].0 <= all_entries[1].0);
+        assert!(all_entries[1].0 <= all_entries[2].0);
 
-        // Test iterating from a specific timestamp.
+        // Test iterating from a specific timestamp (excludes the first observation).
         let from_timestamp = base_time + chrono::Duration::seconds(5);
         let filtered_entries: Vec<_> = database
             .withheld_urls(Some(from_timestamp))?
             .collect::<Result<Vec<_>, _>>()?;
 
-        assert_eq!(filtered_entries.len(), 1);
+        assert_eq!(filtered_entries.len(), 2);
         assert_eq!(filtered_entries[0].1, url_02);
+        assert_eq!(filtered_entries[1].1, url_01);
 
         Ok(())
     }
@@ -759,8 +740,7 @@ mod tests {
         assert!(entry_02_result.is_some());
 
         let withheld_urls: Vec<_> = db1.withheld_urls(None)?.collect::<Result<Vec<_>, _>>()?;
-
-        assert_eq!(withheld_urls.len(), 2);
+        assert_eq!(withheld_urls.len(), 3);
 
         // First URL should have the older timestamp from `db2`.
         let url1_result = withheld_urls.iter().find(|(_, u)| u == url1);
@@ -798,6 +778,30 @@ mod tests {
         assert_eq!(invalid_digests.len(), 1);
         let (ts, _) = &invalid_digests[0];
         assert_eq!(ts.timestamp(), older_time.timestamp());
+
+        Ok(())
+    }
+
+    #[test]
+    fn export_import_round_trip() -> Result<(), rusqlite::Error> {
+        let source = Database::in_memory()?;
+        let base = Utc::now();
+
+        source.insert_invalid_digest(&example_entry_01(), base)?;
+        source.insert_invalid_digest(&example_entry_02(), base + chrono::Duration::seconds(5))?;
+        let url = "https://twitter.com/example/status/42";
+        source.insert_withheld(url, base)?;
+        // Same URL observed at a different time: a distinct withheld row.
+        source.insert_withheld(url, base + chrono::Duration::seconds(10))?;
+
+        let export = source.export()?;
+        assert_eq!(export.invalid_digests.len(), 2);
+        assert_eq!(export.withheld_urls.len(), 2);
+
+        // Importing into a fresh database reproduces it exactly.
+        let target = Database::in_memory()?;
+        target.import(&export)?;
+        assert_eq!(target.export()?, export);
 
         Ok(())
     }
