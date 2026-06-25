@@ -28,8 +28,8 @@ pub mod wxj {
     }
 
     pub mod data {
-        use super::WXJ_CLOSING_WHITESPACE;
         use super::super::Context;
+        use super::WXJ_CLOSING_WHITESPACE;
 
         /// Returns the canonical [`Context`] for WXJ data format tweet snapshots.
         ///
@@ -49,8 +49,8 @@ pub mod wxj {
     }
 
     pub mod flat {
-        use super::WXJ_CLOSING_WHITESPACE;
         use super::super::Context;
+        use super::WXJ_CLOSING_WHITESPACE;
 
         /// Returns the canonical [`Context`] for WXJ flat format tweet snapshots.
         ///

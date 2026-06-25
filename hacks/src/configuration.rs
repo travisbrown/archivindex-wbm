@@ -21,8 +21,8 @@ pub mod instances {
         const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
 
         pub mod data {
-            use super::WXJ_CLOSING_WHITESPACE;
             use super::super::Context;
+            use super::WXJ_CLOSING_WHITESPACE;
 
             /// Returns the canonical [`Context`] for WXJ data format tweet snapshots.
             ///
@@ -42,8 +42,8 @@ pub mod instances {
         }
 
         pub mod flat {
-            use super::WXJ_CLOSING_WHITESPACE;
             use super::super::Context;
+            use super::WXJ_CLOSING_WHITESPACE;
 
             /// Returns the canonical [`Context`] for WXJ flat format tweet snapshots.
             ///
