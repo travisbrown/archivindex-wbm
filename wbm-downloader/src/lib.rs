@@ -114,6 +114,17 @@ async fn write_snapshot_file(
 }
 
 impl Manager {
+    /// Spawns `worker_count` download workers and returns a [`Manager`] handle over them.
+    ///
+    /// Each worker pulls items from a shared queue, downloads each snapshot, verifies its digest,
+    /// and writes the bytes under `output_path`. The returned task handles resolve once the queue is
+    /// drained.
+    ///
+    /// # Panics
+    ///
+    /// A worker panics if the shared queue mutex is poisoned, which happens only if another worker
+    /// panicked while holding it.
+    #[allow(clippy::too_many_lines)]
     pub fn new<P: AsRef<Path>, D: AsRef<Path>>(
         output_path: P,
         invalid_log_path: D,

@@ -169,7 +169,7 @@ mod tests {
             std::fs::read("../examples/wbm/cas/store-01/QTQC5AMOPNFDT4IGOQ3SECOJWVCRD4OU")?;
 
         assert_eq!(
-            read_bytes.as_ref().map(|bytes| bytes.as_ref()),
+            read_bytes.as_ref().map(AsRef::as_ref),
             Some(expected_bytes.as_slice())
         );
 

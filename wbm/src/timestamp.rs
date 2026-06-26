@@ -243,14 +243,14 @@ mod tests {
     fn prop_timestamp_display_parse_round_trip(timestamp: Timestamp) -> bool {
         let s = timestamp.to_string();
         let parsed: Result<Timestamp, _> = s.parse();
-        parsed.map(|t| t == timestamp).unwrap_or(false)
+        parsed.is_ok_and(|t| t == timestamp)
     }
 
     #[quickcheck_macros::quickcheck]
     fn prop_timestamp_i64_round_trip(timestamp: Timestamp) -> bool {
         let timestamp_s: i64 = timestamp.into();
         let reconstructed = Timestamp::try_from(timestamp_s);
-        reconstructed.map(|t| t == timestamp).unwrap_or(false)
+        reconstructed.is_ok_and(|t| t == timestamp)
     }
 
     #[cfg(feature = "sqlite")]

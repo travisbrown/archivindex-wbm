@@ -548,7 +548,7 @@ mod tests {
     fn prop_sha1_digest_display_parse_round_trip(digest: super::Sha1Digest) -> bool {
         let s = digest.to_string();
         let parsed: Result<super::Sha1Digest, _> = s.parse();
-        parsed.map(|d| d == digest).unwrap_or(false)
+        parsed.is_ok_and(|d| d == digest)
     }
 
     #[quickcheck_macros::quickcheck]

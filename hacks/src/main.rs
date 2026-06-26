@@ -28,6 +28,9 @@ use std::time::SystemTime;
 
 mod wxj;
 
+// A scratch tool: `main` is a flat dispatch over many one-off subcommands, and the percentage logs
+// cast small counts to `f64`.
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
@@ -251,10 +254,10 @@ async fn main() -> Result<(), Error> {
                                 actual_digest: None,
                                 ..
                             } => {
-                                log::info!("Downloaded {url}",);
+                                log::info!("Downloaded {url}");
                             }
                             DownloadResult::NotFound { url, .. } => {
-                                log::warn!("Not found: {url}",);
+                                log::warn!("Not found: {url}");
                             }
                             DownloadResult::Error {
                                 url, error_type, ..
@@ -381,18 +384,17 @@ async fn main() -> Result<(), Error> {
                         .path()
                         .file_name()
                         .and_then(|file_name| file_name.to_str())
+                        && let Ok(digest) = file_name.parse::<Sha1Digest>()
                     {
-                        if let Ok(digest) = file_name.parse::<Sha1Digest>() {
-                            count_valid += 1;
+                        count_valid += 1;
 
-                            if digests.contains(&digest) {
-                                count_deleted += 1;
+                        if digests.contains(&digest) {
+                            count_deleted += 1;
 
-                                log::warn!("Deleting: {:?}", entry.path());
+                            log::warn!("Deleting: {}", entry.path().display());
 
-                                if !dry_run {
-                                    std::fs::remove_file(entry.path())?;
-                                }
+                            if !dry_run {
+                                std::fs::remove_file(entry.path())?;
                             }
                         }
                     }

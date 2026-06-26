@@ -38,6 +38,9 @@ pub struct Store<C> {
 }
 
 impl<C> Store<C> {
+    // `extension` is genuinely three-state: `None` keeps the builder default, `Some(None)` forces
+    // no extension, and `Some(Some(ext))` sets one.
+    #[allow(clippy::option_option)]
     fn tree<P: AsRef<Path>>(
         base: P,
         prefix_part_lengths: Vec<usize>,
@@ -73,8 +76,13 @@ impl Store<entry::Buffered> {
         })
     }
 
+    /// Creates a store backed by a flat directory (no prefix tree).
+    ///
+    /// # Panics
+    ///
+    /// Panics only on an internal invariant violation: the prefix tree builder cannot fail for
+    /// empty prefix part lengths.
     pub fn flat<P: AsRef<Path>>(base: P) -> Self {
-        // Safe because the builder will never fail on empty prefix part lengths.
         Self::new(base, vec![]).expect("Unexpected prefix file tree builder error")
     }
 

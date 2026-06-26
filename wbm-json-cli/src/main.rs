@@ -35,6 +35,9 @@ enum WxjPartition {
     Other,
 }
 
+// `main` is a flat dispatch over many subcommands; each arm is self contained, so a single match
+// reads better than splitting it.
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
