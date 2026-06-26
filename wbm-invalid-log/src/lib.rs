@@ -144,16 +144,15 @@ impl Database {
 
     /// Opens a database at the specified file path.
     ///
-    /// Creates the database file if it doesn't exist. Call [`initialize`](Self::initialize) after
-    /// opening to create the required tables.
+    /// Creates the database file if it does not exist; the required tables are created
+    /// automatically.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, rusqlite::Error> {
         Self::new(Connection::open(path)?)
     }
 
     /// Creates an in-memory database.
     ///
-    /// Useful for testing or temporary storage. Call [`initialize`](Self::initialize) after
-    /// creation to create the required tables.
+    /// Useful for testing or temporary storage; the required tables are created automatically.
     pub fn in_memory() -> Result<Self, rusqlite::Error> {
         Self::new(Connection::open_in_memory()?)
     }

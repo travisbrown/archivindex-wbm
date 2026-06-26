@@ -34,7 +34,7 @@
 //! - [`context`]: [`Context`](context::Context) — the entry point for digest validation
 //! - [`exact`]: [`ExactContent`](exact::ExactContent), [`ExactSnapshot`](exact::ExactSnapshot),
 //!   [`SnapshotDisplay`](exact::SnapshotDisplay), and parse / display
-//! - [`format`](mod@format): [`Format`] and [`Codec`](format::Codec)
+//! - [`format`](mod@format): [`Format`](format::Format) and [`Codec`](format::Codec)
 //! - [`io`]: Streaming I/O utilities for reading and writing snapshot files
 //! - [`stream`]: Async stream utilities for reading compressed snapshot files
 //! - [`validation`]: Types for validation results

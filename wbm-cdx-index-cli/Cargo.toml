@@ -9,6 +9,8 @@ license = { workspace = true }
 [[bin]]
 name = "archivindex-wbm-cdx-index"
 path = "src/main.rs"
+# Avoid a rustdoc output-filename collision with the `archivindex-wbm-cdx-index` library crate.
+doc = false
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }

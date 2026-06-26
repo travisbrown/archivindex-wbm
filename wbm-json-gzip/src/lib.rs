@@ -10,10 +10,10 @@
 //! This crate recognises three families, covering every archive observed in practice:
 //!
 //! - **Go** — Go's `compress/flate` (a single self-contained block; fixed `OS = 255`, mtime 0).
-//!   Reproduced by the [`go_flate`] port, since no C or Rust deflate library matches Go's output.
+//!   Reproduced by the `go_flate` port, since no C or Rust deflate library matches Go's output.
 //! - **zlib** / **zlib-ng** — a streaming gzip wrapper (`deflate` + `Z_SYNC_FLUSH` + `Z_FINISH`),
 //!   as emitted by, for example, a web server gzipping an HTTP response. Reproduced via FFI to the
-//!   vendored C libraries (see [`zlib_stream`]); `miniz_oxide` and pure-Rust ports diverge.
+//!   vendored C libraries (see `zlib_stream`); `miniz_oxide` and pure-Rust ports diverge.
 //!
 //! # Usage
 //!

@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Lines, Read};
 use std::path::Path;
 
-/// Reads NDJSON snapshot lines into raw [`Snapshot`] values.
+/// Reads NDJSON snapshot lines into raw [`Snapshot`](crate::Snapshot) values.
 ///
 /// Reading requires no configuration: lines are parsed structurally and the content is kept as raw
 /// JSON. Interpret the results with a [`Context`](crate::context::Context) when validation is
