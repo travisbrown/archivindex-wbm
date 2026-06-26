@@ -10,24 +10,12 @@ use archivindex_wbm_json::stream::merge::{MergeDualConfig, MergeStats, NewSnapsh
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
-
 fn wxj_flat_context() -> Context {
-    Context::from_static(WXJ_CLOSING_WHITESPACE)
-        .with_url_query(
-            "'https://twitter.com/' + content.user.screen_name + '/status/' + content.id_str",
-        )
-        .expect("valid CEL query")
+    archivindex_wbm_json::configuration::instances::wxj::flat::context()
 }
 
 fn wxj_data_context() -> Context {
-    Context::from_static(WXJ_CLOSING_WHITESPACE)
-        .with_url_query(
-            "'https://twitter.com/' + \
-             content.includes.users.filter(u, u.id == content.data.author_id)[0].username + \
-             '/status/' + content.data.id",
-        )
-        .expect("valid CEL query")
+    archivindex_wbm_json::configuration::instances::wxj::data::context()
 }
 
 // ---------------------------------------------------------------------------

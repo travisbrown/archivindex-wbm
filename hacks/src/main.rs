@@ -9,9 +9,9 @@ use archivindex_wbm::{
     timestamp::Timestamp,
 };
 use archivindex_wbm_downloader::DownloadResult;
+use archivindex_wbm_json::configuration::instances::{wts, wxj as wbm_wxj};
 use archivindex_wbm_json::{context::Context, exact::ExactSnapshot};
 use cli_helpers::prelude::*;
-use configuration::instances::{wts, wxj as wbm_wxj};
 use futures::stream::StreamExt;
 use serde_json::value::RawValue;
 use std::borrow::Cow;
@@ -21,7 +21,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-mod configuration;
 mod wxj;
 
 #[tokio::main]

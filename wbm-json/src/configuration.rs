@@ -1,5 +1,12 @@
+//! Ready-made [`Context`](crate::context::Context) builders for the snapshot sources this workspace
+//! handles.
+//!
+//! The snapshot model itself is generic; these are a convenience so the CLIs and tools don't each
+//! re-derive the same closing whitespace and CEL URL queries.
+
+/// Canonical [`Context`](crate::context::Context) instances for specific snapshot formats / sites.
 pub mod instances {
-    use archivindex_wbm_json::context::Context;
+    use crate::context::Context;
 
     pub mod wts {
         use super::Context;
@@ -18,7 +25,15 @@ pub mod instances {
     }
 
     pub mod wxj {
+        use super::Context;
+
         const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
+
+        /// Returns the canonical [`Context`] for the WXJ format, without URL inference.
+        #[must_use]
+        pub const fn context() -> Context {
+            Context::from_static(WXJ_CLOSING_WHITESPACE)
+        }
 
         pub mod data {
             use super::super::Context;

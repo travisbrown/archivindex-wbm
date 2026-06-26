@@ -45,6 +45,7 @@ use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 
 mod closing_whitespace;
+pub mod configuration;
 pub mod context;
 pub mod exact;
 pub mod format;

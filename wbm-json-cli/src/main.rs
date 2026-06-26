@@ -2,6 +2,7 @@
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm_json::configuration::instances::{wts, wxj};
 use archivindex_wbm_json::{
     context::Context,
     exact::ExactSnapshot,
@@ -9,13 +10,10 @@ use archivindex_wbm_json::{
     io::{read::SnapshotReader, write::SnapshotWriter},
 };
 use cli_helpers::prelude::*;
-use instances::{wts, wxj};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-mod cdx;
-mod instances;
 mod snapshot;
 
 // A snapshot's content representation no longer depends on its format, and writers and readers now
