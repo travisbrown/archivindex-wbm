@@ -1,3 +1,7 @@
+//! Command-line tool over the `RocksDB` CDX item index.
+//!
+//! Fills the index from CDX JSON files, reports statistics, and lists items whose digest is absent
+//! from given snapshot or digest files.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

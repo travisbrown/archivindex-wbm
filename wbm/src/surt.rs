@@ -1,3 +1,5 @@
+//! A simplified Sort-friendly URI Reordering Transform key, providing the sort-friendly URL
+//! representation and domain-part access needed for Wayback Machine CDX results.
 use serde::{
     de::{Deserialize, Deserializer, Unexpected, Visitor},
     ser::{Serialize, Serializer},

@@ -1,3 +1,10 @@
+//! Compacting digest-named data files into digest-sorted NDJSON partitions.
+//!
+//! The compact operation reads each digest-named data file, resolves its CDX metadata, decodes the
+//! bytes under a chosen format, enriches the snapshot with the resolution (timestamp, URL, and
+//! expected digest), and writes it into the matching Zstandard-compressed partition. Snapshots are
+//! emitted in digest-sorted order.
+
 use crate::context::{Context, SnapshotError};
 use crate::format::FormatInfo;
 use crate::io::write::SnapshotWriter;

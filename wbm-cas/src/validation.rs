@@ -1,3 +1,5 @@
+//! Result types reporting whether each stored item's recorded digest matches the digest computed
+//! from its content.
 use archivindex_wbm::digest::Sha1Digest;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

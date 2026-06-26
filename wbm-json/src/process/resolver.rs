@@ -1,3 +1,9 @@
+//! Matching data digests to CDX records.
+//!
+//! The [`Resolver`] loads a target set of content digests, reads known invalid digests, and scans
+//! CDX directories to resolve each digest to its metadata (timestamp, URL, and expected digest).
+//! Extra valid or invalid matches are accumulated as resolution warnings.
+
 use archivindex_wbm::{
     cdx::item::ItemList,
     digest::{Digest, Sha1Digest},

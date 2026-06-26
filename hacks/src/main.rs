@@ -1,3 +1,8 @@
+//! Ad-hoc utility commands for working with web archive snapshots and CDX data.
+//!
+//! This is a scratch tool collecting one-off subcommands (URL inference, format migration, CDX
+//! reconciliation, downloading, and cleanup) that are run occasionally and not part of the stable
+//! pipeline.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

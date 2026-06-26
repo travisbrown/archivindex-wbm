@@ -1,3 +1,10 @@
+//! Serializing and inferring trailing JSON whitespace.
+//!
+//! A snapshot records the whitespace characters that close its raw content so the original bytes
+//! round-trip byte-exact. This module deserializes that whitespace from an escaped string and
+//! serializes it back, validating that every character is JSON whitespace (carriage return, line
+//! feed, space, or tab).
+
 use serde::{
     de::{Deserialize, Deserializer},
     ser::Serializer,

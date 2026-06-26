@@ -1,3 +1,5 @@
+//! A simplified HTTP status-code enumeration covering the values seen in CDX index results, with
+//! several Cloudflare-specific codes, all generated from a single table.
 use std::{fmt::Display, str::FromStr};
 
 pub const STATUS_CODE_VALUES: [StatusCode; 25] = [

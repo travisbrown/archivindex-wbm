@@ -1,3 +1,7 @@
+//! Command-line tool for validating, exporting, compacting, and merging snapshot NDJSON.
+//!
+//! Each subcommand reads or writes Zstandard-compressed NDJSON of web archive snapshots, resolving
+//! digests to CDX metadata and reproducing original content bytes as needed.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

@@ -1,3 +1,9 @@
+//! Digest validation result types.
+//!
+//! These types record why validating a snapshot against its stored digest failed and accumulate
+//! per-line outcomes (invalid lines, unexpected digests, unsupported formats, and out-of-order
+//! digests) when validating a whole NDJSON stream.
+
 use archivindex_wbm::digest::Sha1Digest;
 
 use crate::format::Format;

@@ -1,3 +1,5 @@
+//! Shared column types for the invalid log, including a timestamp wrapper that stores values as
+//! Unix-epoch seconds in SQLite.
 use chrono::{DateTime, Utc};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 

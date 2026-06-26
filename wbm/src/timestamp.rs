@@ -1,3 +1,5 @@
+//! A Wayback Machine URL timestamp, a second-precision UTC instant rendered in the fourteen-digit
+//! `%Y%m%d%H%M%S` form, with parsing, formatting, and serialization.
 use chrono::{DateTime, NaiveDateTime, SubsecRound, Utc};
 use serde::{
     de::{Deserialize, Deserializer, Unexpected, Visitor},

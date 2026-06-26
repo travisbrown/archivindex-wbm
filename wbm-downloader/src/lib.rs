@@ -1,3 +1,7 @@
+//! Async HTTP downloader for Wayback Machine snapshots.
+//!
+//! Provides a worker-pool [`Manager`] that pulls items off a queue, fetches each snapshot, verifies
+//! its digest, and writes the bytes into a content-addressed store on disk.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

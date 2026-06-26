@@ -1,3 +1,9 @@
+//! Loading digest-named data directories.
+//!
+//! [`Data`] scans directories of content-addressed files (each named by the SHA-1 digest of its
+//! bytes), groups paths by digest, and iterates them in digest-sorted order. It also reports
+//! duplicate digests and validates that duplicate files hash to the digest they are named by.
+
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use std::collections::{BTreeMap, btree_map::Entry};
 use std::fs::File;

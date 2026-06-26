@@ -1,3 +1,7 @@
+//! HTTP [`Client`] for fetching Wayback Machine snapshots.
+//!
+//! Handles request construction, retry with exponential backoff, redirect-chain following, and
+//! resolution of synthesized redirect snapshots.
 use archivindex_wbm::{
     digest::{Sha1Computer, Sha1Digest},
     item::UrlParts,

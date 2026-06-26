@@ -1,3 +1,5 @@
+//! Construction and parsing of the small HTML redirect pages that the Wayback Machine stores for a
+//! capture listed as a 302 redirect.
 use std::sync::LazyLock;
 
 const REDIRECT_HTML_PATTERN: &str =

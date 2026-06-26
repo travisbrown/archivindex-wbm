@@ -1,3 +1,5 @@
+//! Integration tests exercising the downloader against live snapshots, covering digest validation
+//! and logging of withheld URLs and invalid digests to the database.
 use archivindex_wbm::{
     item::{ItemInfo, UrlParts},
     timestamp::Timestamp,

@@ -1,3 +1,5 @@
+//! Filesystem entry types and their reader configurations, covering plain buffered files and
+//! (under the `zstd` feature) zstd-decompressed reads.
 use archivindex_wbm::digest::Sha1Digest;
 use std::fs::File;
 use std::io::BufReader;

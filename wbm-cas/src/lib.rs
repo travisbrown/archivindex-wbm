@@ -1,3 +1,7 @@
+//! Content-addressed storage for snapshot bytes, indexed by SHA-1 digest.
+//!
+//! Defines the [`Store`] trait for saving, looking up, validating, and copying downloaded archive
+//! data across backing implementations.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

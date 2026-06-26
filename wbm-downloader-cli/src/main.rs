@@ -1,3 +1,5 @@
+//! Command-line tool to validate a content-addressed store and manage the invalid-digest log
+//! database (merge, import, export, and dump operations).
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]

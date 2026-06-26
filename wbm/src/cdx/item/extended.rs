@@ -1,3 +1,5 @@
+//! The extended eleven-field CDX index record, adding redirect, robot-flag, and WARC-location
+//! fields to the standard item, with deserialization from the JSON array rows.
 use crate::surt::Surt;
 use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 use std::borrow::Cow;

@@ -1,3 +1,5 @@
+//! Filesystem-backed [`Store`](crate::Store) that lays items out in a prefix-file-tree keyed by
+//! digest, with optional zstd compression of stored bytes.
 use crate::SaveSummary;
 use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
 use prefix_file_tree::{Tree, scheme::Case, scheme::encoding::Base32};

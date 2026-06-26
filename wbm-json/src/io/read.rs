@@ -1,3 +1,9 @@
+//! Synchronous NDJSON reading of snapshots from Zstandard files.
+//!
+//! [`SnapshotReader`] decompresses a Zstandard file and yields one raw [`ExactSnapshot`] per line.
+//! Parsing keeps the content as raw JSON and needs no configuration; interpret the results with a
+//! [`Context`](crate::context::Context) when validation is needed.
+
 use crate::{Error, exact::ExactSnapshot};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines, Read};

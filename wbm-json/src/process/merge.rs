@@ -1,3 +1,10 @@
+//! Merging digest-sorted snapshot streams.
+//!
+//! A two-way merge walks two digest-sorted NDJSON streams in lockstep, emitting each line once and
+//! pairing equal digests. Equal digests with identical content become a match, while equal digests
+//! with differing content are reported as collisions. Out-of-order or invalid lines surface as
+//! errors.
+
 use archivindex_wbm::digest::Sha1Digest;
 use std::cmp::Ordering;
 use std::io::{BufRead, BufReader, Write};

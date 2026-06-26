@@ -1,3 +1,9 @@
+//! Synchronous NDJSON writing of snapshots to Zstandard files.
+//!
+//! [`SnapshotWriter`] serializes snapshots as canonical NDJSON (one per line) into a Zstandard
+//! stream under a [`Context`], which supplies the default closing whitespace and the URL inference
+//! used to omit redundant fields. Consecutive values with the same digest are skipped.
+
 use crate::context::{Context, SnapshotError};
 use crate::exact::ExactSnapshot;
 use crate::format::Format;

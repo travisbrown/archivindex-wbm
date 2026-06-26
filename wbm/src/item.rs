@@ -1,3 +1,5 @@
+//! Wayback Machine snapshot URL parts, pairing an original URL with a capture timestamp, and the
+//! conversions to and from the web.archive.org URL form.
 use crate::{digest::Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 use std::str::FromStr;

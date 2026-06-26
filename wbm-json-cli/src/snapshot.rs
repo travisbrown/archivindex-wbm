@@ -1,3 +1,7 @@
+//! Importing snapshot files from legacy content-addressed directories.
+//!
+//! Walks the given directories, partitioning entries into valid digest-keyed paths, skipped files,
+//! and digest mismatches, then sorts the valid paths by digest for merge consumption.
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_cas::legacy::import::CompressionType;
 use std::path::{Path, PathBuf};

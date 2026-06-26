@@ -1,3 +1,5 @@
+//! Integration tests exercising the HTTP client against live Wayback Machine snapshots (covering
+//! successful downloads, not-found, and withheld responses).
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_downloader::client::{Client, FailedDownload};
 

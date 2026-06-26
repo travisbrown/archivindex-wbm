@@ -1,3 +1,7 @@
+//! Helpers for enhancing WXJ (Twitter) snapshots with metadata read from URL lists and CDX files.
+//!
+//! Reads digest-to-URL-path mappings and CDX captures, then builds per-digest [`Metadata`] (the
+//! timestamp, expected digest, and canonical Twitter URL path) used to enrich snapshot lines.
 use archivindex_wbm::{cdx::item::ItemList, digest::Sha1Digest, timestamp::Timestamp};
 use cli_helpers::prelude::log;
 use std::borrow::Cow;

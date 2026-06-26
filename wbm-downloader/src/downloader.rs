@@ -1,3 +1,5 @@
+//! [`Downloader`] that fetches a snapshot, verifies its SHA-1 digest, and records withheld URLs
+//! and digest mismatches to the invalid-log database.
 use crate::client::{Client, Download, FailedDownload};
 use archivindex_wbm::{
     digest::{Digest, Sha1Computer, Sha1Digest},

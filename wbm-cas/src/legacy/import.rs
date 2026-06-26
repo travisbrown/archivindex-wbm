@@ -1,3 +1,5 @@
+//! Recursively walks a legacy directory tree, parsing each file name into a digest and optional
+//! compression type, and optionally verifying that the decoded content matches the recorded digest.
 use archivindex_wbm::digest::Sha1Digest;
 use sha1::{Digest, Sha1};
 use std::fs::ReadDir;
