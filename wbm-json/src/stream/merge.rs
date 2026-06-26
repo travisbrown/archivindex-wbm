@@ -335,18 +335,10 @@ where
 
         // If the digest already exists in either stream, preserve the existing entry rather than
         // reading the new file.
-        if first.peek_digest().await == Some(digest) {
-            // Safe to unwrap: we just peeked a Some.
-            let snapshot = first.next().await.expect("peeked item vanished")?;
-            first_sink.write_existing(snapshot).await?;
-            stats.first_passthrough += 1;
+        if passthrough_if_match(first, first_sink, digest, &mut stats.first_passthrough).await? {
             continue;
         }
-
-        if second.peek_digest().await == Some(digest) {
-            let snapshot = second.next().await.expect("peeked item vanished")?;
-            second_sink.write_existing(snapshot).await?;
-            stats.second_passthrough += 1;
+        if passthrough_if_match(second, second_sink, digest, &mut stats.second_passthrough).await? {
             continue;
         }
 
@@ -383,15 +375,8 @@ where
     }
 
     // Drain remaining entries from both input streams.
-    while let Some(result) = first.next().await {
-        first_sink.write_existing(result?).await?;
-        stats.first_passthrough += 1;
-    }
-
-    while let Some(result) = second.next().await {
-        second_sink.write_existing(result?).await?;
-        stats.second_passthrough += 1;
-    }
+    drain_rest(first, first_sink, &mut stats.first_passthrough).await?;
+    drain_rest(second, second_sink, &mut stats.second_passthrough).await?;
 
     Ok(stats)
 }
@@ -408,6 +393,38 @@ async fn drain_before(
         // Safe to unwrap: we just peeked a successful item.
         let snapshot = stream.next().await.expect("peeked item vanished")?;
         sink.write_existing(snapshot).await?;
+        *count += 1;
+    }
+    Ok(())
+}
+
+/// If the next entry in `stream` has exactly `digest`, write it to `sink` (preserving the existing
+/// entry rather than reading the new file) and return `true`.
+async fn passthrough_if_match(
+    stream: &mut PeekedStream,
+    sink: &AsyncSnapshotSink,
+    digest: Sha1Digest,
+    count: &mut usize,
+) -> Result<bool, MergeError> {
+    if stream.peek_digest().await == Some(digest) {
+        // Safe to unwrap: we just peeked.
+        let snapshot = stream.next().await.expect("peeked item vanished")?;
+        sink.write_existing(snapshot).await?;
+        *count += 1;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Drain all remaining entries from `stream`, writing each to `sink`.
+async fn drain_rest(
+    stream: &mut PeekedStream,
+    sink: &AsyncSnapshotSink,
+    count: &mut usize,
+) -> Result<(), MergeError> {
+    while let Some(result) = stream.next().await {
+        sink.write_existing(result?).await?;
         *count += 1;
     }
     Ok(())
