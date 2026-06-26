@@ -170,7 +170,8 @@ impl Iterator for ValidatingImporter {
                     compression_type,
                     digest,
                 } => {
-                    let mut file = std::fs::File::open(&path)?;
+                    let mut file = std::fs::File::open(&path)
+                        .map_err(|error| Error::FileIo(path.clone(), error))?;
 
                     let computed = match compression_type {
                         None => digest_bytes(&mut file, &mut self.hasher)?,
