@@ -34,166 +34,88 @@ pub enum Error {
     Unsupported,
 }
 
-/// Represents an HTTP status code.
-///
-/// This is a simplified representation that only provides coverage for values relevant to our CDX
-/// index results. The serialization encoding provided here is the one seen in these results.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize)]
-pub enum StatusCode {
-    // Represents a hyphen in the CDX result, which typically indicates a `200` response.
-    #[serde(alias = "-")]
-    Empty,
-    #[serde(alias = "200")]
-    Ok,
-    // Temporary redirect
-    #[serde(alias = "301")]
-    MovedPermanently,
-    // Temporary redirect
-    #[serde(alias = "302")]
-    Found,
-    #[serde(alias = "303")]
-    SeeOther,
-    #[serde(alias = "307")]
-    TemporaryRedirect,
-    #[serde(alias = "308")]
-    PermanentRedirect,
-    #[serde(alias = "400")]
-    BadRequest,
-    #[serde(alias = "401")]
-    Unauthorized,
-    #[serde(alias = "403")]
-    Forbidden,
-    #[serde(alias = "404")]
-    NotFound,
-    #[serde(alias = "408")]
-    RequestTimeout,
-    #[serde(alias = "426")]
-    UpgradeRequired,
-    // Temporary redirect
-    #[serde(alias = "429")]
-    TooManyRequests,
-    #[serde(alias = "431")]
-    RequestHeaderFieldsTooLarge,
-    #[serde(alias = "500")]
-    InternalServerError,
-    #[serde(alias = "502")]
-    BadGateway,
-    #[serde(alias = "503")]
-    ServiceUnavailable,
-    #[serde(alias = "504")]
-    GatewayTimeout,
-    #[serde(alias = "520")]
-    CloudflareUnknownError,
-    #[serde(alias = "521")]
-    CloudflareWebServerDown,
-    #[serde(alias = "522")]
-    CloudflareConnectionTimeout,
-    #[serde(alias = "524")]
-    CloudflareTimeout,
-    #[serde(alias = "525")]
-    CloudflareSslHandshakeFailed,
-    #[serde(alias = "530")]
-    CloudflareOriginDnsError,
+/// Generates [`StatusCode`] and its conversions from a single table, so the variant set lives in
+/// exactly one place.
+macro_rules! status_codes {
+    ($($variant:ident => $code:literal / $str:literal),+ $(,)?) => {
+        /// Represents an HTTP status code.
+        ///
+        /// This is a simplified representation that only provides coverage for values relevant to
+        /// our CDX index results. The serialization encoding provided here is the one seen in these
+        /// results.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize)]
+        pub enum StatusCode {
+            $(#[serde(alias = $str)] $variant),+
+        }
+
+        impl StatusCode {
+            /// Returns the integer value of the status code.
+            ///
+            /// Note that this returns zero for an empty value, even though these typically indicate
+            /// a `200` response. Use the `From` instance for `http::status::StatusCode` if you want
+            /// a logical status code.
+            #[must_use]
+            pub const fn value(&self) -> u16 {
+                match self {
+                    $(Self::$variant => $code),+
+                }
+            }
+
+            pub const fn from_value(value: u16) -> Result<Self, Error> {
+                match value {
+                    $($code => Ok(Self::$variant),)+
+                    _ => Err(Error::Unsupported),
+                }
+            }
+
+            /// The CDX string form of the status code (e.g. `"200"`, `"-"`).
+            #[must_use]
+            pub const fn as_str(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $str),+
+                }
+            }
+        }
+
+        impl FromStr for StatusCode {
+            type Err = Error;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $($str => Ok(Self::$variant),)+
+                    _ => Err(Error::Unsupported),
+                }
+            }
+        }
+    };
 }
 
-impl StatusCode {
-    /// Returns the integer value of the status code.
-    ///
-    /// Note that this returns zero for an empty value, even though these typically indicate a `200`
-    /// response. Use the `From` instance for `http::status::StatusCode` if you want a logical
-    /// status code.
-    #[must_use]
-    pub const fn value(&self) -> u16 {
-        match self {
-            Self::Empty => 0,
-            Self::Ok => 200,
-            Self::MovedPermanently => 301,
-            Self::Found => 302,
-            Self::SeeOther => 303,
-            Self::TemporaryRedirect => 307,
-            Self::PermanentRedirect => 308,
-            Self::BadRequest => 400,
-            Self::Unauthorized => 401,
-            Self::Forbidden => 403,
-            Self::NotFound => 404,
-            Self::RequestTimeout => 408,
-            Self::UpgradeRequired => 426,
-            Self::TooManyRequests => 429,
-            Self::RequestHeaderFieldsTooLarge => 431,
-            Self::InternalServerError => 500,
-            Self::BadGateway => 502,
-            Self::ServiceUnavailable => 503,
-            Self::GatewayTimeout => 504,
-            Self::CloudflareUnknownError => 520,
-            Self::CloudflareWebServerDown => 521,
-            Self::CloudflareConnectionTimeout => 522,
-            Self::CloudflareTimeout => 524,
-            Self::CloudflareSslHandshakeFailed => 525,
-            Self::CloudflareOriginDnsError => 530,
-        }
-    }
-
-    pub const fn from_value(value: u16) -> Result<Self, Error> {
-        match value {
-            0 => Ok(Self::Empty),
-            200 => Ok(Self::Ok),
-            301 => Ok(Self::MovedPermanently),
-            302 => Ok(Self::Found),
-            303 => Ok(Self::SeeOther),
-            307 => Ok(Self::TemporaryRedirect),
-            308 => Ok(Self::PermanentRedirect),
-            400 => Ok(Self::BadRequest),
-            401 => Ok(Self::Unauthorized),
-            403 => Ok(Self::Forbidden),
-            404 => Ok(Self::NotFound),
-            408 => Ok(Self::RequestTimeout),
-            426 => Ok(Self::UpgradeRequired),
-            429 => Ok(Self::TooManyRequests),
-            431 => Ok(Self::RequestHeaderFieldsTooLarge),
-            500 => Ok(Self::InternalServerError),
-            502 => Ok(Self::BadGateway),
-            503 => Ok(Self::ServiceUnavailable),
-            504 => Ok(Self::GatewayTimeout),
-            520 => Ok(Self::CloudflareUnknownError),
-            521 => Ok(Self::CloudflareWebServerDown),
-            522 => Ok(Self::CloudflareConnectionTimeout),
-            524 => Ok(Self::CloudflareTimeout),
-            525 => Ok(Self::CloudflareSslHandshakeFailed),
-            530 => Ok(Self::CloudflareOriginDnsError),
-            _ => Err(Error::Unsupported),
-        }
-    }
-
-    #[must_use]
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Empty => "-",
-            Self::Ok => "200",
-            Self::MovedPermanently => "301",
-            Self::Found => "302",
-            Self::SeeOther => "303",
-            Self::TemporaryRedirect => "307",
-            Self::PermanentRedirect => "308",
-            Self::BadRequest => "400",
-            Self::Unauthorized => "401",
-            Self::Forbidden => "403",
-            Self::NotFound => "404",
-            Self::RequestTimeout => "408",
-            Self::UpgradeRequired => "426",
-            Self::TooManyRequests => "429",
-            Self::RequestHeaderFieldsTooLarge => "431",
-            Self::InternalServerError => "500",
-            Self::BadGateway => "502",
-            Self::ServiceUnavailable => "503",
-            Self::GatewayTimeout => "504",
-            Self::CloudflareUnknownError => "520",
-            Self::CloudflareWebServerDown => "521",
-            Self::CloudflareConnectionTimeout => "522",
-            Self::CloudflareTimeout => "524",
-            Self::CloudflareSslHandshakeFailed => "525",
-            Self::CloudflareOriginDnsError => "530",
-        }
-    }
+status_codes! {
+    Empty => 0 / "-",
+    Ok => 200 / "200",
+    MovedPermanently => 301 / "301",
+    Found => 302 / "302",
+    SeeOther => 303 / "303",
+    TemporaryRedirect => 307 / "307",
+    PermanentRedirect => 308 / "308",
+    BadRequest => 400 / "400",
+    Unauthorized => 401 / "401",
+    Forbidden => 403 / "403",
+    NotFound => 404 / "404",
+    RequestTimeout => 408 / "408",
+    UpgradeRequired => 426 / "426",
+    TooManyRequests => 429 / "429",
+    RequestHeaderFieldsTooLarge => 431 / "431",
+    InternalServerError => 500 / "500",
+    BadGateway => 502 / "502",
+    ServiceUnavailable => 503 / "503",
+    GatewayTimeout => 504 / "504",
+    CloudflareUnknownError => 520 / "520",
+    CloudflareWebServerDown => 521 / "521",
+    CloudflareConnectionTimeout => 522 / "522",
+    CloudflareTimeout => 524 / "524",
+    CloudflareSslHandshakeFailed => 525 / "525",
+    CloudflareOriginDnsError => 530 / "530",
 }
 
 impl Display for StatusCode {
@@ -203,46 +125,10 @@ impl Display for StatusCode {
 }
 
 /// Serializes as the CDX string form (e.g. `"200"`, `"-"`), matching [`Display`] and the form
-/// accepted on deserialization (the derived `Deserialize` aliases). The derive would otherwise emit
-/// the Rust variant name (`"Ok"`), since `#[serde(alias = ...)]` only affects deserialization.
+/// accepted on deserialization (the derived `Deserialize` aliases).
 impl serde::ser::Serialize for StatusCode {
     fn serialize<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())
-    }
-}
-
-impl FromStr for StatusCode {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "-" => Ok(Self::Empty),
-            "200" => Ok(Self::Ok),
-            "301" => Ok(Self::MovedPermanently),
-            "302" => Ok(Self::Found),
-            "303" => Ok(Self::SeeOther),
-            "307" => Ok(Self::TemporaryRedirect),
-            "308" => Ok(Self::PermanentRedirect),
-            "400" => Ok(Self::BadRequest),
-            "401" => Ok(Self::Unauthorized),
-            "403" => Ok(Self::Forbidden),
-            "404" => Ok(Self::NotFound),
-            "408" => Ok(Self::RequestTimeout),
-            "426" => Ok(Self::UpgradeRequired),
-            "429" => Ok(Self::TooManyRequests),
-            "431" => Ok(Self::RequestHeaderFieldsTooLarge),
-            "500" => Ok(Self::InternalServerError),
-            "502" => Ok(Self::BadGateway),
-            "503" => Ok(Self::ServiceUnavailable),
-            "504" => Ok(Self::GatewayTimeout),
-            "520" => Ok(Self::CloudflareUnknownError),
-            "521" => Ok(Self::CloudflareWebServerDown),
-            "522" => Ok(Self::CloudflareConnectionTimeout),
-            "524" => Ok(Self::CloudflareTimeout),
-            "525" => Ok(Self::CloudflareSslHandshakeFailed),
-            "530" => Ok(Self::CloudflareOriginDnsError),
-            _ => Err(Self::Err::Unsupported),
-        }
     }
 }
 
