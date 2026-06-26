@@ -67,7 +67,9 @@ impl Error {
             Self::UnexpectedStatus(status_code) if status_code.is_server_error() => true,
             Self::Client(error)
                 if error.is_timeout()
-                    || error.is_body() | error.is_connect() | error.is_request() =>
+                    || error.is_body()
+                    || error.is_connect()
+                    || error.is_request() =>
             {
                 true
             }
