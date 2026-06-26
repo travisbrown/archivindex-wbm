@@ -468,14 +468,24 @@ impl Context {
         }
 
         if samples.len() >= n {
+            // Parse the samples once (into owned snapshots) so each candidate validates against the
+            // parsed snapshots rather than reparsing every line per candidate.
+            let parsed = samples
+                .iter()
+                .filter_map(|line| {
+                    ExactSnapshot::parse(line)
+                        .ok()
+                        .map(bounded_static::IntoBoundedStatic::into_static)
+                })
+                .collect::<Vec<ExactSnapshot<'static>>>();
+
             let mut hasher = Sha1::default();
 
             for &candidate in CLOSING_WHITESPACE_CANDIDATES {
                 let context = Self::from_static(candidate);
-                let all_valid = samples.iter().all(|line| {
-                    ExactSnapshot::parse(line)
-                        .is_ok_and(|snapshot| context.validate(&snapshot, &mut hasher).is_ok())
-                });
+                let all_valid = parsed
+                    .iter()
+                    .all(|snapshot| context.validate(snapshot, &mut hasher).is_ok());
 
                 if all_valid {
                     return Ok(Some(context));
