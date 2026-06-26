@@ -340,13 +340,7 @@ impl Context {
                 }
             }
             other @ Format::Other(_) => {
-                let codec = self
-                    .codec(other)
-                    .ok_or_else(|| validation::ValidationError::UnsupportedFormat(other.clone()))?;
-
-                let mut full = snapshot.content.as_str().to_owned();
-                full.extend(self.closing_whitespace(snapshot).iter().copied());
-                hasher.update(codec.encode(&full, &snapshot.format.metadata).as_ref());
+                hasher.update(self.encode_other(snapshot, other)?);
             }
         }
 
@@ -380,16 +374,25 @@ impl Context {
                 bytes.extend(char_whitespace_to_bytes(self.closing_whitespace(snapshot)));
                 Ok(bytes)
             }
-            other @ Format::Other(_) => {
-                let codec = self
-                    .codec(other)
-                    .ok_or_else(|| validation::ValidationError::UnsupportedFormat(other.clone()))?;
-
-                let mut full = snapshot.content.as_str().to_owned();
-                full.extend(self.closing_whitespace(snapshot).iter().copied());
-                Ok(codec.encode(&full, &snapshot.format.metadata).into_owned())
-            }
+            other @ Format::Other(_) => self.encode_other(snapshot, other),
         }
+    }
+
+    /// Encode the original bytes of a non-default-format snapshot: its content plus the effective
+    /// closing whitespace, run through the format's registered [`Codec`].
+    fn encode_other(
+        &self,
+        snapshot: &ExactSnapshot<'_>,
+        format: &Format,
+    ) -> Result<Vec<u8>, validation::ValidationError> {
+        let codec = self
+            .codec(format)
+            .ok_or_else(|| validation::ValidationError::UnsupportedFormat(format.clone()))?;
+
+        let mut full = snapshot.content.as_str().to_owned();
+        full.extend(self.closing_whitespace(snapshot).iter().copied());
+
+        Ok(codec.encode(&full, &snapshot.format.metadata).into_owned())
     }
 
     /// Parse and validate every line of an NDJSON reader under this context.
