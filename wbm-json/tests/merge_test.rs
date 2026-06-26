@@ -1,6 +1,7 @@
 //! Integration tests for [`archivindex_wbm_json::stream::merge`].
 //!
-//! Reads pre-generated fixtures from `examples/merge/` (created by `generate_merge_fixtures.rs`)
+//! Reads pre-generated fixtures from `examples/wbm/twitter/merge/` (created by
+//! `generate_merge_fixtures.rs`)
 //! and verifies that `merge_dual_zstd` produces the expected output.
 
 use archivindex_wbm::digest::Sha1Digest;
@@ -23,7 +24,7 @@ fn wxj_data_context() -> Context {
 // ---------------------------------------------------------------------------
 
 fn examples_merge_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/merge")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/wbm/twitter/merge")
 }
 
 /// Entry from `manifest.csv`.
@@ -123,8 +124,8 @@ async fn merge_dual_zstd_end_to_end() {
     let tmp = tempfile::tempdir().unwrap();
 
     let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
-        first_input: merge_dir.join("flat_input.ndjson.zst"),
-        second_input: merge_dir.join("data_input.ndjson.zst"),
+        first_input: merge_dir.join("flat.jsonl.zst"),
+        second_input: merge_dir.join("data.jsonl.zst"),
         new_entries,
         first_output: tmp.path().join("flat_output.ndjson.zst"),
         second_output: tmp.path().join("data_output.ndjson.zst"),
@@ -215,8 +216,8 @@ async fn merge_output_validates() {
     let tmp = tempfile::tempdir().unwrap();
 
     archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
-        first_input: merge_dir.join("flat_input.ndjson.zst"),
-        second_input: merge_dir.join("data_input.ndjson.zst"),
+        first_input: merge_dir.join("flat.jsonl.zst"),
+        second_input: merge_dir.join("data.jsonl.zst"),
         new_entries,
         first_output: tmp.path().join("flat_output.ndjson.zst"),
         second_output: tmp.path().join("data_output.ndjson.zst"),
@@ -269,8 +270,8 @@ async fn merge_parallel_matches_sequential() {
     let tmp = tempfile::tempdir().unwrap();
 
     let stats = archivindex_wbm_json::stream::merge::merge_dual_zstd(MergeDualConfig {
-        first_input: merge_dir.join("flat_input.ndjson.zst"),
-        second_input: merge_dir.join("data_input.ndjson.zst"),
+        first_input: merge_dir.join("flat.jsonl.zst"),
+        second_input: merge_dir.join("data.jsonl.zst"),
         new_entries,
         first_output: tmp.path().join("flat_output.ndjson.zst"),
         second_output: tmp.path().join("data_output.ndjson.zst"),

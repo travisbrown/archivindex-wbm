@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
-        let line = include_str!("../../examples/wbm/wxj/inferred-url-01.json").trim();
+        let line = include_str!("../../examples/wbm/twitter/inferred-url-01.json").trim();
         let context = context();
         let parsed = RawSnapshot::parse(line)?;
         assert_eq!(line, parsed.display(&context).to_string());
@@ -377,7 +377,7 @@ mod tests {
     #[test]
     fn parse_examples() -> Result<(), Box<dyn std::error::Error>> {
         let context = context();
-        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
         for line in lines {
             let parsed = RawSnapshot::parse(line)?;
             assert_eq!(line, parsed.display(&context).to_string());
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn validate_all_examples() -> Result<(), Box<dyn std::error::Error>> {
         let lines = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
-            "../../examples/wbm/wxj/lines-01.ndjson"
+            "../../examples/wbm/twitter/lines-01.jsonl"
         )))
         .lines();
         let validation = context().validate_lines(lines)?;
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
         for line in lines {
             let _snapshot = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
         }
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../examples/wbm/wxj/lines-01.ndjson").split('\n');
+        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
         for line in lines {
             let snapshot_parse = RawSnapshot::parse(line)?;
             let snapshot_from_str = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
@@ -457,7 +457,7 @@ mod tests {
     fn parse_truncations_never_panic() {
         // Truncating a valid line at any byte offset must yield `Ok`/`Err`, never a panic from an
         // out-of-bounds or non-character-boundary slice.
-        for line in include_str!("../../examples/wbm/wxj/lines-01.ndjson").lines() {
+        for line in include_str!("../../examples/wbm/twitter/lines-01.jsonl").lines() {
             for n in 0..=line.len() {
                 if let Ok(prefix) = std::str::from_utf8(&line.as_bytes()[..n]) {
                     let _ = RawSnapshot::parse(prefix);
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn deserialize_bad_01() {
-        let content = include_str!("../../examples/wbm/wxj/bad-01.json").trim();
+        let content = include_str!("../../examples/wbm/twitter/bad-01.json").trim();
         assert!(serde_json::from_str::<TypedSnapshot<'_>>(content).is_ok());
     }
 }
