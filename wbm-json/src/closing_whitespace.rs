@@ -20,6 +20,9 @@ pub fn deserialize<'de, D: Deserializer<'de>>(
                 .filter(|whitespace_char| is_json_whitespace(*whitespace_char))
                 .collect::<Vec<_>>();
 
+            // Every JSON whitespace character is single-byte (ASCII), so the number of whitespace
+            // characters equals the string's byte length exactly when *every* character was
+            // whitespace.
             if closing_whitespace.len() == closing_whitespace_str.len() {
                 Ok(closing_whitespace)
             } else {
