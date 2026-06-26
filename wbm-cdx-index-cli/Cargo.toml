@@ -5,6 +5,7 @@ repository = { workspace = true }
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
+publish = false
 
 [[bin]]
 name = "archivindex-wbm-cdx-index"
