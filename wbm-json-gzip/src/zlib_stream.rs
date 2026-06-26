@@ -138,34 +138,13 @@ raw_deflate_fn!(
     libz_ng_sys::deflateEnd
 );
 
-/// CRC-32 of `data` (the gzip trailer checksum), computed with zlib's `crc32`.
-fn crc32(data: &[u8]) -> u32 {
-    // SAFETY: `crc32` reads `len` bytes from `buf`; we pass a valid slice pointer and its length.
-    (unsafe { libz_sys::crc32(0, data.as_ptr(), data.len() as u32) }) as u32
-}
-
-/// The gzip header `XFL` byte for `level`, by the convention zlib and Go share (2 = best
-/// compression at level 9, 4 = fastest at level 1, otherwise 0).
-const fn xfl_for_level(level: u8) -> u8 {
-    match level {
-        9 => 2,
-        1 => 4,
-        _ => 0,
-    }
-}
-
-/// Wrap a raw-deflate `body` (the deflate of `content`) in a gzip container with the given header
-/// `mtime`, `os`, and `xfl` bytes.
+/// Wrap a raw-deflate `body` (the deflate of `content`) in a gzip container, reusing the shared
+/// header and CRC/ISIZE footer.
 fn gzip_wrap(body: &[u8], content: &[u8], mtime: u32, os: u8, xfl: u8) -> Vec<u8> {
     let mut archive = Vec::with_capacity(10 + body.len() + 8);
-    archive.extend_from_slice(&[0x1f, 0x8b, Z_DEFLATED as u8, 0x00]);
-    archive.extend_from_slice(&mtime.to_le_bytes());
-    archive.push(xfl);
-    archive.push(os);
+    archive.extend_from_slice(&super::gzip_header(mtime, os, xfl));
     archive.extend_from_slice(body);
-    archive.extend_from_slice(&crc32(content).to_le_bytes());
-    // ISIZE is the content length modulo 2^32, so truncation is intentional.
-    archive.extend_from_slice(&(content.len() as u32).to_le_bytes());
+    archive.extend_from_slice(&super::footer(content));
     archive
 }
 
@@ -187,5 +166,5 @@ pub fn reproduce(
     } else {
         zlib_raw(content, c_int::from(level), extra_flushes)
     };
-    gzip_wrap(&body, content, mtime, os, xfl_for_level(level))
+    gzip_wrap(&body, content, mtime, os, super::xfl_for_level(level))
 }

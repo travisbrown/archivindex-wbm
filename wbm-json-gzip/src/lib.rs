@@ -268,24 +268,26 @@ pub fn decompress(bytes: &[u8]) -> Option<String> {
 
 /// The 10-byte gzip header Go's `compress/gzip` writes: magic `1f 8b`, deflate, no flags, mtime 0,
 /// `OS = 255`, and an `XFL` derived from the level (2 for best, 4 for fastest, else 0).
-const fn go_header(level: u8) -> [u8; 10] {
-    let xfl = match level {
+/// Builds the 10-byte gzip header: magic, deflate compression method, flags, `mtime`, XFL, and OS
+/// byte. Shared by the Go and zlib reproduction paths.
+const fn gzip_header(mtime: u32, os: u8, xfl: u8) -> [u8; 10] {
+    let m = mtime.to_le_bytes();
+    [0x1f, 0x8b, 0x08, 0x00, m[0], m[1], m[2], m[3], xfl, os]
+}
+
+/// The gzip header XFL byte for a deflate compression level (2 = best, 4 = fastest, else 0) — the
+/// convention used by both Go's `compress/gzip` and zlib.
+const fn xfl_for_level(level: u8) -> u8 {
+    match level {
         9 => 2,
         1 => 4,
         _ => 0,
-    };
-    [
-        0x1f,
-        0x8b,
-        0x08,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        xfl,
-        OsByte::Unknown.as_u8(),
-    ]
+    }
+}
+
+const fn go_header(level: u8) -> [u8; 10] {
+    // Go writes a fixed header: mtime 0 and OS = unknown (255).
+    gzip_header(0, OsByte::Unknown.as_u8(), xfl_for_level(level))
 }
 
 /// The 8-byte gzip footer: CRC-32 of the content, then ISIZE (length modulo 2^32), both LE.
