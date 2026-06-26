@@ -48,8 +48,6 @@ async fn main() -> Result<(), Error> {
 pub enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("File I/O error")]
-    FileIo(PathBuf, std::io::Error),
     #[error("CLI argument reading error")]
     Args(#[from] cli_helpers::Error),
     #[error("CSV error")]
