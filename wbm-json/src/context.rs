@@ -335,9 +335,9 @@ impl Context {
         match &snapshot.format.name {
             Format::Utf8 => {
                 hasher.update(snapshot.content.as_bytes());
-                hasher.update(
-                    char_whitespace_to_bytes(self.closing_whitespace(snapshot)).collect::<Vec<_>>(),
-                );
+                for byte in char_whitespace_to_bytes(self.closing_whitespace(snapshot)) {
+                    hasher.update([byte]);
+                }
             }
             other @ Format::Other(_) => {
                 let codec = self
