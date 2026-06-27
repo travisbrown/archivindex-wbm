@@ -155,16 +155,10 @@ async fn main() -> Result<(), Error> {
 
             std::fs::create_dir_all(&output)?;
 
-            let mut flat_output = SnapshotWriter::create(
-                output.join(FLAT_FILE_NAME),
-                compression,
-                wxj::flat::context(),
-            )?;
-            let mut data_output = SnapshotWriter::create(
-                output.join(DATA_FILE_NAME),
-                compression,
-                wxj::data::context(),
-            )?;
+            let mut flat_output =
+                SnapshotWriter::create(output.join(FLAT_FILE_NAME), compression, wxj::context())?;
+            let mut data_output =
+                SnapshotWriter::create(output.join(DATA_FILE_NAME), compression, wxj::context())?;
 
             for (digest, path, _) in paths {
                 let mut flat_next = flat_input
@@ -347,8 +341,8 @@ async fn main() -> Result<(), Error> {
             compression,
             skip_unresolved,
         } => {
-            let flat_context = wxj::flat::context();
-            let data_context = wxj::data::context();
+            let flat_context = wxj::context();
+            let data_context = wxj::context();
             let summary = archivindex_wbm_json::process::compact::compact(
                 &data,
                 &cdx,

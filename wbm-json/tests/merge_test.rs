@@ -12,11 +12,11 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn wxj_flat_context() -> Context {
-    archivindex_wbm_json::configuration::instances::wxj::flat::context()
+    archivindex_wbm_json::configuration::instances::wxj::context()
 }
 
 fn wxj_data_context() -> Context {
-    archivindex_wbm_json::configuration::instances::wxj::data::context()
+    archivindex_wbm_json::configuration::instances::wxj::context()
 }
 
 // ---------------------------------------------------------------------------

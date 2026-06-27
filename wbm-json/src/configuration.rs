@@ -29,50 +29,45 @@ pub mod instances {
 
         const WXJ_CLOSING_WHITESPACE: &[char] = &['\r', '\r', '\n'];
 
-        /// Returns the canonical [`Context`] for the WXJ format, without URL inference.
+        /// Returns the canonical [`Context`] for WXJ (Twitter) tweet snapshots.
+        ///
+        /// The URL query is a single conditional CEL expression: it first tries the Twitter API v2
+        /// "data" shape and, when that is absent, falls back to the older flat shape.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the built-in CEL URL query fails to compile (a bug).
         #[must_use]
-        pub const fn context() -> Context {
+        pub fn context() -> Context {
             Context::from_static(WXJ_CLOSING_WHITESPACE)
+                .with_url_query(
+                    "has(content.data) ? \
+                     'https://twitter.com/' + \
+                     content.includes.users.filter(u, u.id == content.data.author_id)[0].username + \
+                     '/status/' + content.data.id : \
+                     'https://twitter.com/' + content.user.screen_name + '/status/' + content.id_str",
+                )
+                .expect("valid CEL query")
         }
+    }
+}
 
-        pub mod data {
-            use super::super::Context;
-            use super::WXJ_CLOSING_WHITESPACE;
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wxj_context_infers_data_and_flat_urls() {
+        let context = super::instances::wxj::context();
 
-            /// Returns the canonical [`Context`] for WXJ data format tweet snapshots.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the built-in CEL URL query fails to compile (a bug).
-            #[must_use]
-            pub fn context() -> Context {
-                Context::from_static(WXJ_CLOSING_WHITESPACE)
-                    .with_url_query(
-                        "'https://twitter.com/' + \
-                         content.includes.users.filter(u, u.id == content.data.author_id)[0].username + \
-                         '/status/' + content.data.id",
-                    )
-                    .expect("valid CEL query")
-            }
-        }
+        let data = r#"{"data":{"id":"123","author_id":"42"},"includes":{"users":[{"id":"42","username":"alice"}]}}"#;
+        assert_eq!(
+            context.infer_url(data).as_deref(),
+            Some("https://twitter.com/alice/status/123")
+        );
 
-        pub mod flat {
-            use super::super::Context;
-            use super::WXJ_CLOSING_WHITESPACE;
-
-            /// Returns the canonical [`Context`] for WXJ flat format tweet snapshots.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the built-in CEL URL query fails to compile (a bug).
-            #[must_use]
-            pub fn context() -> Context {
-                Context::from_static(WXJ_CLOSING_WHITESPACE)
-                    .with_url_query(
-                        "'https://twitter.com/' + content.user.screen_name + '/status/' + content.id_str",
-                    )
-                    .expect("valid CEL query")
-            }
-        }
+        let flat = r#"{"id_str":"456","user":{"screen_name":"bob"}}"#;
+        assert_eq!(
+            context.infer_url(flat).as_deref(),
+            Some("https://twitter.com/bob/status/456")
+        );
     }
 }

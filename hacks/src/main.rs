@@ -39,14 +39,9 @@ async fn main() -> Result<(), Error> {
     match opts.command {
         Command::WxjUrls {
             input,
-            flat,
             include_timestamped,
         } => {
-            let context = if flat {
-                wbm_wxj::flat::context()
-            } else {
-                wbm_wxj::data::context()
-            };
+            let context = wbm_wxj::context();
             let lines = BufReader::new(zstd::Decoder::new(File::open(input)?)?).lines();
 
             for result in lines {
@@ -468,8 +463,7 @@ async fn main() -> Result<(), Error> {
             );
 
             let context = match format {
-                SnapshotFormat::WxjFlat => wbm_wxj::flat::context(),
-                SnapshotFormat::WxjData => wbm_wxj::data::context(),
+                SnapshotFormat::WxjFlat | SnapshotFormat::WxjData => wbm_wxj::context(),
                 SnapshotFormat::TruthSocial => wts::context(),
             };
 
@@ -618,8 +612,6 @@ enum Command {
     WxjUrls {
         #[clap(long)]
         input: PathBuf,
-        #[clap(long)]
-        flat: bool,
         #[clap(long)]
         include_timestamped: bool,
     },
