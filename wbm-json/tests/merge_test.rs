@@ -11,12 +11,11 @@ use archivindex_wbm_json::stream::merge::{MergeDualConfig, MergeStats, NewSnapsh
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-fn wxj_flat_context() -> Context {
-    archivindex_wbm_json::configuration::instances::wxj::context()
-}
-
-fn wxj_data_context() -> Context {
-    archivindex_wbm_json::configuration::instances::wxj::context()
+fn wxj_context() -> Context {
+    let config: archivindex_wbm_json::context::ContextConfig =
+        toml::from_str(include_str!("../../examples/contexts/twitter.toml"))
+            .expect("valid Twitter context configuration");
+    Context::from_config(config).expect("valid Twitter context")
 }
 
 // ---------------------------------------------------------------------------
@@ -131,8 +130,8 @@ async fn merge_dual_zstd_end_to_end() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
-        first_context: wxj_flat_context(),
-        second_context: wxj_data_context(),
+        first_context: wxj_context(),
+        second_context: wxj_context(),
         classify: classify_content,
     })
     .await
@@ -223,8 +222,8 @@ async fn merge_output_validates() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 1,
-        first_context: wxj_flat_context(),
-        second_context: wxj_data_context(),
+        first_context: wxj_context(),
+        second_context: wxj_context(),
         classify: classify_content,
     })
     .await
@@ -233,7 +232,7 @@ async fn merge_output_validates() {
     // Validate every snapshot in both outputs.
     let flat_reader = SnapshotReader::open(tmp.path().join("flat_output.ndjson.zst")).unwrap();
 
-    let flat_context = wxj_flat_context();
+    let flat_context = wxj_context();
     let mut hasher = sha1::Sha1::default();
     for result in flat_reader {
         let snapshot = result.unwrap();
@@ -244,7 +243,7 @@ async fn merge_output_validates() {
 
     let data_reader = SnapshotReader::open(tmp.path().join("data_output.ndjson.zst")).unwrap();
 
-    let data_context = wxj_data_context();
+    let data_context = wxj_context();
     for result in data_reader {
         let snapshot = result.unwrap();
         data_context
@@ -277,8 +276,8 @@ async fn merge_parallel_matches_sequential() {
         second_output: tmp.path().join("data_output.ndjson.zst"),
         compression_level: 1,
         parallelism: 4,
-        first_context: wxj_flat_context(),
-        second_context: wxj_data_context(),
+        first_context: wxj_context(),
+        second_context: wxj_context(),
         classify: classify_content,
     })
     .await

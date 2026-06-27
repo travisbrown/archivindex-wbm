@@ -105,6 +105,22 @@ impl std::fmt::Display for Context {
     }
 }
 
+/// A serializable description of a [`Context`]: its default closing whitespace and an optional CEL
+/// URL-inference query.
+///
+/// Deserialize it from any serde format (TOML, JSON, and so on), then build a context with
+/// [`Context::from_config`]. The `closing_whitespace` is written as a string of whitespace
+/// characters (for example `"\r\r\n"`).
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+pub struct ContextConfig {
+    /// The default closing whitespace, as a string of whitespace characters.
+    #[serde(default)]
+    pub closing_whitespace: String,
+    /// An optional CEL query that infers a snapshot's canonical URL from its content.
+    #[serde(default)]
+    pub url_query: Option<String>,
+}
+
 impl Context {
     /// Create a context with the given default closing whitespace, no formats, and no URL query.
     #[must_use]
@@ -166,6 +182,21 @@ impl Context {
             program: Arc::new(program),
         });
         Ok(self)
+    }
+
+    /// Builds a context from a deserialized [`ContextConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the CEL [`ParseErrors`](cel::ParseErrors) if the configuration's `url_query` does
+    /// not compile.
+    pub fn from_config(config: ContextConfig) -> Result<Self, cel::ParseErrors> {
+        let context = Self::new(Cow::Owned(config.closing_whitespace.chars().collect()));
+
+        match config.url_query {
+            Some(query) => context.with_url_query(query),
+            None => Ok(context),
+        }
     }
 
     /// The CEL URL-inference query source, if this context has one.
@@ -503,6 +534,21 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_config_builds_closing_whitespace_and_query() {
+        let config = ContextConfig {
+            closing_whitespace: "\r\n".to_string(),
+            url_query: Some("'https://example.com/' + content.id".to_string()),
+        };
+        let context = Context::from_config(config).expect("valid config");
+
+        assert_eq!(context.default_closing_whitespace(), &['\r', '\n']);
+        assert_eq!(
+            context.infer_url(r#"{"id":"42"}"#).as_deref(),
+            Some("https://example.com/42")
+        );
+    }
 
     #[test]
     fn validate_registered_format_round_trip() {

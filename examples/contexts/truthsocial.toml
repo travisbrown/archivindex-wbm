@@ -1,0 +1,5 @@
+# Context for Truth Social snapshots.
+closing_whitespace = "\n"
+
+# Infer the canonical post URL from the status id.
+url_query = "'https://truthsocial.com/api/v1/statuses/' + content.id"
