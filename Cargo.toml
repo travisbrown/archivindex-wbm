@@ -37,7 +37,7 @@ version = "0.1.0"
 bounded-static = "0.8"
 bounded-static-derive-more = "0.1"
 bytes = "1"
-cel = "0.13"
+cel = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
 cli-helpers = "0.1"
 csv = "1"
