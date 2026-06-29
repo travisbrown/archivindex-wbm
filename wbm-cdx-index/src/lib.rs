@@ -5,11 +5,9 @@
 //! On-disk CDX item index backed by `RocksDB` with Zstandard compression.
 //!
 //! Supports fast lookup by digest and prefix iteration by SURL (Sort-friendly URI Reordering
-//! Transform key). Each item carries a mutable status of [`ItemStatus::Available`],
+//! Transform key). Each item carries a status of [`ItemStatus::Available`],
 //! [`ItemStatus::InProgress`] (with a timeout after which it reverts to Available), or
 //! [`ItemStatus::Done`].
-
-use std::path::Path;
 
 use archivindex_wbm::{
     cdx::item::Item,
@@ -20,14 +18,11 @@ use rocksdb::{
     BlockBasedOptions, ColumnFamilyDescriptor, DB, DBCompressionType, Direction, IteratorMode,
     Options, ReadOptions, WriteBatch,
 };
-
-// ── Column family names ────────────────────────────────────────────────────────
+use std::path::Path;
 
 const CF_ITEMS: &str = "items";
 const CF_DIGEST: &str = "digest";
 const CF_STATUS: &str = "status";
-
-// ── Public types ───────────────────────────────────────────────────────────────
 
 /// The processing state of a CDX index item.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,20 +59,52 @@ pub struct StoredItem {
 pub enum Error {
     #[error("RocksDB error: {0}")]
     RocksDb(#[from] rocksdb::Error),
-    #[error("Decode error: {0}")]
-    Decode(&'static str),
-    #[error("Encode error: {0}")]
-    Encode(&'static str),
     #[error("UTF-8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+    #[error("URL too long to encode: {0} bytes")]
+    EncodeUrlTooLong(usize),
+    #[error("MIME type too long to encode: {0} bytes")]
+    EncodeMimeTypeTooLong(usize),
+    #[error("digest string too long to encode: {0} bytes")]
+    EncodeDigestStringTooLong(usize),
+    #[error("missing NUL terminator in item key")]
+    DecodeMissingKeyNul,
+    #[error("key timestamp has wrong byte length")]
+    DecodeKeyTimestampWrongLength,
+    #[error("not enough bytes to read u16")]
+    DecodeTruncatedU16,
+    #[error("not enough bytes to read expected slice")]
+    DecodeTruncatedBytes,
+    #[error("not enough bytes to read status code")]
+    DecodeTruncatedStatusCode,
+    #[error("missing digest tag byte")]
+    DecodeMissingDigestTag,
+    #[error("not enough bytes to read SHA-1")]
+    DecodeTruncatedSha1,
+    #[error("missing length tag byte")]
+    DecodeMissingLengthTag,
+    #[error("not enough bytes to read length field")]
+    DecodeTruncatedLength,
+    #[error("missing status tag byte")]
+    DecodeMissingStatusByte,
+    #[error("not enough bytes to read timeout")]
+    DecodeTruncatedTimeout,
+    #[error("timeout bytes have wrong length")]
+    DecodeTimeoutWrongLength,
+    #[error("invalid Unix timestamp for timeout: {0}")]
+    DecodeInvalidTimeoutSecs(i64),
+    #[error("unknown status tag byte: {0:#x}")]
+    DecodeUnknownStatusTag(u8),
+    #[error("digest key too short")]
+    DecodeDigestKeyTooShort,
+    #[error("digest index references missing item")]
+    DecodeIndexReferenceMissing,
 }
 
 /// On-disk CDX item index.
 pub struct CdxIndex {
     db: DB,
 }
-
-// ── Key / value codec ──────────────────────────────────────────────────────────
 
 /// `surl_bytes || NUL || big-endian u64 unix seconds`
 fn item_key(surl: &str, timestamp_secs: i64) -> Vec<u8> {
@@ -105,16 +132,18 @@ fn encode_item_value(item: &Item<'_>) -> Result<Vec<u8>, Error> {
     let mime_bytes = item.mime_type.as_str().as_bytes();
     let mut value = Vec::new();
 
+    let url_len = original_bytes.len();
     value.extend_from_slice(
-        &u16::try_from(original_bytes.len())
-            .map_err(|_| Error::Encode("URL length exceeds u16"))?
+        &u16::try_from(url_len)
+            .map_err(|_| Error::EncodeUrlTooLong(url_len))?
             .to_le_bytes(),
     );
     value.extend_from_slice(original_bytes);
 
+    let mime_len = mime_bytes.len();
     value.extend_from_slice(
-        &u16::try_from(mime_bytes.len())
-            .map_err(|_| Error::Encode("MIME type length exceeds u16"))?
+        &u16::try_from(mime_len)
+            .map_err(|_| Error::EncodeMimeTypeTooLong(mime_len))?
             .to_le_bytes(),
     );
     value.extend_from_slice(mime_bytes);
@@ -129,9 +158,10 @@ fn encode_item_value(item: &Item<'_>) -> Result<Vec<u8>, Error> {
         Digest::Invalid(invalid_str) => {
             value.push(0);
             let invalid_bytes = invalid_str.as_bytes();
+            let digest_len = invalid_bytes.len();
             value.extend_from_slice(
-                &u16::try_from(invalid_bytes.len())
-                    .map_err(|_| Error::Encode("digest string length exceeds u16"))?
+                &u16::try_from(digest_len)
+                    .map_err(|_| Error::EncodeDigestStringTooLong(digest_len))?
                     .to_le_bytes(),
             );
             value.extend_from_slice(invalid_bytes);
@@ -153,11 +183,11 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
     let nul_pos = raw_key
         .iter()
         .position(|&byte| byte == 0)
-        .ok_or(Error::Decode("missing NUL in key"))?;
+        .ok_or(Error::DecodeMissingKeyNul)?;
     let surl = String::from_utf8(raw_key[..nul_pos].to_vec())?;
     let timestamp_bytes: [u8; 8] = raw_key[nul_pos + 1..]
         .try_into()
-        .map_err(|_| Error::Decode("key timestamp wrong length"))?;
+        .map_err(|_| Error::DecodeKeyTimestampWrongLength)?;
     let timestamp_secs = u64::from_be_bytes(timestamp_bytes).cast_signed();
 
     let mut pos = 0usize;
@@ -166,7 +196,7 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
         () => {{
             let bytes: [u8; 2] = raw_value[pos..pos + 2]
                 .try_into()
-                .map_err(|_| Error::Decode("truncated u16"))?;
+                .map_err(|_| Error::DecodeTruncatedU16)?;
             pos += 2;
             u16::from_le_bytes(bytes) as usize
         }};
@@ -174,9 +204,7 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
     macro_rules! read_bytes {
         ($n:expr) => {{
             let end = pos + $n;
-            let slice = raw_value
-                .get(pos..end)
-                .ok_or(Error::Decode("truncated bytes"))?;
+            let slice = raw_value.get(pos..end).ok_or(Error::DecodeTruncatedBytes)?;
             pos = end;
             slice
         }};
@@ -191,18 +219,16 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
     let status_code = {
         let bytes: [u8; 2] = read_bytes!(2)
             .try_into()
-            .map_err(|_| Error::Decode("truncated status_code"))?;
+            .map_err(|_| Error::DecodeTruncatedStatusCode)?;
         u16::from_be_bytes(bytes)
     };
 
-    let digest_tag = *raw_value
-        .get(pos)
-        .ok_or(Error::Decode("missing digest tag"))?;
+    let digest_tag = *raw_value.get(pos).ok_or(Error::DecodeMissingDigestTag)?;
     pos += 1;
     let (digest, digest_str) = if digest_tag == 1 {
         let sha1_bytes: [u8; 20] = read_bytes!(20)
             .try_into()
-            .map_err(|_| Error::Decode("truncated sha1"))?;
+            .map_err(|_| Error::DecodeTruncatedSha1)?;
         let sha1 = Sha1Digest(sha1_bytes);
         let digest_string = sha1.to_string();
         (Some(sha1), digest_string)
@@ -212,14 +238,12 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
         (None, digest_string)
     };
 
-    let has_length = *raw_value
-        .get(pos)
-        .ok_or(Error::Decode("missing length tag"))?;
+    let has_length = *raw_value.get(pos).ok_or(Error::DecodeMissingLengthTag)?;
     pos += 1;
     let length = if has_length == 1 {
         let bytes: [u8; 8] = read_bytes!(8)
             .try_into()
-            .map_err(|_| Error::Decode("truncated length"))?;
+            .map_err(|_| Error::DecodeTruncatedLength)?;
         Some(i64::from_le_bytes(bytes))
     } else {
         None
@@ -252,17 +276,17 @@ fn encode_status(status: &ItemStatus) -> Vec<u8> {
 
 fn decode_status(raw: &[u8]) -> Result<ItemStatus, Error> {
     let now = Utc::now();
-    match raw.first() {
+    match raw.first().copied() {
         Some(0) => Ok(ItemStatus::Available),
         Some(1) => {
             let timeout_bytes: [u8; 8] = raw
                 .get(1..9)
-                .ok_or(Error::Decode("truncated timeout"))?
+                .ok_or(Error::DecodeTruncatedTimeout)?
                 .try_into()
-                .map_err(|_| Error::Decode("timeout wrong length"))?;
+                .map_err(|_| Error::DecodeTimeoutWrongLength)?;
             let timeout_unix_secs = i64::from_be_bytes(timeout_bytes);
             let timeout = DateTime::from_timestamp(timeout_unix_secs, 0)
-                .ok_or(Error::Decode("invalid timeout"))?;
+                .ok_or(Error::DecodeInvalidTimeoutSecs(timeout_unix_secs))?;
             if timeout <= now {
                 Ok(ItemStatus::Available)
             } else {
@@ -270,7 +294,8 @@ fn decode_status(raw: &[u8]) -> Result<ItemStatus, Error> {
             }
         }
         Some(2) => Ok(ItemStatus::Done),
-        _ => Err(Error::Decode("unknown status tag")),
+        Some(tag) => Err(Error::DecodeUnknownStatusTag(tag)),
+        None => Err(Error::DecodeMissingStatusByte),
     }
 }
 
@@ -292,8 +317,6 @@ fn prefix_upper_bound(prefix: &[u8]) -> Option<Vec<u8>> {
         })
         .then_some(upper)
 }
-
-// ── RocksDB setup ──────────────────────────────────────────────────────────────
 
 fn make_cf_opts() -> Options {
     let mut block_opts = BlockBasedOptions::default();
@@ -319,8 +342,6 @@ fn open_db(path: &Path) -> Result<DB, rocksdb::Error> {
 
     DB::open_cf_descriptors(&root_opts, path, column_families)
 }
-
-// ── CdxIndex implementation ────────────────────────────────────────────────────
 
 impl CdxIndex {
     /// Open (or create) the index at `path`.
@@ -436,11 +457,11 @@ impl CdxIndex {
                 // 20-byte digest prefix to recover the items CF key.
                 let items_key = digest_key_bytes
                     .get(20..)
-                    .ok_or(Error::Decode("digest key too short"))?;
+                    .ok_or(Error::DecodeDigestKeyTooShort)?;
                 let raw_value = self
                     .db
                     .get_cf(cf_items, items_key)?
-                    .ok_or(Error::Decode("digest index references missing item"))?;
+                    .ok_or(Error::DecodeIndexReferenceMissing)?;
                 decode_item(items_key, &raw_value)
             })
     }
