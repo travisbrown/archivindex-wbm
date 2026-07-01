@@ -3,6 +3,15 @@
 Each line is a JSON wrapper whose ``digest`` field must match the Base32-encoding of the SHA-1 hash
 of the content (including the closing whitespace, which by default is "\r\r\n").
 
+Both snapshot layouts are supported:
+
+* old: ``closing_whitespace`` is a top-level string field;
+* new: ``closing_whitespace`` lives inside the ``format`` object.
+
+Only the default UTF-8 format can be checked here; snapshots whose ``format`` declares a non-default
+``type`` (for example gzip) are reproduced through a codec this minimal tool does not implement, so
+they are reported and skipped.
+
 Usage::
 
     python validate_snapshots.py <file> [--closing-whitespace '\\r\\r\\n']
@@ -59,17 +68,52 @@ def closing_whitespace_to_bytes(whitespace: str) -> bytes:
     return b"".join(_WHITESPACE_BYTES.get(ch, b"") for ch in whitespace)
 
 
+def skip_json_object(line: str, idx: int) -> int:
+    """Return the index just past the ``}`` matching the ``{`` at ``idx``.
+
+    Tracks brace depth while respecting JSON strings and their backslash escapes, mirroring the Rust
+    ``read_object_value`` helper.
+    """
+    depth = 0
+    in_string = False
+    escaped = False
+    while idx < len(line):
+        ch = line[idx]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return idx + 1
+        idx += 1
+    raise ValueError("unterminated format object")
+
+
 def extract_raw_content(line: str) -> str:
     """Extract the raw content JSON substring using positional parsing.
 
-    Mirrors the field-order contract from the Rust ``Snapshot::parse`` method: (``digest``,
-    ``expected_digest``, ``closing_whitespace``, ``timestamp``, ``url``, ``content``).
+    Handles both snapshot layouts (every field but ``digest`` and ``content`` is optional):
+
+    * old: ``digest``, ``expected_digest``, ``closing_whitespace`` (a top-level string),
+      ``timestamp``, ``url``, ``content``;
+    * new: ``digest``, ``expected_digest``, ``timestamp``, ``url``, ``format`` (an object that
+      carries ``closing_whitespace``), ``content``.
     """
     idx = DIGEST_PREFIX_LEN + DIGEST_LEN + 3
 
     if line[idx:].startswith("expected_digest"):
         idx += len('expected_digest":"') + DIGEST_LEN + 3
 
+    # Old layout: a top-level closing_whitespace string.
     if line[idx:].startswith("closing_whitespace"):
         idx += len('closing_whitespace":"')
         # Scan for the closing quote, respecting JSON backslash escapes.
@@ -88,6 +132,12 @@ def extract_raw_content(line: str) -> str:
         while line[idx] != '"':
             idx += 1
         idx += 3
+
+    # New layout: a format object (holding closing_whitespace, an optional type, and metadata).
+    if line[idx:].startswith("format"):
+        idx += len('format":')
+        idx = skip_json_object(line, idx)
+        idx += 2  # skip the ',' separator and the opening '"' of the content key
 
     idx += len('content":')
     return line[idx:-1]
@@ -115,11 +165,12 @@ def open_input(path: str):
 
 def validate_file(
     path: str, default_closing_whitespace: str
-) -> tuple[int, int, int, list[str]]:
+) -> tuple[int, int, int, int, list[str]]:
     """Validate all snapshot lines in a file."""
     total = 0
     valid = 0
     invalid = 0
+    skipped = 0
     last_digest_bytes: Optional[bytes] = None
     out_of_order: list[str] = []
     default_whitespace_bytes = closing_whitespace_to_bytes(default_closing_whitespace)
@@ -158,12 +209,27 @@ def validate_file(
                 out_of_order.append(digest)
             last_digest_bytes = digest_bytes
 
-            # Determine effective closing whitespace.
-            closing_whitespace = parsed.get("closing_whitespace")
-            if closing_whitespace is not None:
-                whitespace_bytes = closing_whitespace_to_bytes(
-                    closing_whitespace
+            # The new layout nests the format details (including closing_whitespace) in a `format`
+            # object; the old layout put closing_whitespace at the top level.
+            fmt = parsed.get("format")
+
+            # A non-default format (signalled by a `type` key) is reproduced through a codec this
+            # minimal tool does not implement, so its digest cannot be checked here.
+            if isinstance(fmt, dict) and "type" in fmt:
+                print(
+                    f"line {line_no}: {digest}: unsupported format {fmt['type']!r}, skipped",
+                    file=sys.stderr,
                 )
+                skipped += 1
+                continue
+
+            # Determine effective closing whitespace (top-level for old, format for new).
+            closing_whitespace = parsed.get("closing_whitespace")
+            if closing_whitespace is None and isinstance(fmt, dict):
+                closing_whitespace = fmt.get("closing_whitespace")
+
+            if closing_whitespace is not None:
+                whitespace_bytes = closing_whitespace_to_bytes(closing_whitespace)
             else:
                 whitespace_bytes = default_whitespace_bytes
 
@@ -188,7 +254,7 @@ def validate_file(
                 )
                 invalid += 1
 
-    return total, valid, invalid, out_of_order
+    return total, valid, invalid, skipped, out_of_order
 
 
 def main() -> None:
@@ -212,9 +278,14 @@ def main() -> None:
 
     default_whitespace = unescape_whitespace(args.closing_whitespace)
 
-    total, valid, invalid, out_of_order = validate_file(args.file, default_whitespace)
+    total, valid, invalid, skipped, out_of_order = validate_file(
+        args.file, default_whitespace
+    )
 
-    print(f"{total} lines, {valid} valid, {invalid} invalid", file=sys.stderr)
+    summary = f"{total} lines, {valid} valid, {invalid} invalid"
+    if skipped:
+        summary += f", {skipped} skipped (unsupported format)"
+    print(summary, file=sys.stderr)
     if out_of_order:
         print(f"{len(out_of_order)} out-of-order digests", file=sys.stderr)
 
