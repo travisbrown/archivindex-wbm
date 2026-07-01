@@ -22,7 +22,7 @@ use serde_json::value::RawValue;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -401,6 +401,30 @@ async fn main() -> Result<(), Error> {
                 "Deleted {count_deleted} of {count_total} files ({count_valid} valid digest names)"
             );
         }
+        Command::FilterByPrefix { directory, prefix } => {
+            let mut paths = std::fs::read_dir(&directory)?
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<Result<Vec<_>, _>>()?;
+            paths.retain(|path| path.is_file());
+            paths.sort();
+
+            let prefix = prefix.as_bytes();
+            // Read only as many bytes as the prefix needs, reusing one buffer across files.
+            let mut buffer = vec![0u8; prefix.len()];
+
+            for path in paths {
+                let mut file = File::open(&path)?;
+
+                match file.read_exact(&mut buffer) {
+                    // The file is at least as long as the prefix and starts with it.
+                    Ok(()) if buffer.as_slice() == prefix => println!("{}", path.display()),
+                    Ok(()) => {}
+                    // The file is shorter than the prefix, so it cannot match.
+                    Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
         Command::ReconcileCdx {
             cdx,
             input,
@@ -701,6 +725,16 @@ enum Command {
         /// Zstandard compression level for the corrected output.
         #[clap(long, default_value = "14")]
         compression_level: i32,
+    },
+    /// Print the full path of each file in a directory (in sorted name order) whose contents start
+    /// with the given prefix.
+    FilterByPrefix {
+        /// Directory whose files are scanned, sorted by name.
+        #[clap(long)]
+        directory: PathBuf,
+        /// Byte prefix to match against the start of each file's contents.
+        #[clap(long)]
+        prefix: String,
     },
 }
 
