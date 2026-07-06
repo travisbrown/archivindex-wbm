@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../wbm-cas/" }
+archivindex-wbm-cdx-index = { path = "../wbm-cdx-index/" }
 archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
 archivindex-wbm-json = { path = "../wbm-json/" }
 archivindex-wbm-json-gzip = { path = "../wbm-json-gzip/" }

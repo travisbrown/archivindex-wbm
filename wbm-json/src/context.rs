@@ -121,6 +121,38 @@ pub struct ContextConfig {
     pub url_query: Option<String>,
 }
 
+/// Errors reading a [`ContextConfig`] file or building a [`Context`] from it.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("I/O error")]
+    Io(#[from] std::io::Error),
+    #[error("TOML parse error")]
+    Toml(#[from] toml::de::Error),
+    #[error("JSON parse error")]
+    Json(#[from] serde_json::Error),
+    #[error("URL query compilation error")]
+    Query(#[from] cel::ParseErrors),
+}
+
+impl ContextConfig {
+    /// Reads a configuration file, chosen by extension: `.json` is parsed as JSON, anything else as
+    /// TOML.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::Io`] if the file cannot be read, or [`ConfigError::Toml`] or
+    /// [`ConfigError::Json`] if it does not parse.
+    pub fn read<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
+        let source = std::fs::read_to_string(&path)?;
+
+        if path.as_ref().extension().is_some_and(|ext| ext == "json") {
+            Ok(serde_json::from_str(&source)?)
+        } else {
+            Ok(toml::from_str(&source)?)
+        }
+    }
+}
+
 impl Context {
     /// Create a context with the given default closing whitespace, no formats, and no URL query.
     #[must_use]
@@ -197,6 +229,17 @@ impl Context {
             Some(query) => context.with_url_query(query),
             None => Ok(context),
         }
+    }
+
+    /// Builds a context from a configuration file (see [`ContextConfig::read`]): the file's
+    /// extension chooses the format (`.json` is parsed as JSON, anything else as TOML).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] if the file cannot be read or parsed, or if its `url_query` does
+    /// not compile.
+    pub fn from_config_path<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
+        Ok(Self::from_config(ContextConfig::read(path)?)?)
     }
 
     /// The CEL URL-inference query source, if this context has one.

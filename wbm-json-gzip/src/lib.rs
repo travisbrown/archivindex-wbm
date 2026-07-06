@@ -389,6 +389,17 @@ pub fn register(context: &mut Context) {
     context.register_format(Format::from(FORMAT), codec());
 }
 
+/// Detects whether `bytes` are a reproducible gzip archive, returning its [`FormatInfo`] (with the
+/// inferred parameters as metadata) if so.
+///
+/// This is the format detector shape expected by
+/// [`process::pack`](archivindex_wbm_json::process::pack): `None` means the bytes are not gzip and
+/// should be treated as the default format.
+#[must_use]
+pub fn detect(bytes: &[u8]) -> Option<FormatInfo> {
+    GzipParams::infer(bytes).map(|params| params.format_info())
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -1,0 +1,250 @@
+//! End-to-end tests for the pack, enhance, and check operations.
+//!
+//! Packs a directory of digest-named files (one with an expected digest recorded in an
+//! invalid-digest log), checks the packed file, enhances it from a fake CDX capture source, and
+//! checks the result.
+
+use archivindex_wbm::digest::{Digest, Sha1Computer, Sha1Digest};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_json::context::Context;
+use archivindex_wbm_json::io::read::SnapshotReader;
+use archivindex_wbm_json::process::{check, enhance, pack};
+use std::collections::HashMap;
+use std::convert::Infallible;
+
+const CLOSING_WHITESPACE: &[char] = &['\n'];
+
+fn context() -> Context {
+    Context::from_static(CLOSING_WHITESPACE)
+        .with_url_query("'https://example.com/items/' + content.id")
+        .expect("valid CEL query")
+}
+
+/// Writes `content` (plus the default closing whitespace) into `dir` under its digest name,
+/// returning the digest.
+fn write_data_file(dir: &std::path::Path, content: &str) -> Sha1Digest {
+    let bytes = format!("{content}\n");
+    let digest = Sha1Computer::compute_digest(bytes.as_bytes());
+    std::fs::write(dir.join(digest.to_string()), bytes).expect("write data file");
+    digest
+}
+
+#[test]
+fn pack_enhance_check_round_trip() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir(&data_dir).expect("create data dir");
+    let invalid_db = dir.path().join("invalid.db");
+    let packed = dir.path().join("packed.ndjson.zst");
+    let enhanced = dir.path().join("enhanced.ndjson.zst");
+
+    let context = context();
+
+    // Three data files; the second has an expected digest recorded in the invalid-digest log.
+    let digest_a = write_data_file(&data_dir, r#"{"id":"1"}"#);
+    let digest_b = write_data_file(&data_dir, r#"{"id":"2"}"#);
+    let digest_c = write_data_file(&data_dir, r#"{"id":"3"}"#);
+
+    let expected_b = Sha1Computer::compute_digest(b"the digest the CDX index declared");
+    {
+        let database =
+            archivindex_wbm_invalid_log::Database::open(&invalid_db).expect("open invalid db");
+        let entry = archivindex_wbm_invalid_log::Entry::new(
+            ItemInfo::new(
+                UrlParts::new(
+                    "https://example.com/items/2",
+                    "20240101000000".parse::<Timestamp>().expect("timestamp"),
+                ),
+                Digest::Valid(expected_b),
+            ),
+            digest_b,
+        );
+        database
+            .insert_invalid_digest(&entry, chrono::Utc::now())
+            .expect("insert invalid digest");
+    }
+
+    // Pack: no CDX metadata, only digests, the expected digest, and content.
+    let summary = pack::pack(
+        &[data_dir.as_path()],
+        &invalid_db,
+        &packed,
+        1,
+        &context,
+        |_bytes| None,
+    )
+    .expect("pack succeeds");
+
+    assert_eq!(summary.written_count, 3);
+    assert_eq!(summary.expected_digest_count, 1);
+    assert_eq!(summary.skipped_count, 0);
+
+    let snapshots: Vec<_> = SnapshotReader::open(&packed)
+        .expect("open packed")
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(snapshots.len(), 3);
+    assert!(snapshots.iter().all(|s| s.timestamp.is_none()));
+    assert!(snapshots.iter().all(|s| s.url.is_none()));
+    let packed_b = snapshots
+        .iter()
+        .find(|s| s.digest == digest_b)
+        .expect("packed b");
+    assert_eq!(
+        packed_b.expected_digest.as_deref(),
+        Some(expected_b.to_string().as_str())
+    );
+
+    // Check the packed file: valid, sorted, no metadata problems, all timestamps missing.
+    let summary = check::check(&packed, &context).expect("check succeeds");
+    assert!(summary.is_successful());
+    assert_eq!(summary.line_count, 3);
+    assert_eq!(summary.valid_digest_count, 3);
+    assert_eq!(summary.missing_timestamp_count, 3);
+
+    // Enhance from a fake CDX capture source. Captures are recorded under the digest the CDX index
+    // declared: the expected digest for b, the content digest for a. The URL for a is inferred from
+    // its content (so serialization omits it); the URL for b is not (so it is kept). c is
+    // unmatched.
+    let timestamp = "20240101000000".parse::<Timestamp>().expect("timestamp");
+    let captures: HashMap<Sha1Digest, Vec<UrlParts<'static>>> = [
+        (
+            digest_a,
+            vec![
+                // The later capture is ignored; the earliest one wins.
+                UrlParts::new(
+                    "https://example.com/other/1",
+                    "20250101000000".parse::<Timestamp>().expect("timestamp"),
+                ),
+                UrlParts::new("https://example.com/items/1", timestamp),
+            ],
+        ),
+        (
+            expected_b,
+            vec![UrlParts::new("https://example.com/unusual/2", timestamp)],
+        ),
+    ]
+    .into_iter()
+    .collect();
+
+    let summary = enhance::enhance(&packed, &enhanced, 1, &context, |digest| {
+        Ok::<_, Infallible>(captures.get(&digest).cloned().unwrap_or_default())
+    })
+    .expect("enhance succeeds");
+
+    assert_eq!(summary.read_count, 3);
+    assert_eq!(summary.enhanced_count, 2);
+    assert_eq!(summary.already_enhanced_count, 0);
+    assert_eq!(summary.unmatched, vec![digest_c]);
+
+    let snapshots: HashMap<Sha1Digest, _> = SnapshotReader::open(&enhanced)
+        .expect("open enhanced")
+        .map(Result::unwrap)
+        .map(|snapshot| (snapshot.digest, snapshot))
+        .collect();
+    assert_eq!(snapshots.len(), 3);
+
+    // a: timestamp set; its URL matched the inferred one, so it was omitted during serialization.
+    assert_eq!(snapshots[&digest_a].timestamp, Some(timestamp));
+    assert_eq!(snapshots[&digest_a].url, None);
+
+    // b: timestamp set; its URL differs from the inferred one, so it was kept.
+    assert_eq!(snapshots[&digest_b].timestamp, Some(timestamp));
+    assert_eq!(
+        snapshots[&digest_b].url.as_deref(),
+        Some("https://example.com/unusual/2")
+    );
+
+    // c: unmatched, passed through unchanged.
+    assert_eq!(snapshots[&digest_c].timestamp, None);
+
+    // Check the enhanced file: only the unmatched snapshot is missing a timestamp.
+    let summary = check::check(&enhanced, &context).expect("check succeeds");
+    assert!(summary.is_successful());
+    assert_eq!(summary.valid_digest_count, 3);
+    assert_eq!(summary.missing_timestamp_count, 1);
+}
+
+#[test]
+fn check_reports_problems() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("bad.ndjson.zst");
+
+    let context = context();
+
+    // Hand-build a file with a digest mismatch, a schema error, an out-of-order pair, and a URL
+    // without a timestamp.
+    let good = r#"{"id":"1"}"#;
+    let good_digest = Sha1Computer::compute_digest(format!("{good}\n").as_bytes());
+    let wrong_digest = Sha1Computer::compute_digest(b"something else");
+
+    let mut lines = vec![
+        format!(r#"{{"digest":"{wrong_digest}","content":{good}}}"#),
+        "not a snapshot".to_string(),
+        format!(
+            r#"{{"digest":"{good_digest}","url":"https://example.com/items/9","content":{good}}}"#
+        ),
+    ];
+    // Repeat the first line at the end so the file is out of order.
+    lines.push(lines[0].clone());
+
+    let file = std::fs::File::create(&path).expect("create file");
+    let mut encoder = zstd::Encoder::new(file, 1).expect("encoder");
+    std::io::Write::write_all(&mut encoder, (lines.join("\n") + "\n").as_bytes()).expect("write");
+    encoder.finish().expect("finish");
+
+    let summary = check::check(&path, &context).expect("check succeeds");
+    assert!(!summary.is_successful());
+    assert_eq!(summary.line_count, 4);
+    assert_eq!(summary.schema_errors, vec![2]);
+    // Lines 1 and 4 hash to `good_digest`, not the digest they declare.
+    assert_eq!(summary.digest_mismatches.len(), 2);
+    // Line 3 has an explicit URL but no timestamp (and the URL differs from the inferred one).
+    assert_eq!(summary.url_without_timestamp, vec![good_digest]);
+    assert!(summary.redundant_url.is_empty());
+    // Line 4's digest sorts before line 3's or equals line 1's; either way it is a problem.
+    assert_eq!(
+        summary.out_of_order.len() + summary.duplicates.len(),
+        1,
+        "the repeated line is flagged"
+    );
+    // Only parsed snapshots are counted (the schema-error line is not).
+    assert_eq!(summary.missing_timestamp_count, 3);
+}
+
+/// The packed output of [`pack`] is deterministic and digest-sorted.
+#[test]
+fn pack_output_is_digest_sorted() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir(&data_dir).expect("create data dir");
+    let invalid_db = dir.path().join("invalid.db");
+    let packed = dir.path().join("packed.ndjson.zst");
+
+    let context = Context::from_static(CLOSING_WHITESPACE);
+
+    for id in 0..20 {
+        write_data_file(&data_dir, &format!(r#"{{"id":"{id}"}}"#));
+    }
+
+    let summary = pack::pack(
+        &[data_dir.as_path()],
+        &invalid_db,
+        &packed,
+        1,
+        &context,
+        |_bytes| None,
+    )
+    .expect("pack succeeds");
+    assert_eq!(summary.written_count, 20);
+
+    let digests: Vec<Sha1Digest> = SnapshotReader::open(&packed)
+        .expect("open packed")
+        .map(|result| result.expect("snapshot").digest)
+        .collect();
+    let mut sorted = digests.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(digests, sorted);
+}

@@ -12,6 +12,8 @@
 use archivindex_wbm::{
     cdx::item::Item,
     digest::{Digest, Sha1Digest},
+    item::UrlParts,
+    timestamp::Timestamp,
 };
 use chrono::{DateTime, Duration, Utc};
 use rocksdb::{
@@ -97,6 +99,8 @@ pub enum Error {
     DecodeTimeoutWrongLength,
     #[error("invalid Unix timestamp for timeout: {0}")]
     DecodeInvalidTimeoutSecs(i64),
+    #[error("invalid Unix timestamp for capture: {0}")]
+    DecodeInvalidCaptureSecs(i64),
     #[error("unknown status tag byte: {0:#x}")]
     DecodeUnknownStatusTag(u8),
     #[error("digest key too short")]
@@ -500,7 +504,46 @@ impl CdxIndex {
             })
     }
 
-    /// Iterate all items in the index in SURT+timestamp order.
+    /// Collect all items recorded for a digest (see [`iter_by_digest`](Self::iter_by_digest)).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if iteration or item decoding fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a column family handle is unavailable, which cannot happen when the database was
+    /// opened successfully via [`open`](Self::open).
+    pub fn items_by_digest(&self, digest: Sha1Digest) -> Result<Vec<StoredItem>, Error> {
+        self.iter_by_digest(digest).collect()
+    }
+
+    /// Collect the captures (original URL and timestamp pairs) recorded for a digest.
+    ///
+    /// This is the lookup shape expected by the `archivindex-wbm-json` enhance operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if iteration or item decoding fails, or if a stored timestamp is out of
+    /// range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a column family handle is unavailable, which cannot happen when the database was
+    /// opened successfully via [`open`](Self::open).
+    pub fn captures_by_digest(&self, digest: Sha1Digest) -> Result<Vec<UrlParts<'static>>, Error> {
+        self.iter_by_digest(digest)
+            .map(|result| {
+                let item = result?;
+                let timestamp = Timestamp::try_from(item.timestamp_secs)
+                    .map_err(|_| Error::DecodeInvalidCaptureSecs(item.timestamp_secs))?;
+
+                Ok(UrlParts::new(item.original, timestamp))
+            })
+            .collect()
+    }
+
+    /// Iterate all items in the index in SURL+timestamp order.
     ///
     /// Does not populate status; call [`get_status`](Self::get_status) separately when needed.
     pub fn iter_all(&self) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {

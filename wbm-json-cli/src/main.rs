@@ -414,9 +414,105 @@ async fn main() -> Result<(), Error> {
 
             write_compact_summary(&summary, &summary_output)?;
         }
+        Command::Pack {
+            data,
+            invalid_db,
+            output,
+            context,
+            gzip,
+            compression,
+        } => {
+            let context = load_ops_context(&context, gzip)?;
+            let summary = archivindex_wbm_json::process::pack::pack(
+                &data,
+                &invalid_db,
+                &output,
+                compression,
+                &context,
+                move |bytes| {
+                    if gzip {
+                        archivindex_wbm_json_gzip::detect(bytes)
+                    } else {
+                        None
+                    }
+                },
+            )?;
+
+            log::info!(
+                "{} written ({} with an expected digest), {} skipped",
+                summary.written_count,
+                summary.expected_digest_count,
+                summary.skipped_count,
+            );
+
+            println!("{}", serde_json::json!(summary));
+        }
+        Command::Enhance {
+            input,
+            cdx_index,
+            output,
+            context,
+            gzip,
+            compression,
+        } => {
+            let context = load_ops_context(&context, gzip)?;
+            let index = archivindex_wbm_cdx_index::CdxIndex::open(&cdx_index)?;
+            let summary = archivindex_wbm_json::process::enhance::enhance(
+                &input,
+                &output,
+                compression,
+                &context,
+                |digest| index.captures_by_digest(digest),
+            )?;
+
+            log::info!(
+                "{} read: {} enhanced, {} already enhanced, {} unmatched",
+                summary.read_count,
+                summary.enhanced_count,
+                summary.already_enhanced_count,
+                summary.unmatched_count,
+            );
+
+            println!("{}", serde_json::json!(summary));
+        }
+        Command::Check {
+            input,
+            context,
+            gzip,
+        } => {
+            let context = load_ops_context(&context, gzip)?;
+            let summary = archivindex_wbm_json::process::check::check(&input, &context)?;
+
+            log::info!(
+                "{} lines: {} valid digests, {} schema errors, {} digest mismatches, \
+                 {} missing timestamps, {} with a URL but no timestamp",
+                summary.line_count,
+                summary.valid_digest_count,
+                summary.schema_errors.len(),
+                summary.digest_mismatches.len(),
+                summary.missing_timestamp_count,
+                summary.url_without_timestamp.len(),
+            );
+
+            if !summary.is_successful() {
+                log::warn!("Check found problems (see the summary for details)");
+            }
+
+            println!("{}", serde_json::json!(summary));
+        }
     }
 
     Ok(())
+}
+
+/// Load the context for a pack, enhance, or check operation from a configuration file (TOML, or
+/// JSON with a `.json` extension), registering the gzip codec when requested.
+fn load_ops_context(path: &Path, gzip: bool) -> Result<Context, Error> {
+    let mut context = Context::from_config_path(path)?;
+    if gzip {
+        archivindex_wbm_json_gzip::register(&mut context);
+    }
+    Ok(context)
 }
 
 /// Determine the validation context for a file: use the explicitly requested `format` if given,
@@ -540,6 +636,18 @@ pub enum Error {
     Data(#[from] archivindex_wbm_json::process::data::Error),
     #[error("Compact error")]
     Compact(#[from] archivindex_wbm_json::process::compact::Error),
+    #[error("Pack error")]
+    Pack(#[from] archivindex_wbm_json::process::pack::Error),
+    #[error("Enhance error")]
+    Enhance(
+        #[from] archivindex_wbm_json::process::enhance::Error<archivindex_wbm_cdx_index::Error>,
+    ),
+    #[error("Check error")]
+    Check(#[from] archivindex_wbm_json::process::check::Error),
+    #[error("CDX index error")]
+    CdxIndex(#[from] archivindex_wbm_cdx_index::Error),
+    #[error("Context configuration error")]
+    ContextConfig(#[from] archivindex_wbm_json::context::ConfigError),
     #[error("Merge error")]
     Merge(#[from] archivindex_wbm_json::process::merge::Error),
     #[error("Validation error")]
@@ -705,5 +813,64 @@ enum Command {
         /// Omit snapshots with no CDX resolution from the output.
         #[clap(long)]
         skip_unresolved: bool,
+    },
+    /// Pack digest-named data files into a compact Zstandard-compressed NDJSON file, without CDX
+    /// metadata (only the digest, the expected digest from the invalid-digest log, the format when
+    /// non-default, and the content).
+    Pack {
+        /// Directories containing data files (keyed by SHA-1 digest).
+        #[clap(long)]
+        data: Vec<PathBuf>,
+        #[allow(clippy::doc_markdown)]
+        /// Path to the invalid digest SQLite database.
+        #[clap(long)]
+        invalid_db: PathBuf,
+        /// Output path for the Zstandard-compressed NDJSON file.
+        #[clap(long)]
+        output: PathBuf,
+        /// Path to the context configuration file (TOML, or JSON with a `.json` extension).
+        #[clap(long)]
+        context: PathBuf,
+        /// Recognize gzip archives (registering the gzip codec on the context).
+        #[clap(long)]
+        gzip: bool,
+        /// Zstandard compression level.
+        #[clap(long, default_value = "14")]
+        compression: u16,
+    },
+    /// Enhance a compact snapshot file with CDX metadata (timestamp, and a URL when the content
+    /// does not infer it) from a CDX index database.
+    Enhance {
+        /// The compact Zstandard-compressed NDJSON input file.
+        #[clap(long)]
+        input: PathBuf,
+        #[allow(clippy::doc_markdown)]
+        /// Path to the CDX index RocksDB database.
+        #[clap(long)]
+        cdx_index: PathBuf,
+        /// Output path for the enhanced Zstandard-compressed NDJSON file.
+        #[clap(long)]
+        output: PathBuf,
+        /// Path to the context configuration file (TOML, or JSON with a `.json` extension).
+        #[clap(long)]
+        context: PathBuf,
+        /// Recognize gzip archives (registering the gzip codec on the context).
+        #[clap(long)]
+        gzip: bool,
+        /// Zstandard compression level.
+        #[clap(long, default_value = "14")]
+        compression: u16,
+    },
+    /// Check a compact snapshot file: schema, digests, ordering, and metadata consistency.
+    Check {
+        /// The compact Zstandard-compressed NDJSON input file.
+        #[clap(long)]
+        input: PathBuf,
+        /// Path to the context configuration file (TOML, or JSON with a `.json` extension).
+        #[clap(long)]
+        context: PathBuf,
+        /// Recognize gzip archives (registering the gzip codec on the context).
+        #[clap(long)]
+        gzip: bool,
     },
 }
