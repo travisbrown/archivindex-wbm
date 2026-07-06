@@ -545,7 +545,7 @@ impl CdxIndex {
             .collect()
     }
 
-    /// Iterate all items in the index in SURL+timestamp order.
+    /// Iterate all items in the index in SURT and timestamp order.
     ///
     /// Does not populate status; call [`get_status`](Self::get_status) separately when needed.
     pub fn iter_all(&self) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {
