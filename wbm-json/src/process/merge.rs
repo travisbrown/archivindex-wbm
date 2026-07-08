@@ -11,6 +11,37 @@ use std::io::{BufRead, BufReader, Write};
 use std::iter::Peekable;
 use std::path::Path;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("I/O error")]
+    Io(#[from] std::io::Error),
+    #[error("I/O error while reading")]
+    ReadIo {
+        file: File,
+        line_number: usize,
+        digest: Sha1Digest,
+        error: std::io::Error,
+    },
+    #[error("Out-of-order error")]
+    Order {
+        file: File,
+        line_number: usize,
+        digest: Sha1Digest,
+    },
+    #[error("Collision (same digest, different values)")]
+    Collision {
+        first_line_number: usize,
+        second_line_number: usize,
+        digest: Sha1Digest,
+    },
+    #[error("Invalid line error")]
+    InvalidLine {
+        file: File,
+        line_number: usize,
+        content: String,
+    },
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum File {
     First,
@@ -64,6 +95,23 @@ impl SourceLine {
             }
         }
     }
+
+    #[must_use]
+    pub const fn source(&self) -> Source {
+        match self {
+            Self::First(_) => Source::File(File::First),
+            Self::Second(_) => Source::File(File::Second),
+            Self::Match(_) | Self::Collision(_) => Source::Both,
+        }
+    }
+
+    #[must_use]
+    pub fn collision(self) -> Option<Collision> {
+        match self {
+            Self::First(_) | Self::Second(_) | Self::Match(_) => None,
+            Self::Collision(collision) => Some(collision),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
@@ -88,37 +136,6 @@ impl SourceCounts {
             Source::Both => self.both += 1,
         }
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    #[error("I/O error while reading")]
-    ReadIo {
-        file: File,
-        line_number: usize,
-        digest: Sha1Digest,
-        error: std::io::Error,
-    },
-    #[error("Out-of-order error")]
-    Order {
-        file: File,
-        line_number: usize,
-        digest: Sha1Digest,
-    },
-    #[error("Collision (same digest, different values)")]
-    Collision {
-        first_line_number: usize,
-        second_line_number: usize,
-        digest: Sha1Digest,
-    },
-    #[error("Invalid line error")]
-    InvalidLine {
-        file: File,
-        line_number: usize,
-        content: String,
-    },
 }
 
 /// Byte offset where the Base32 digest begins in a serialized snapshot line.
@@ -159,16 +176,9 @@ pub fn merge_zst<P: AsRef<Path>>(
     for result in merge(reader_first.lines(), reader_second.lines()) {
         let (digest, source_line) = result?;
 
-        let source = match &source_line {
-            SourceLine::First(_) => Source::File(File::First),
-            SourceLine::Second(_) => Source::File(File::Second),
-            SourceLine::Match(_) => Source::Both,
-            SourceLine::Collision(collision) => {
-                summary.collisions.push(collision.clone());
+        writeln!(writer, "{}", source_line.value())?;
 
-                Source::Both
-            }
-        };
+        let source = source_line.source();
 
         summary.counts.add(source);
 
@@ -176,7 +186,9 @@ pub fn merge_zst<P: AsRef<Path>>(
             summary.both.push(digest);
         }
 
-        writeln!(writer, "{}", source_line.value())?;
+        if let Some(collision) = source_line.collision() {
+            summary.collisions.push(collision);
+        }
     }
 
     writer.finish()?;
