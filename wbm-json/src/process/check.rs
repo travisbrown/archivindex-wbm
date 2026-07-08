@@ -96,7 +96,7 @@ pub fn check(input: &Path, context: &Context) -> Result<Summary, Error> {
             continue;
         };
 
-        match context.validate(&snapshot, &mut hasher) {
+        match context.verify(&snapshot, &mut hasher) {
             Ok(()) => summary.valid_digest_count += 1,
             Err(ValidationError::Mismatch(_)) => summary.digest_mismatches.push(snapshot.digest),
             Err(ValidationError::UnsupportedFormat(_)) => {

@@ -19,6 +19,7 @@ archivindex-wbm-cdx-index = { path = "../wbm-cdx-index/" }
 archivindex-wbm-json = { path = "../wbm-json/" }
 cli-helpers = { workspace = true }
 csv = { workspace = true }
+indicatif = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

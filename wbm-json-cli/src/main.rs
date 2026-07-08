@@ -449,20 +449,24 @@ async fn main() -> Result<(), Error> {
         }
         Command::Enhance {
             input,
-            cdx_index,
+            metadata_db,
+            invalid_db,
             output,
             context,
             gzip,
             compression,
+            batch_size,
         } => {
             let context = load_ops_context(&context, gzip)?;
-            let index = archivindex_wbm_cdx_index::CdxIndex::open(&cdx_index)?;
+            let metadata = archivindex_wbm_cdx_index::metadata::MetadataDb::open(&metadata_db)?;
             let summary = archivindex_wbm_json::process::enhance::enhance(
                 &input,
+                &invalid_db,
                 &output,
                 compression,
+                batch_size,
                 &context,
-                |digest| index.captures_by_digest(digest),
+                |digests| metadata.multi_get(digests),
             )?;
 
             log::info!(
@@ -640,12 +644,13 @@ pub enum Error {
     Pack(#[from] archivindex_wbm_json::process::pack::Error),
     #[error("Enhance error")]
     Enhance(
-        #[from] archivindex_wbm_json::process::enhance::Error<archivindex_wbm_cdx_index::Error>,
+        #[from]
+        archivindex_wbm_json::process::enhance::Error<archivindex_wbm_cdx_index::metadata::Error>,
     ),
     #[error("Check error")]
     Check(#[from] archivindex_wbm_json::process::check::Error),
-    #[error("CDX index error")]
-    CdxIndex(#[from] archivindex_wbm_cdx_index::Error),
+    #[error("Metadata database error")]
+    Metadata(#[from] archivindex_wbm_cdx_index::metadata::Error),
     #[error("Context configuration error")]
     ContextConfig(#[from] archivindex_wbm_json::context::ConfigError),
     #[error("Merge error")]
@@ -815,7 +820,7 @@ enum Command {
         skip_unresolved: bool,
     },
     /// Pack digest-named data files into a compact Zstandard-compressed NDJSON file, without CDX
-    /// metadata (only the digest, the expected digest from the invalid-digest log, the format when
+    /// metadata (only the digest, the expected digest from the invalid digest log, the format when
     /// non-default, and the content).
     Pack {
         /// Directories containing data files (keyed by SHA-1 digest).
@@ -839,15 +844,20 @@ enum Command {
         compression: u16,
     },
     /// Enhance a compact snapshot file with CDX metadata (timestamp, and a URL when the content
-    /// does not infer it) from a CDX index database.
+    /// does not infer it) from a capture metadata database, retrying under the expected digest
+    /// from the invalid digest log where the content digest has no captures.
     Enhance {
         /// The compact Zstandard-compressed NDJSON input file.
         #[clap(long)]
         input: PathBuf,
         #[allow(clippy::doc_markdown)]
-        /// Path to the CDX index RocksDB database.
+        /// Path to the capture metadata RocksDB database.
         #[clap(long)]
-        cdx_index: PathBuf,
+        metadata_db: PathBuf,
+        #[allow(clippy::doc_markdown)]
+        /// Path to the invalid digest SQLite database.
+        #[clap(long)]
+        invalid_db: PathBuf,
         /// Output path for the enhanced Zstandard-compressed NDJSON file.
         #[clap(long)]
         output: PathBuf,
@@ -860,6 +870,9 @@ enum Command {
         /// Zstandard compression level.
         #[clap(long, default_value = "14")]
         compression: u16,
+        /// Number of snapshots buffered per capture lookup batch.
+        #[clap(long, default_value = "1024")]
+        batch_size: std::num::NonZeroUsize,
     },
     /// Check a compact snapshot file: schema, digests, ordering, and metadata consistency.
     Check {

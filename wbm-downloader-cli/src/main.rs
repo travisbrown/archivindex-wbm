@@ -84,7 +84,7 @@ enum Command {
         #[clap(long)]
         base: PathBuf,
     },
-    /// Operate on an invalid-digest log database.
+    /// Operate on an invalid digest log database.
     InvalidLog {
         #[clap(subcommand)]
         command: InvalidLogCommand,

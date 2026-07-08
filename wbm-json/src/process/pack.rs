@@ -9,7 +9,7 @@
 use crate::context::{Context, SnapshotError};
 use crate::format::FormatInfo;
 use crate::io::write::SnapshotWriter;
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_invalid_log::Database;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -111,7 +111,7 @@ where
         // Verify the file's contents hash to the digest it is named by. A mismatch means the stored
         // bytes are corrupt (e.g. a truncated or empty download), so warn and skip rather than
         // emitting a snapshot under the wrong digest.
-        let actual_digest = Sha1Computer::compute_digest(&bytes);
+        let actual_digest = Sha1Digest::compute(&bytes);
         if actual_digest != digest {
             log::warn!(
                 "Digest mismatch (named {digest}, contents hash to {actual_digest}): {}",
