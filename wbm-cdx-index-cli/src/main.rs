@@ -11,7 +11,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use archivindex_wbm::{cdx::item::ItemList, digest::Sha1Digest};
@@ -31,13 +31,13 @@ async fn main() -> Result<(), Error> {
             let mut inserted = 0u64;
             let mut skipped = 0u64;
 
-            for entry in std::fs::read_dir(&input)? {
-                let entry = entry?;
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
+            let mut paths = Vec::new();
+            for directory in &input {
+                collect_json_files(directory, &mut paths)?;
+            }
+            paths.sort();
 
+            for path in paths {
                 log::info!("Reading {}", path.display());
                 let content = std::fs::read_to_string(&path)?;
 
@@ -103,6 +103,25 @@ async fn main() -> Result<(), Error> {
             }
 
             writer.flush()?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Recursively collect the paths of all `.json` files under `directory` into `paths`.
+fn collect_json_files(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+
+        if path.is_dir() {
+            collect_json_files(&path, paths)?;
+        } else if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        {
+            paths.push(path);
         }
     }
 
@@ -206,14 +225,16 @@ enum SortOrder {
 
 #[derive(Debug, Parser)]
 enum Command {
-    /// Read a directory of CDX JSON files and insert all items into the index.
+    /// Read directories of CDX JSON files (searched recursively) and insert all items into the
+    /// index.
     Fill {
         /// Path to the `RocksDB` index directory (created if absent).
         #[clap(long)]
         db: PathBuf,
-        /// Directory containing CDX JSON response files.
+        /// Directory containing CDX JSON response files, searched recursively for `.json` files
+        /// (may be repeated).
         #[clap(long)]
-        input: PathBuf,
+        input: Vec<PathBuf>,
     },
     /// Print index statistics.
     Stats {

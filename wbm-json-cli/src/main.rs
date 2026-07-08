@@ -45,6 +45,28 @@ async fn main() -> Result<(), Error> {
     opts.verbose.init_logging()?;
 
     match opts.command {
+        Command::Merge {
+            first,
+            second,
+            output,
+            compression,
+        } => {
+            let summary = archivindex_wbm_json::process::merge::merge_zst(
+                first,
+                second,
+                output,
+                compression,
+            )?;
+
+            log::info!(
+                "First: {}, second: {}, both: {}",
+                summary.counts.first,
+                summary.counts.second,
+                summary.counts.both
+            );
+
+            println!("{}", serde_json::json!(summary));
+        }
         Command::Verify { format, input } => {
             let mut count = 0u64;
             let mut hasher = sha1::Sha1::default();
@@ -370,28 +392,6 @@ async fn main() -> Result<(), Error> {
 
             write_compact_summary(&summary, &summary_output)?;
         }
-        Command::Merge {
-            first,
-            second,
-            output,
-            compression,
-        } => {
-            let summary = archivindex_wbm_json::process::merge::merge_zst(
-                first,
-                second,
-                output,
-                compression,
-            )?;
-
-            log::info!(
-                "First: {}, second: {}, both: {}",
-                summary.counts.first,
-                summary.counts.second,
-                summary.counts.both
-            );
-
-            println!("{}", serde_json::json!(summary));
-        }
         Command::CompactTs {
             data,
             cdx,
@@ -679,6 +679,17 @@ struct Opts {
 
 #[derive(Debug, Parser)]
 enum Command {
+    Merge {
+        #[clap(long)]
+        first: PathBuf,
+        #[clap(long)]
+        second: PathBuf,
+        #[clap(long)]
+        output: PathBuf,
+        /// Zstandard compression level.
+        #[clap(long, default_value = "7")]
+        compression: u16,
+    },
     Verify {
         #[clap(long)]
         format: Option<Format>,
@@ -777,17 +788,6 @@ enum Command {
         /// Omit snapshots with no CDX resolution from the output.
         #[clap(long)]
         skip_unresolved: bool,
-    },
-    Merge {
-        #[clap(long)]
-        first: PathBuf,
-        #[clap(long)]
-        second: PathBuf,
-        #[clap(long)]
-        output: PathBuf,
-        /// Zstandard compression level.
-        #[clap(long, default_value = "14")]
-        compression: u16,
     },
     /// Load Truth Social (WTJ) data files, resolve CDX metadata, and write enriched snapshots to a
     /// Zstandard-compressed NDJSON file.
