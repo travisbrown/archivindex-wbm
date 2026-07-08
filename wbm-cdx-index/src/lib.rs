@@ -9,6 +9,8 @@
 //! [`ItemStatus::InProgress`] (with a timeout after which it reverts to Available), or
 //! [`ItemStatus::Done`].
 
+pub mod metadata;
+
 use archivindex_wbm::{
     cdx::item::Item,
     digest::{Digest, Sha1Digest},
