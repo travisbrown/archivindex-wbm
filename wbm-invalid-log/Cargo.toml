@@ -12,7 +12,6 @@ validation = []
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 bounded-static = { workspace = true }
-bounded-static-derive-more = { workspace = true }
 chrono = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }

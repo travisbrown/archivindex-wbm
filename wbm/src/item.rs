@@ -16,20 +16,32 @@ pub enum Error {
     InvalidTimestamp(#[from] crate::timestamp::Error),
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    bounded_static_derive_more::ToStatic,
-    serde::Deserialize,
-    serde::Serialize,
-)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct UrlParts<'a> {
     pub url: Cow<'a, str>,
     pub timestamp: Timestamp,
+}
+
+impl bounded_static::ToBoundedStatic for UrlParts<'_> {
+    type Static = UrlParts<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        UrlParts {
+            url: self.url.to_static(),
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+impl bounded_static::IntoBoundedStatic for UrlParts<'_> {
+    type Static = UrlParts<'static>;
+
+    fn into_static(self) -> Self::Static {
+        UrlParts {
+            url: self.url.into_static(),
+            timestamp: self.timestamp,
+        }
+    }
 }
 
 impl<'a> UrlParts<'a> {
@@ -77,7 +89,7 @@ impl FromStr for UrlParts<'static> {
     PartialEq,
     Ord,
     PartialOrd,
-    bounded_static_derive_more::ToStatic,
+    bounded_static::ToStatic,
     serde::Deserialize,
     serde::Serialize,
 )]

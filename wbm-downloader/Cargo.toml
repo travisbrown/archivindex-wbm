@@ -11,7 +11,6 @@ archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../wbm-cas/" }
 archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
 bounded-static = { workspace = true }
-bounded-static-derive-more = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }

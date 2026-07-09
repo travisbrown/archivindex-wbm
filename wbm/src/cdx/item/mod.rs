@@ -27,7 +27,7 @@ pub enum Error {
     InvalidMimeType(#[from] crate::cdx::mime_type::Error),
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Item<'a> {
     pub key: Surt<'a>,
     pub timestamp: Timestamp,
@@ -108,7 +108,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static::ToStatic)]
 pub struct ItemList<'a> {
     pub values: Vec<Item<'a>>,
     pub resume_key: Option<Cow<'a, str>>,
@@ -172,6 +172,38 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
         }
 
         deserializer.deserialize_seq(EntryListVisitor)
+    }
+}
+
+impl bounded_static::ToBoundedStatic for Item<'_> {
+    type Static = Item<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        Item {
+            key: self.key.to_static(),
+            timestamp: self.timestamp,
+            original: self.original.to_static(),
+            mime_type: self.mime_type.to_static(),
+            status_code: self.status_code,
+            digest: self.digest.to_static(),
+            length: self.length,
+        }
+    }
+}
+
+impl bounded_static::IntoBoundedStatic for Item<'_> {
+    type Static = Item<'static>;
+
+    fn into_static(self) -> Self::Static {
+        Item {
+            key: self.key.into_static(),
+            timestamp: self.timestamp,
+            original: self.original.into_static(),
+            mime_type: self.mime_type.into_static(),
+            status_code: self.status_code,
+            digest: self.digest.into_static(),
+            length: self.length,
+        }
     }
 }
 

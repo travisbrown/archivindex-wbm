@@ -34,8 +34,7 @@ license = "AGPL-3.0-only"
 version = "0.1.0"
 
 [workspace.dependencies]
-bounded-static = "0.8"
-bounded-static-derive-more = "0.1"
+bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.14"
 chrono = { version = "0.4", features = ["serde"] }

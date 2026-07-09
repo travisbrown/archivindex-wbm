@@ -20,7 +20,7 @@ const ITEM_LIST_HEADER: [&str; 11] = [
     "filename",
 ];
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static::ToStatic)]
 pub struct ExtendedItem<'a> {
     pub item: super::Item<'a>,
     pub redirect: Option<Cow<'a, str>>,

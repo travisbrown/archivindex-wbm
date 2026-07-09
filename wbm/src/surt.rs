@@ -25,9 +25,7 @@ pub enum Error {
 /// Currently only implements features necessary to handle Wayback Machine CDX results.
 ///
 /// By construction there will always be at least one domain name part length.
-#[derive(
-    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, bounded_static_derive_more::ToStatic,
-)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, bounded_static::ToStatic)]
 pub struct Surt<'a> {
     source: Cow<'a, str>,
     domain_name_part_lens: Vec<u8>,

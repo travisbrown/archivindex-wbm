@@ -82,10 +82,40 @@ impl Error {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Download<'a> {
     pub bytes: Bytes,
     pub redirects: Vec<UrlParts<'a>>,
+}
+
+impl bounded_static::ToBoundedStatic for Download<'_> {
+    type Static = Download<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        Download {
+            bytes: self.bytes.clone(),
+            redirects: self
+                .redirects
+                .iter()
+                .map(bounded_static::ToBoundedStatic::to_static)
+                .collect(),
+        }
+    }
+}
+
+impl bounded_static::IntoBoundedStatic for Download<'_> {
+    type Static = Download<'static>;
+
+    fn into_static(self) -> Self::Static {
+        Download {
+            bytes: self.bytes,
+            redirects: self
+                .redirects
+                .into_iter()
+                .map(bounded_static::IntoBoundedStatic::into_static)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

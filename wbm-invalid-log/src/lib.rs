@@ -31,7 +31,7 @@ pub mod types;
 ///
 /// Contains the item information (URL and expected digest) along with the actual digest computed
 /// from the downloaded content.
-#[derive(Clone, Debug, Eq, PartialEq, bounded_static_derive_more::ToStatic, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct Entry<'a> {
     /// The Wayback Machine item information, including URL and expected digest
     pub item_info: ItemInfo<'a>,
@@ -46,6 +46,28 @@ impl<'a> Entry<'a> {
         Self {
             item_info,
             actual_digest,
+        }
+    }
+}
+
+impl bounded_static::ToBoundedStatic for Entry<'_> {
+    type Static = Entry<'static>;
+
+    fn to_static(&self) -> Self::Static {
+        Entry {
+            item_info: self.item_info.to_static(),
+            actual_digest: self.actual_digest,
+        }
+    }
+}
+
+impl bounded_static::IntoBoundedStatic for Entry<'_> {
+    type Static = Entry<'static>;
+
+    fn into_static(self) -> Self::Static {
+        Entry {
+            item_info: self.item_info.into_static(),
+            actual_digest: self.actual_digest,
         }
     }
 }
