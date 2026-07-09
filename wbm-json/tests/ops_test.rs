@@ -94,7 +94,7 @@ fn pack_enhance_check_round_trip() {
     // Pack: no CDX metadata, only digests, the expected digest, and content.
     let summary = pack::pack(
         &[data_dir.as_path()],
-        &invalid_db,
+        Some(&invalid_db),
         &packed,
         1,
         &context,
@@ -308,7 +308,7 @@ fn pack_output_is_digest_sorted() {
 
     let summary = pack::pack(
         &[data_dir.as_path()],
-        &invalid_db,
+        Some(&invalid_db),
         &packed,
         1,
         &context,

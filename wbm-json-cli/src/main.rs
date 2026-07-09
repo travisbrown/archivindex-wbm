@@ -425,7 +425,7 @@ async fn main() -> Result<(), Error> {
             let context = load_ops_context(&context, gzip)?;
             let summary = archivindex_wbm_json::process::pack::pack(
                 &data,
-                &invalid_db,
+                invalid_db.as_deref(),
                 &output,
                 compression,
                 &context,
@@ -827,9 +827,9 @@ enum Command {
         #[clap(long)]
         data: Vec<PathBuf>,
         #[allow(clippy::doc_markdown)]
-        /// Path to the invalid digest SQLite database.
+        /// Path to the invalid digest SQLite database (omit to attach no expected digests).
         #[clap(long)]
-        invalid_db: PathBuf,
+        invalid_db: Option<PathBuf>,
         /// Output path for the Zstandard-compressed NDJSON file.
         #[clap(long)]
         output: PathBuf,

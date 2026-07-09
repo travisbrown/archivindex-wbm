@@ -65,7 +65,7 @@ pub struct Skipped {
 ///
 /// * `data_directories` - Directories containing raw content files named by SHA-1 digest
 /// * `invalid_db` - Path to the `SQLite` database of known invalid digests (maps each content
-///   digest to the digest the CDX index declared)
+///   digest to the digest the CDX index declared); `None` behaves like an empty log
 /// * `output` - The Zstandard-compressed NDJSON output path (must not already exist)
 /// * `compression_level` - Zstandard compression level (e.g. 14)
 /// * `context` - Supplies the default closing whitespace and the codecs for non-default formats
@@ -77,7 +77,7 @@ pub struct Skipped {
 /// invalid-digest log cannot be read, or [`Error::Io`] if file I/O fails.
 pub fn pack<D, F>(
     data_directories: &[D],
-    invalid_db: &Path,
+    invalid_db: Option<&Path>,
     output: &Path,
     compression_level: u16,
     context: &Context,
@@ -90,7 +90,10 @@ where
     let mut data = super::data::Data::default();
     data.load_data_directories(data_directories)?;
 
-    let expected_digests = expected_digests(invalid_db)?;
+    let expected_digests = invalid_db
+        .map(expected_digests)
+        .transpose()?
+        .unwrap_or_default();
 
     let mut writer = SnapshotWriter::create(output, compression_level, Context::clone(context))?;
     let mut summary = Summary::default();
