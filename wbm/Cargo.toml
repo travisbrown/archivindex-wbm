@@ -15,6 +15,7 @@ validation = []
 bounded-static = { workspace = true }
 chrono = { workspace = true }
 data-encoding = { workspace = true }
+digest-io = { workspace = true }
 http = { workspace = true }
 regex = { workspace = true }
 rusqlite = { workspace = true, optional = true }
