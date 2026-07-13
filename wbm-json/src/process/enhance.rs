@@ -14,6 +14,8 @@
 //! captures, the lookup is retried under the snapshot's expected digest (the digest the CDX index
 //! declared), taken from the snapshot itself when it carries a valid one, and from the invalid
 //! digest log otherwise, since the CDX metadata may record such snapshots only under that digest.
+//! When the content digest itself resolves, any expected digest the snapshot carried is dropped
+//! from the output, since it is no longer needed for lookups.
 
 use crate::context::Context;
 use crate::exact::ExactSnapshot;
@@ -62,8 +64,10 @@ pub struct Summary {
 /// digest yields no captures is retried under its expected digest (the digest the CDX index
 /// declared), taken from the snapshot itself when it carries a valid one and from the
 /// invalid digest log otherwise; captures under the content digest are preferred whenever they
-/// exist. The earliest capture supplies the snapshot's timestamp and URL. Snapshots that already
-/// have a timestamp, and snapshots with no matching capture, are passed through unchanged.
+/// exist. The earliest capture supplies the snapshot's timestamp and URL. A snapshot whose content
+/// digest resolves directly loses any expected digest it carried, since the field is no longer
+/// needed for lookups. Snapshots that already have a timestamp, and snapshots with no matching
+/// capture, are passed through unchanged.
 ///
 /// # Arguments
 ///
@@ -131,7 +135,8 @@ where
 
 /// Look up captures for the batched snapshots that are missing a timestamp (preferring each
 /// snapshot's content digest and falling back to its expected digest), apply the earliest capture
-/// to each, and write the whole batch (including passthroughs) in input order.
+/// to each (dropping the expected digest where the content digest resolved directly), and write
+/// the whole batch (including passthroughs) in input order.
 fn flush_batch<W, L, E>(
     batch: &mut Vec<ExactSnapshot<'static>>,
     expected_digests: &HashMap<Sha1Digest, Sha1Digest>,
@@ -173,16 +178,22 @@ where
         // Tolerate a lookup that returns fewer entries than digests.
         results.resize_with(digests.len(), || None);
 
+        // Whether each snapshot's own content digest yielded captures, recorded before any retry
+        // overwrites the result: such a snapshot needs no expected digest for future lookups, so
+        // the field is dropped from its output.
+        let resolved: Vec<bool> = results
+            .iter()
+            .map(|result| result.as_ref().is_some_and(|captures| !captures.is_empty()))
+            .collect();
+
         // Retry under the expected digest where the content digest yielded no captures.
         let retries: Vec<(usize, Sha1Digest)> = pending
             .iter()
             .copied()
-            .zip(&results)
+            .zip(&resolved)
             .enumerate()
-            .filter_map(|(i, ((_, fallback), result))| {
-                fallback
-                    .filter(|_| result.as_ref().is_none_or(std::vec::Vec::is_empty))
-                    .map(|digest| (i, digest))
+            .filter_map(|(i, ((_, fallback), resolved))| {
+                fallback.filter(|_| !resolved).map(|digest| (i, digest))
             })
             .collect();
 
@@ -197,7 +208,7 @@ where
             }
         }
 
-        for ((index, _), captures) in pending.into_iter().zip(results) {
+        for (((index, _), captures), resolved) in pending.into_iter().zip(results).zip(resolved) {
             let snapshot = &mut batch[index];
 
             if let Some(capture) = captures
@@ -208,6 +219,11 @@ where
                 snapshot.timestamp = Some(capture.timestamp);
                 // The writer omits the URL again when the context's inference re-derives it.
                 snapshot.url = Some(capture.url);
+                if resolved {
+                    // The CDX metadata records captures under the content digest itself, so any
+                    // expected digest the snapshot carried is obsolete.
+                    snapshot.expected_digest = None;
+                }
                 summary.enhanced_count += 1;
             } else {
                 summary.unmatched.push(snapshot.digest);

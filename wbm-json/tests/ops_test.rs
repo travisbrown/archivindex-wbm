@@ -213,11 +213,15 @@ fn pack_enhance_check_round_trip() {
     assert_eq!(snapshots[&digest_a].url, None);
 
     // b: matched under the expected digest carried by its snapshot; its URL differs from the
-    // inferred one, so it was kept.
+    // inferred one, so it was kept, and so was its expected digest (still needed for lookups).
     assert_eq!(snapshots[&digest_b].timestamp, Some(timestamp));
     assert_eq!(
         snapshots[&digest_b].url.as_deref(),
         Some("https://example.com/unusual/2")
+    );
+    assert_eq!(
+        snapshots[&digest_b].expected_digest.as_deref(),
+        Some(expected_b.to_string().as_str())
     );
 
     // c: unmatched, passed through unchanged.
@@ -230,12 +234,14 @@ fn pack_enhance_check_round_trip() {
         Some("https://example.com/unusual/4")
     );
 
-    // e: the content digest's capture wins over the expected digest's.
+    // e: the content digest's capture wins over the expected digest's, and since the content
+    // digest resolved directly, the expected digest carried by the snapshot is dropped.
     assert_eq!(snapshots[&digest_e].timestamp, Some(timestamp));
     assert_eq!(
         snapshots[&digest_e].url.as_deref(),
         Some("https://example.com/actual/5")
     );
+    assert_eq!(snapshots[&digest_e].expected_digest, None);
 
     // Check the enhanced file: only the unmatched snapshot is missing a timestamp.
     let summary = check::check(&enhanced, &context).expect("check succeeds");
