@@ -1,5 +1,5 @@
 //! Wayback Machine snapshot URL parts, pairing an original URL with a capture timestamp, and the
-//! conversions to and from the web.archive.org URL form.
+//! conversions to and from the `web.archive.org` URL form.
 use crate::{digest::Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -53,7 +53,7 @@ impl<'a> UrlParts<'a> {
     }
 
     #[must_use]
-    pub fn to_wb_url(&self, https: bool, original: bool) -> String {
+    pub fn to_url(&self, https: bool, original: bool) -> String {
         format!(
             "http{}://web.archive.org/web/{}{}/{}",
             if https { "s" } else { "" },
