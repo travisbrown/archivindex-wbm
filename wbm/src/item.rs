@@ -54,13 +54,32 @@ impl<'a> UrlParts<'a> {
 
     #[must_use]
     pub fn to_url(&self, https: bool, original: bool) -> String {
-        format!(
+        let mut output = String::new();
+        // Writing to a `String` is infallible.
+        let _ = self.write_url(&mut output, https, original);
+        output
+    }
+
+    fn write_url<W: std::fmt::Write>(
+        &self,
+        writer: &mut W,
+        https: bool,
+        original: bool,
+    ) -> std::fmt::Result {
+        write!(
+            writer,
             "http{}://web.archive.org/web/{}{}/{}",
             if https { "s" } else { "" },
             self.timestamp,
             if original { "id_" } else { "" },
             self.url
         )
+    }
+}
+
+impl std::fmt::Display for UrlParts<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.write_url(f, true, true)
     }
 }
 
