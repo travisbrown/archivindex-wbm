@@ -1,5 +1,5 @@
 //! A simplified MIME type for CDX index results, with dedicated variants for the common text and
-//! JSON values and a borrowed fallback covering everything else.
+//! JSON values and a fallback covering everything else.
 use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
 use std::borrow::Cow;
 use std::fmt::Display;

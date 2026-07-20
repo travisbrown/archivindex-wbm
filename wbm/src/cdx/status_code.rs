@@ -1,5 +1,5 @@
 //! A simplified HTTP status-code enumeration covering the values seen in CDX index results, with
-//! several Cloudflare-specific codes, all generated from a single table.
+//! several Cloudflare-specific codes.
 use std::{fmt::Display, str::FromStr};
 
 pub const STATUS_CODE_VALUES: [StatusCode; 25] = [
@@ -127,7 +127,7 @@ impl Display for StatusCode {
 }
 
 /// Serializes as the CDX string form (e.g. `"200"`, `"-"`), matching [`Display`] and the form
-/// accepted on deserialization (the derived `Deserialize` aliases).
+/// accepted on deserialization.
 impl serde::ser::Serialize for StatusCode {
     fn serialize<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.as_str())

@@ -16,6 +16,10 @@ pub enum Error {
     InvalidTimestamp(#[from] crate::timestamp::Error),
 }
 
+/// Simple representation of a URL-timestamp pair for a Wayback Machine snapshot.
+///
+/// This identifies a unique snapshot and typically a unique CDX item (although there are rare
+/// exceptions).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Deserialize, serde::Serialize)]
 pub struct UrlParts<'a> {
     pub url: Cow<'a, str>,
@@ -101,6 +105,9 @@ impl FromStr for UrlParts<'static> {
     }
 }
 
+/// Simple representation of a URL-timestamp-digest triple.
+///
+/// For many purposes these are the only parts of a CDX item that are needed.
 #[derive(
     Clone,
     Debug,
