@@ -101,9 +101,9 @@ impl FromStr for Timestamp {
             let timestamp = Self(date_time);
 
             // This validation confirms that the input can be round-tripped through our
-            // representation. I've never seen an input where this fails, and the check is expensive
-            // enough that I think it deserves a feature flag (for example in one quick test it
-            // makes a 13-minute job take over 15 minutes).
+            // representation. I've never seen an input where this fails, and the check is
+            // expensive enough that I think it deserves a feature flag (for example in one quick
+            // test it makes a 13-minute job take over 15 minutes).
             #[cfg(feature = "validation")]
             if timestamp.to_string() == s {
                 Ok(timestamp)
