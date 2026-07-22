@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 const WAYBACK_URL_PATTERN: &str =
-    r"^http(:?s)?://web.archive.org/web/(?P<timestamp>\d{14})(?:id_)?/(?P<url>.+)$";
+    r"^https?://web\.archive\.org/web/(?P<timestamp>\d{14})(?:id_)?/(?P<url>.+)$";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
