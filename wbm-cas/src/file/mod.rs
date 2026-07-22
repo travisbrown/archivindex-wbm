@@ -1,7 +1,7 @@
 //! Filesystem-backed [`Store`](crate::Store) that lays items out in a prefix-file-tree keyed by
 //! digest, with optional zstd compression of stored bytes.
 use crate::SaveSummary;
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use prefix_file_tree::{Tree, scheme::Case, scheme::encoding::Base32};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
@@ -34,7 +34,6 @@ pub enum StructureInferenceError {
 pub struct Store<C> {
     tree: Tree<Scheme>,
     configuration: C,
-    sha1_computer: Sha1Computer,
 }
 
 impl<C> Store<C> {
@@ -72,7 +71,6 @@ impl Store<entry::Buffered> {
         Ok(Self {
             tree,
             configuration: entry::Buffered::default(),
-            sha1_computer: Sha1Computer::default(),
         })
     }
 
@@ -123,9 +121,7 @@ impl crate::Store for Store<entry::Buffered> {
         match File::create_new(path) {
             Ok(mut file) => {
                 let actual_digest = if validate {
-                    let actual_digest = self
-                        .sha1_computer
-                        .digest(&mut std::io::Cursor::new(&bytes))?;
+                    let actual_digest = Sha1Digest::compute(bytes);
 
                     if actual_digest == digest {
                         None
@@ -165,10 +161,6 @@ impl crate::Store for Store<entry::Buffered> {
             Err(error) => Err(error),
         }
     }
-
-    fn sha1_computer(&self) -> &Sha1Computer {
-        &self.sha1_computer
-    }
 }
 
 #[cfg(feature = "zstd")]
@@ -183,7 +175,6 @@ impl Store<entry::zstd::Compressed> {
         Ok(Self {
             tree,
             configuration,
-            sha1_computer: Sha1Computer::default(),
         })
     }
 }
@@ -220,9 +211,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
                 let mut writer = zstd::stream::write::Encoder::new(file, self.configuration.level)?;
 
                 let actual_digest = if validate {
-                    let actual_digest = self
-                        .sha1_computer
-                        .digest(&mut std::io::Cursor::new(&bytes))?;
+                    let actual_digest = Sha1Digest::compute(bytes);
 
                     if actual_digest == digest {
                         None
@@ -264,10 +253,6 @@ impl crate::Store for Store<entry::zstd::Compressed> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
-    }
-
-    fn sha1_computer(&self) -> &Sha1Computer {
-        &self.sha1_computer
     }
 }
 

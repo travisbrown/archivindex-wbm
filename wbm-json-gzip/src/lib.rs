@@ -393,7 +393,7 @@ pub fn register(context: &mut Context) {
 mod tests {
     use super::*;
     #[cfg(feature = "zlib")]
-    use archivindex_wbm::digest::Sha1Computer;
+    use archivindex_wbm::digest::Sha1Digest;
     #[cfg(feature = "zlib")]
     use archivindex_wbm_json::exact::ExactSnapshot;
 
@@ -589,7 +589,7 @@ mod tests {
 
         for params in cases() {
             let archive = params.reproduce(text.as_bytes());
-            let digest = Sha1Computer::compute_digest(&archive);
+            let digest = Sha1Digest::compute(&archive);
             let format = serde_json::to_string(&params.format_info()).unwrap();
             let line =
                 format!("{{\"digest\":\"{digest}\",\"format\":{format},\"content\":{text}}}");

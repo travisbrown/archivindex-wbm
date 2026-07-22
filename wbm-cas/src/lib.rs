@@ -7,7 +7,7 @@
 #![forbid(unsafe_code)]
 use std::io::Read;
 
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use bytes::Bytes;
 
 use crate::entry::Entry;
@@ -54,8 +54,6 @@ pub trait Store {
     /// Look up a download in the store.
     fn get(&self, digest: Sha1Digest) -> Result<Option<Bytes>, Self::Error>;
 
-    fn sha1_computer(&self) -> &Sha1Computer;
-
     /// Verify that the digest associated with each download matches the content.
     fn validate(&self) -> Result<validation::Summary, Self::IterationError> {
         use entry::Entry;
@@ -69,11 +67,8 @@ pub trait Store {
             let expected_digest = entry.digest();
             let mut reader = entry.reader().map_err(Self::IterationError::from)?;
 
-            let sha1_computer = self.sha1_computer();
-
-            let actual_digest = sha1_computer
-                .digest(&mut reader)
-                .map_err(Self::IterationError::from)?;
+            let actual_digest =
+                Sha1Digest::from_reader(&mut reader).map_err(Self::IterationError::from)?;
 
             if expected_digest == actual_digest {
                 valid_count += 1;

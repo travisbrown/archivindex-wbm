@@ -5,7 +5,7 @@
 mod zlib_tests {
     use std::fs;
 
-    use archivindex_wbm::digest::Sha1Computer;
+    use archivindex_wbm::digest::Sha1Digest;
     use archivindex_wbm_json::context::Context;
     use archivindex_wbm_json::format::{Format, FormatInfo};
     use archivindex_wbm_json::io::read::SnapshotReader;
@@ -33,7 +33,7 @@ mod zlib_tests {
             extra_flushes: 0,
         };
         let archive = params.reproduce(text.as_bytes());
-        let digest = Sha1Computer::compute_digest(&archive);
+        let digest = Sha1Digest::compute(&archive);
         fs::write(data_dir.join(digest.to_string()), &archive).unwrap();
 
         let mut context = Context::from_static(&[]);

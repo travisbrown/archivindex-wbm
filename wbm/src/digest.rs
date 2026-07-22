@@ -11,9 +11,8 @@ use serde::{
 use sha1::Digest as _;
 use std::borrow::Cow;
 use std::fmt::Display;
-use std::io::{BufWriter, Read, Write as _};
+use std::io::Read;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -27,60 +26,6 @@ pub enum Error {
     InvalidBytesLength(Vec<u8>),
     #[error("Decoding error: {0:?}")]
     Decoding(data_encoding::DecodePartial),
-}
-
-#[derive(Clone)]
-pub struct Sha1Computer {
-    writer: Arc<Mutex<BufWriter<digest_io::IoWrapper<sha1::Sha1>>>>,
-}
-
-impl Sha1Computer {
-    pub fn compute_digest<B: AsRef<[u8]>>(input: B) -> Sha1Digest {
-        let mut sha1 = sha1::Sha1::new();
-        sha1.update(input);
-
-        Sha1Digest(sha1.finalize().into())
-    }
-
-    /// Computes the SHA-1 hash for bytes read from a source.
-    pub fn digest_bytes<R: Read>(&self, input: &mut R) -> std::io::Result<[u8; 20]> {
-        // Only panics on poisoning, so we don't care what Clippy says here.
-        #[allow(clippy::missing_panics_doc)]
-        let mut writer = self.writer.lock().unwrap();
-        std::io::copy(input, &mut *writer)?;
-        writer.flush()?;
-        let bytes = writer.get_mut().0.finalize_reset();
-        drop(writer);
-
-        Ok(bytes.into())
-    }
-
-    /// Computes the SHA-1 hash for bytes read from a source.
-    pub fn digest<R: Read>(&self, input: &mut R) -> std::io::Result<Sha1Digest> {
-        let bytes = self.digest_bytes(input)?;
-
-        Ok(Sha1Digest(bytes))
-    }
-
-    /// Computes the SHA-1 hash for bytes read from a source and encodes it as a Base32 string.
-    pub fn digest_base32<R: Read>(&self, input: &mut R) -> std::io::Result<String> {
-        let bytes = self.digest_bytes(input)?;
-
-        let mut output = String::new();
-        data_encoding::BASE32.encode_append(&bytes, &mut output);
-
-        Ok(output)
-    }
-}
-
-impl Default for Sha1Computer {
-    fn default() -> Self {
-        Self {
-            writer: Arc::new(Mutex::new(BufWriter::new(digest_io::IoWrapper(
-                sha1::Sha1::new(),
-            )))),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -121,21 +66,13 @@ impl<'a> Digest<'a> {
         }
     }
 
-    pub fn parse_str(input: &'a str) -> Result<Self, Error> {
-        if input.len() == 32 {
-            let mut output = [0; 20];
-            let count = BASE32
-                .decode_mut(input.as_bytes(), &mut output)
-                .map_err(Error::Decoding)?;
-
-            if count == 20 {
-                Ok(Self::Valid(Sha1Digest(output)))
-            } else {
-                Ok(Self::Invalid(input.into()))
-            }
-        } else {
-            Ok(Self::Invalid(input.into()))
-        }
+    /// Parses a CDX digest string, capturing anything that is not a Base32-encoded SHA-1 digest as
+    /// [`Invalid`](Self::Invalid).
+    #[must_use]
+    pub fn parse_str(input: &'a str) -> Self {
+        input
+            .parse::<Sha1Digest>()
+            .map_or_else(|_| Self::Invalid(input.into()), Self::Valid)
     }
 }
 
@@ -161,11 +98,15 @@ impl bounded_static::ToBoundedStatic for Digest<'_> {
     }
 }
 
+/// This implementation never fails; anything that is not a valid Base32-encoded SHA-1 digest is
+/// captured as [`Digest::Invalid`]. The error type is retained for interface stability.
 impl FromStr for Digest<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Digest::parse_str(s).map(bounded_static::IntoBoundedStatic::into_static)
+        Ok(bounded_static::IntoBoundedStatic::into_static(
+            Digest::parse_str(s),
+        ))
     }
 }
 
@@ -190,8 +131,16 @@ impl<'a, 'de: 'a> Deserialize<'de> for Digest<'a> {
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                v.parse()
-                    .map_err(|_| serde::de::Error::invalid_value(Unexpected::Str(v), &self))
+                Ok(bounded_static::IntoBoundedStatic::into_static(
+                    Digest::parse_str(v),
+                ))
+            }
+
+            fn visit_borrowed_str<E: serde::de::Error>(
+                self,
+                v: &'de str,
+            ) -> Result<Self::Value, E> {
+                Ok(Self::Value::parse_str(v))
             }
         }
 
@@ -233,6 +182,23 @@ pub struct Sha1Digest(pub [u8; 20]);
 impl Sha1Digest {
     pub const MIN: Self = Self([u8::MIN; 20]);
     pub const MAX: Self = Self([u8::MAX; 20]);
+
+    /// Computes the SHA-1 digest of a byte slice.
+    #[must_use]
+    pub fn compute<B: AsRef<[u8]>>(input: B) -> Self {
+        let mut sha1 = sha1::Sha1::new();
+        sha1.update(input);
+
+        Self(sha1.finalize().into())
+    }
+
+    /// Computes the SHA-1 digest of bytes read from a source.
+    pub fn from_reader<R: Read>(input: &mut R) -> std::io::Result<Self> {
+        let mut writer = digest_io::IoWrapper(sha1::Sha1::new());
+        std::io::copy(input, &mut writer)?;
+
+        Ok(Self(writer.0.finalize().into()))
+    }
 }
 
 impl Display for Sha1Digest {
@@ -437,6 +403,19 @@ mod tests {
     #[test]
     fn round_trip_digest_invalid() {
         let digest_str = "HYT52YPEOCHJD5FZINSDYXGQZI22WJ4";
+
+        let digest: super::Digest<'_> = digest_str.parse().unwrap();
+        let digest_string = digest.to_string();
+
+        assert!(!digest.is_valid());
+        assert_eq!(digest_str, digest_string);
+    }
+
+    #[test]
+    fn round_trip_digest_invalid_base32_with_valid_length() {
+        // A 32-character digest that is not valid Base32 must be captured as invalid, not treated
+        // as a parse failure (the Wayback Machine sometimes serves digests in unknown encodings).
+        let digest_str = "zhyt52ypeochjd5fzinsdyxgqzi22wj4";
 
         let digest: super::Digest<'_> = digest_str.parse().unwrap();
         let digest_string = digest.to_string();

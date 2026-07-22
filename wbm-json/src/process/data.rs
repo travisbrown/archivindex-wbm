@@ -4,7 +4,7 @@
 //! bytes), groups paths by digest, and iterates them in digest-sorted order. It also reports
 //! duplicate digests and validates that duplicate files hash to the digest they are named by.
 
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use std::collections::{BTreeMap, btree_map::Entry};
 use std::fs::File;
 use std::io::BufReader;
@@ -111,12 +111,11 @@ impl Data {
     /// Check the digests of duplicate files against their contents, returning any mismatches.
     pub fn validate_duplicates(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut invalid = vec![];
-        let computer = Sha1Computer::default();
 
         for (digest, paths) in self.duplicates() {
             for path in paths {
                 let mut reader = BufReader::new(File::open(path)?);
-                let computed_digest = computer.digest(&mut reader)?;
+                let computed_digest = Sha1Digest::from_reader(&mut reader)?;
 
                 if computed_digest != digest {
                     invalid.push(path.clone());

@@ -8,7 +8,7 @@
 use crate::context::{Context, SnapshotError};
 use crate::format::FormatInfo;
 use crate::io::write::SnapshotWriter;
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_invalid_log::Database;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -142,7 +142,7 @@ where
         // Verify the file's contents hash to the digest it is named by. A mismatch means the stored
         // bytes are corrupt (e.g. a truncated or empty download, whose digest is the empty-input
         // SHA-1), so warn and skip rather than emitting a snapshot under the wrong digest.
-        let actual_digest = Sha1Computer::compute_digest(&bytes);
+        let actual_digest = Sha1Digest::compute(&bytes);
         if actual_digest != digest {
             log::warn!(
                 "Digest mismatch (named {digest}, contents hash to {actual_digest}): {}",
@@ -251,12 +251,12 @@ mod tests {
 
         // Valid: stored under the SHA-1 of its own bytes.
         let good = b"{\"id\":1}\n";
-        let good_digest = Sha1Computer::compute_digest(good);
+        let good_digest = Sha1Digest::compute(good);
         fs::write(data_dir.join(good_digest.to_string()), good).expect("write good");
 
         // Corrupt: an empty file stored under an unrelated digest.
-        let wrong_name = Sha1Computer::compute_digest(b"not the contents");
-        assert_ne!(wrong_name, Sha1Computer::compute_digest(b""));
+        let wrong_name = Sha1Digest::compute(b"not the contents");
+        assert_ne!(wrong_name, Sha1Digest::compute(b""));
         fs::write(data_dir.join(wrong_name.to_string()), b"").expect("write empty");
 
         let context = Context::from_static(&['\n']);

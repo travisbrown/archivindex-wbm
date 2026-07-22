@@ -2,12 +2,11 @@
 //! and digest mismatches to the invalid-log database.
 use crate::client::{Client, Download, FailedDownload};
 use archivindex_wbm::{
-    digest::{Digest, Sha1Computer, Sha1Digest},
+    digest::{Digest, Sha1Digest},
     item::{ItemInfo, UrlParts},
     timestamp::Timestamp,
 };
 use archivindex_wbm_invalid_log::{Database, Entry};
-use bytes::Buf;
 use chrono::Utc;
 
 #[derive(Debug, thiserror::Error)]
@@ -29,16 +28,14 @@ pub struct DownloadResult<'a> {
 pub struct Downloader {
     client: Client,
     invalid_log_database: Database,
-    sha1_computer: Sha1Computer,
 }
 
 impl Downloader {
     #[must_use]
-    pub fn new(client: Client, invalid_log_database: Database) -> Self {
+    pub const fn new(client: Client, invalid_log_database: Database) -> Self {
         Self {
             client,
             invalid_log_database,
-            sha1_computer: Sha1Computer::default(),
         }
     }
 
@@ -57,9 +54,7 @@ impl Downloader {
 
         match result {
             Ok(download) => {
-                let actual_digest = self
-                    .sha1_computer
-                    .digest(&mut download.bytes.as_ref().reader())?;
+                let actual_digest = Sha1Digest::compute(&download.bytes);
 
                 let result_actual_digest = match expected_digest {
                     Digest::Valid(expected_sha1_digest)

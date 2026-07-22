@@ -6,7 +6,7 @@
 //! the original (so it still hashes back to the file's name).
 #![cfg(feature = "zlib")]
 
-use archivindex_wbm::digest::Sha1Computer;
+use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json_gzip::{GzipParams, codec};
 use std::path::PathBuf;
 
@@ -34,7 +34,7 @@ fn round_trips_truthsocial_gzip_examples() {
 
         // The archive is content-addressed: its name is the uppercase Base32 SHA-1 of its bytes.
         assert_eq!(
-            Sha1Computer::compute_digest(&archive).to_string(),
+            Sha1Digest::compute(&archive).to_string(),
             name,
             "{name} is not named by its own digest",
         );
@@ -56,7 +56,7 @@ fn round_trips_truthsocial_gzip_examples() {
             "byte-exact round-trip failed for {name}",
         );
         assert_eq!(
-            Sha1Computer::compute_digest(reproduced.as_ref()).to_string(),
+            Sha1Digest::compute(reproduced.as_ref()).to_string(),
             name,
             "reproduced bytes for {name} do not hash back to its name",
         );

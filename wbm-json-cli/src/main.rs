@@ -5,7 +5,7 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::{
     context::Context,
     exact::ExactSnapshot,
@@ -474,7 +474,7 @@ fn export_snapshot(
     std::fs::write(&path, &bytes).map_err(|error| Error::FileIo(path.clone(), error))?;
 
     let on_disk = std::fs::read(&path).map_err(|error| Error::FileIo(path, error))?;
-    let actual = Sha1Computer::compute_digest(&on_disk);
+    let actual = Sha1Digest::compute(&on_disk);
     if actual == snapshot.digest {
         log::info!("Exported {}", snapshot.digest);
         Ok(())

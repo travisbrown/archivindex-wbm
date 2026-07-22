@@ -2,11 +2,7 @@
 //!
 //! Handles request construction, retry with exponential backoff, redirect-chain following, and
 //! resolution of synthesized redirect snapshots.
-use archivindex_wbm::{
-    digest::{Sha1Computer, Sha1Digest},
-    item::UrlParts,
-    timestamp::Timestamp,
-};
+use archivindex_wbm::{digest::Sha1Digest, item::UrlParts, timestamp::Timestamp};
 use bytes::Bytes;
 use futures::future::{BoxFuture, FutureExt};
 use http::{StatusCode, header::LOCATION};
@@ -305,7 +301,7 @@ impl Client {
                         .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
-                    let guess_digest = Sha1Computer::compute_digest(guess.as_bytes());
+                    let guess_digest = Sha1Digest::compute(guess.as_bytes());
 
                     if guess_digest == expected_digest {
                         Ok((info, Bytes::from(guess), true, true))
@@ -317,7 +313,7 @@ impl Client {
                             .await?
                             .bytes()
                             .await?;
-                        let direct_digest = Sha1Computer::compute_digest(direct_bytes.as_ref());
+                        let direct_digest = Sha1Digest::compute(direct_bytes.as_ref());
 
                         Ok((info, direct_bytes, false, direct_digest == expected_digest))
                     }

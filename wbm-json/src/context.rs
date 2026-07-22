@@ -7,7 +7,7 @@
 use crate::exact::{ExactSnapshot, format_closing_whitespace};
 use crate::format::{Codec, Format, FormatInfo};
 use crate::{Snapshot, validation};
-use archivindex_wbm::digest::{Sha1Computer, Sha1Digest};
+use archivindex_wbm::digest::Sha1Digest;
 use sha1::{Digest as _, Sha1};
 use std::borrow::Cow;
 use std::fs::File;
@@ -311,7 +311,7 @@ impl Context {
                 .ok_or_else(|| SnapshotError::Decode(other.clone()))?,
         };
 
-        let digest = Sha1Computer::compute_digest(bytes);
+        let digest = Sha1Digest::compute(bytes);
 
         let closing_whitespace = self.non_default_closing_whitespace(&full);
         let strip = closing_whitespace
@@ -565,7 +565,7 @@ mod tests {
             },
         );
 
-        let digest = Sha1Computer::compute_digest("ABC");
+        let digest = Sha1Digest::compute("ABC");
         let line = format!(
             "{{\"digest\":\"{digest}\",\"format\":{{\"type\":\"upper\"}},\"content\":abc}}"
         );
@@ -601,7 +601,7 @@ mod tests {
 
         assert_eq!(snapshot.content.as_str(), "{\"a\":1}");
         assert!(snapshot.format.closing_whitespace.is_none()); // matches the default, so not stored
-        assert_eq!(snapshot.digest, Sha1Computer::compute_digest(raw));
+        assert_eq!(snapshot.digest, Sha1Digest::compute(raw));
         assert_eq!(context.validate(&snapshot, &mut Sha1::new()), Ok(()));
     }
 
