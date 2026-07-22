@@ -60,36 +60,33 @@ impl<'a> Surt<'a> {
     }
 
     pub fn parse_str(input: &'a str) -> Result<Self, Error> {
-        if input.is_empty() {
-            Err(Error::InvalidSurt(input.to_string()))
-        } else {
-            let mut domain_name_part_lens = Vec::with_capacity(2);
-            let mut len = 0;
+        let mut domain_name_part_lens = Vec::with_capacity(2);
+        let mut len = 0;
 
-            for ch in input.chars() {
-                if ch.is_ascii_alphanumeric() || ch == '-' {
-                    if len == u8::MAX {
-                        return Err(Error::InvalidSurt(input.to_string()));
-                    }
-                    len += 1;
-                } else if ch == ',' {
-                    domain_name_part_lens.push(len);
-
-                    len = 0;
-                } else if ch == ')' {
-                    domain_name_part_lens.push(len);
-
-                    break;
-                } else {
+        for ch in input.chars() {
+            if ch.is_ascii_alphanumeric() || ch == '-' {
+                if len == u8::MAX {
                     return Err(Error::InvalidSurt(input.to_string()));
                 }
-            }
+                len += 1;
+            } else if ch == ',' {
+                domain_name_part_lens.push(len);
 
-            Ok(Self {
-                source: input.into(),
-                domain_name_part_lens,
-            })
+                len = 0;
+            } else if ch == ')' {
+                domain_name_part_lens.push(len);
+
+                return Ok(Self {
+                    source: input.into(),
+                    domain_name_part_lens,
+                });
+            } else {
+                return Err(Error::InvalidSurt(input.to_string()));
+            }
         }
+
+        // The domain name list terminator was never seen.
+        Err(Error::InvalidSurt(input.to_string()))
     }
 
     #[must_use]
@@ -421,6 +418,16 @@ mod tests {
         let result = Surt::parse_str("");
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::InvalidSurt(_))));
+    }
+
+    #[test]
+    fn parse_str_missing_terminator() {
+        // Without the `)` terminator the final domain part is never delimited, so the input must
+        // be rejected rather than producing a value that violates the type's invariants.
+        for input in ["abc", "com,twitter"] {
+            let result = Surt::parse_str(input);
+            assert!(matches!(result, Err(Error::InvalidSurt(_))), "{input}");
+        }
     }
 
     #[test]
