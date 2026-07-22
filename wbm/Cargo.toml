@@ -20,7 +20,6 @@ http = { workspace = true }
 regex = { workspace = true }
 rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 sha1 = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
@@ -28,3 +27,4 @@ url = { workspace = true }
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = "1"
+serde_json = { workspace = true }

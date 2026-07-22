@@ -19,15 +19,13 @@ use std::sync::{Arc, Mutex};
 pub enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("Invalid SHA-1 digest string length")]
+    #[error("Invalid SHA-1 digest string length: {0}")]
     InvalidLength(String),
-    #[error("Invalid SHA-1 digest string character")]
-    InvalidCharacter(String),
-    #[error("Invalid SHA-1 digest string input")]
+    #[error("Invalid SHA-1 digest string input: {0}")]
     Invalid(String),
-    #[error("Invalid SHA-1 digest length")]
+    #[error("Invalid SHA-1 digest length: {0:?}")]
     InvalidBytesLength(Vec<u8>),
-    #[error("Decoding error")]
+    #[error("Decoding error: {0:?}")]
     Decoding(data_encoding::DecodePartial),
 }
 

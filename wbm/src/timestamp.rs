@@ -12,17 +12,17 @@ const TIMESTAMP_FMT: &str = "%Y%m%d%H%M%S";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Invalid timestamp length")]
+    #[error("Invalid timestamp length: {0}")]
     InvalidLength(String),
-    #[error("Invalid timestamp input")]
+    #[error("Invalid timestamp input: {0}")]
     InvalidDateTime(#[from] chrono::format::ParseError),
-    #[error("Invalid i64 timestamp")]
+    #[error("Invalid i64 timestamp: {0}")]
     InvalidTimestampI64(i64),
-    #[error("Invalid u32 timestamp")]
+    #[error("Invalid u32 timestamp: {0}")]
     InvalidTimestampU32(u32),
-    #[error("Subsecond timestamp input")]
+    #[error("Subsecond timestamp input: {0}")]
     SubsecondDateTime(DateTime<Utc>),
-    #[error("Invalid value")]
+    #[error("Invalid value: {0}")]
     InvalidValue(String),
 }
 

@@ -10,13 +10,13 @@ use std::str::FromStr;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Invalid SURT")]
+    #[error("Invalid SURT: {0}")]
     InvalidSurt(String),
-    #[error("Invalid domain part")]
+    #[error("Invalid domain part: {0}")]
     InvalidDomainPart(String),
-    #[error("Invalid URL")]
+    #[error("Invalid URL: {0}")]
     InvalidUrl(#[from] url::ParseError),
-    #[error("Unexpected URL")]
+    #[error("Unexpected URL: {0}")]
     UnexpectedUrl(String),
 }
 

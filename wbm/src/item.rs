@@ -10,7 +10,7 @@ const WAYBACK_URL_PATTERN: &str =
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Invalid URL")]
+    #[error("Invalid URL: {0}")]
     InvalidUrl(String),
     #[error("Invalid timestamp")]
     InvalidTimestamp(#[from] crate::timestamp::Error),
