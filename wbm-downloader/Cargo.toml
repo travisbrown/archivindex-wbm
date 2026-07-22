@@ -1,5 +1,8 @@
 [package]
 name = "archivindex-wbm-downloader"
+description = "Async HTTP downloader for Wayback Machine snapshots"
+keywords = ["wayback-machine", "web-archive", "downloader"]
+categories = ["web-programming"]
 authors = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
@@ -7,18 +10,16 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-cas = { path = "../wbm-cas/" }
-archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
+archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" }
 bounded-static = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 log = { workspace = true }
-regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-retry = "0.3"
+tokio-retry = { workspace = true }

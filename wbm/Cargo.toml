@@ -1,5 +1,8 @@
 [package]
 name = "archivindex-wbm"
+description = "Core Wayback Machine data types for parsing and modeling archived web captures"
+keywords = ["wayback-machine", "web-archive", "cdx", "surt"]
+categories = ["parser-implementations", "web-programming"]
 authors = { workspace = true }
 repository = { workspace = true }
 edition = { workspace = true }
