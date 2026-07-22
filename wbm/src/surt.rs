@@ -33,11 +33,11 @@ pub struct Surt<'a> {
 
 impl<'a> Surt<'a> {
     #[must_use]
-    pub fn as_str(&'a self) -> &'a str {
+    pub fn as_str(&self) -> &str {
         &self.source
     }
 
-    fn path_start(&'a self) -> usize {
+    fn path_start(&self) -> usize {
         self.domain_name_part_lens.len()
             + self
                 .domain_name_part_lens
@@ -47,7 +47,7 @@ impl<'a> Surt<'a> {
     }
 
     #[must_use]
-    pub fn domain_name_parts(&'a self) -> DomainNamePartIter<'a> {
+    pub fn domain_name_parts(&self) -> DomainNamePartIter<'_> {
         DomainNamePartIter {
             source: &self.source[0..self.path_start() - 1],
             domain_name_part_lens: self.domain_name_part_lens.iter(),
@@ -55,7 +55,7 @@ impl<'a> Surt<'a> {
     }
 
     #[must_use]
-    pub fn path(&'a self) -> &'a str {
+    pub fn path(&self) -> &str {
         &self.source[self.path_start()..]
     }
 
@@ -93,7 +93,7 @@ impl<'a> Surt<'a> {
     }
 
     #[must_use]
-    pub const fn canonical_url(&'a self) -> SurtCanonicalUrl<'a> {
+    pub const fn canonical_url(&self) -> SurtCanonicalUrl<'_> {
         SurtCanonicalUrl { source: self }
     }
 }
