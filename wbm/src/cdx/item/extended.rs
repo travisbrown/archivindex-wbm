@@ -87,9 +87,9 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             Some(robot_flags_str)
                         };
 
-                        let length_str: &str = seq
-                            .next_element()?
-                            .ok_or_else(|| serde::de::Error::invalid_length(8, &self))?;
+                        let length_str: &str = seq.next_element()?.ok_or_else(|| {
+                            serde::de::Error::invalid_length(8, &INVALID_LENGTH_MESSAGE)
+                        })?;
 
                         let length = super::parse_length(length_str).ok_or_else(|| {
                             serde::de::Error::invalid_value(Unexpected::Str(length_str), &"length")
@@ -139,6 +139,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
     }
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, bounded_static::ToStatic)]
 pub struct ExtendedItemList<'a> {
     pub values: Vec<ExtendedItem<'a>>,
     pub resume_key: Option<Cow<'a, str>>,

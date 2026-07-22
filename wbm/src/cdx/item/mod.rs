@@ -19,14 +19,6 @@ const ITEM_LIST_HEADER: [&str; 7] = [
     "length",
 ];
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("JSON decoding error: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("Invalid MIME type")]
-    InvalidMimeType(#[from] crate::cdx::mime_type::Error),
-}
-
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Item<'a> {
     pub key: Surt<'a>,
