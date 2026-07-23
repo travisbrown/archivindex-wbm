@@ -60,7 +60,7 @@ pub fn open_zstd<P: AsRef<Path> + Send + 'static>(
 ///
 /// * `path` - Path to a Zstandard-compressed NDJSON file
 /// * `parallelism` - Number of concurrent parse/validate tasks (1 = sequential)
-/// * `context` - Supplies the default closing whitespace used to validate digests. Pass the result
+/// * `context` - Supplies the default closing whitespace used to verify digests. Pass the result
 ///   of [`Context::infer`] to avoid format-dependent mismatches.
 ///
 /// # Panics
@@ -76,7 +76,7 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
     let context = Arc::new(context);
     let lines = read_lines(move || File::open(path).and_then(zstd::Decoder::new));
 
-    let validated: BoxStream<'static, Result<ValidatedLine, Error>> = if parallelism <= 1 {
+    let validated: BoxStream<'static, Result<LineValidation, Error>> = if parallelism <= 1 {
         lines
             .enumerate()
             .map(move |(i, line_result)| validate_one(i, line_result, &context))
@@ -103,7 +103,7 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
 
     while let Some(item) = validated.next().await {
         match item? {
-            ValidatedLine::Valid(digest) => {
+            LineValidation::Valid(digest) => {
                 if digest > last_digest {
                     result.valid_count += 1;
                     last_digest = digest;
@@ -111,13 +111,13 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
                     result.out_of_order.push(digest);
                 }
             }
-            ValidatedLine::InvalidLine(line_number) => {
+            LineValidation::InvalidLine(line_number) => {
                 result.invalid_lines.push(line_number);
             }
-            ValidatedLine::UnexpectedDigest(error) => {
+            LineValidation::UnexpectedDigest(error) => {
                 result.unexpected_digests.push(error);
             }
-            ValidatedLine::UnsupportedFormat(name) => {
+            LineValidation::UnsupportedFormat(name) => {
                 result.unsupported_formats.push(name);
             }
         }
@@ -130,7 +130,7 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
 const CHANNEL_BUFFER: usize = 64;
 
 /// Per-line validation outcome (produced independently, consumed sequentially).
-enum ValidatedLine {
+enum LineValidation {
     Valid(archivindex_wbm::digest::Sha1Digest),
     InvalidLine(usize),
     UnexpectedDigest(crate::validation::DigestError),
@@ -143,25 +143,25 @@ fn validate_one(
     index: usize,
     line_result: Result<String, Error>,
     context: &Context,
-) -> Result<ValidatedLine, Error> {
+) -> Result<LineValidation, Error> {
     let line = line_result?;
 
     match ExactSnapshot::parse(&line) {
         Ok(snapshot) => {
             let mut hasher = sha1::Sha1::default();
-            match context.validate(&snapshot, &mut hasher) {
-                Ok(()) => Ok(ValidatedLine::Valid(snapshot.digest)),
+            match context.verify(&snapshot, &mut hasher) {
+                Ok(()) => Ok(LineValidation::Valid(snapshot.digest)),
                 Err(crate::validation::ValidationError::Mismatch(actual_digest)) => {
-                    Ok(ValidatedLine::UnexpectedDigest(
+                    Ok(LineValidation::UnexpectedDigest(
                         crate::validation::DigestError::new(snapshot.digest, actual_digest),
                     ))
                 }
                 Err(crate::validation::ValidationError::UnsupportedFormat(name)) => {
-                    Ok(ValidatedLine::UnsupportedFormat(name))
+                    Ok(LineValidation::UnsupportedFormat(name))
                 }
             }
         }
-        Err(_) => Ok(ValidatedLine::InvalidLine(index + 1)),
+        Err(_) => Ok(LineValidation::InvalidLine(index + 1)),
     }
 }
 

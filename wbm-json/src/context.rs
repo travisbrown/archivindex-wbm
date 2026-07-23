@@ -1,4 +1,4 @@
-//! The [`Context`] used to build, validate, and serialize snapshots.
+//! The [`Context`] used to build, verify, and serialize snapshots.
 //!
 //! A context represents a site: it carries the site's default closing whitespace, a set of
 //! [`Format`]s (each a name and a [`Codec`]), and a CEL query that infers a snapshot's canonical
@@ -48,7 +48,7 @@ struct UrlQuery {
     program: Arc<cel::Program>,
 }
 
-/// A value that interprets a site's [`Snapshot`]s: building them from stored bytes, validating
+/// A value that interprets a site's [`Snapshot`]s: building them from stored bytes, verifying
 /// their digests, and serializing them.
 ///
 /// A context holds three things:
@@ -345,7 +345,7 @@ impl Context {
         }
     }
 
-    /// Validate `snapshot`'s stored digest against the bytes produced by its `format`.
+    /// Verify `snapshot`'s stored digest against the bytes produced by its `format`.
     ///
     /// For the default [`Format::Utf8`] the digest is computed over the content followed by its
     /// effective closing whitespace. For a named format, the registered [`Codec`]'s encode produces
@@ -358,7 +358,7 @@ impl Context {
     /// computed digest differs, or
     /// [`ValidationError::UnsupportedFormat`](crate::validation::ValidationError::UnsupportedFormat)
     /// if the format has no codec registered on this context.
-    pub fn validate(
+    pub fn verify(
         &self,
         snapshot: &ExactSnapshot<'_>,
         hasher: &mut Sha1,
@@ -438,7 +438,7 @@ impl Context {
         for (i, line) in lines.enumerate() {
             let line = line?;
             match ExactSnapshot::parse(&line) {
-                Ok(snapshot) => match self.validate(&snapshot, &mut hasher) {
+                Ok(snapshot) => match self.verify(&snapshot, &mut hasher) {
                     Ok(()) => {
                         if snapshot.digest > last_digest {
                             validation.valid_count += 1;
@@ -468,9 +468,9 @@ impl Context {
     /// Infer the closing-whitespace context for a Zstandard-compressed NDJSON snapshot file.
     ///
     /// Collects up to `n` lines that carry no explicit `closing_whitespace` field, then tests each
-    /// candidate sequence in order. The first candidate that validates all sampled lines is
+    /// candidate sequence in order. The first candidate that verifies all sampled lines is
     /// returned as a [`Context`]. Returns `None` when fewer than `n` qualifying lines are found or
-    /// when no candidate validates all samples.
+    /// when no candidate verifies all samples.
     ///
     /// Candidates tried in order: `['\n']`, `['\r', '\n']`, `['\r', '\r', '\n']`.
     ///
@@ -502,7 +502,7 @@ impl Context {
         }
 
         if samples.len() >= n {
-            // Parse the samples once (into owned snapshots) so each candidate validates against the
+            // Parse the samples once (into owned snapshots) so each candidate verifies against the
             // parsed snapshots rather than reparsing every line per candidate.
             let parsed = samples
                 .iter()
@@ -519,7 +519,7 @@ impl Context {
                 let context = Self::from_static(candidate);
                 let all_valid = parsed
                     .iter()
-                    .all(|snapshot| context.validate(snapshot, &mut hasher).is_ok());
+                    .all(|snapshot| context.verify(snapshot, &mut hasher).is_ok());
 
                 if all_valid {
                     return Ok(Some(context));
@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_registered_format_round_trip() {
+    fn verify_registered_format_round_trip() {
         // A stand-in non-default format whose digest is over the uppercased content. The codec's
         // encode uppercases (str -> bytes); decode lowercases back (bytes -> str).
         let codec = Codec::new(
@@ -578,14 +578,14 @@ mod tests {
 
         let upper = Format::Other("upper".to_owned());
         assert_eq!(
-            Context::default().validate(&snapshot, &mut Sha1::new()),
+            Context::default().verify(&snapshot, &mut Sha1::new()),
             Err(validation::ValidationError::UnsupportedFormat(
                 upper.clone()
             ))
         );
 
         let context = Context::default().with_format(upper, codec);
-        assert_eq!(context.validate(&snapshot, &mut Sha1::new()), Ok(()));
+        assert_eq!(context.verify(&snapshot, &mut Sha1::new()), Ok(()));
     }
 
     #[test]
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(snapshot.content.as_str(), "{\"a\":1}");
         assert!(snapshot.format.closing_whitespace.is_none()); // matches the default, so not stored
         assert_eq!(snapshot.digest, Sha1Digest::compute(raw));
-        assert_eq!(context.validate(&snapshot, &mut Sha1::new()), Ok(()));
+        assert_eq!(context.verify(&snapshot, &mut Sha1::new()), Ok(()));
     }
 
     #[test]

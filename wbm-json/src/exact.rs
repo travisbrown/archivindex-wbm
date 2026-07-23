@@ -2,7 +2,7 @@
 //!
 //! [`ExactContent`] and the [`ExactSnapshot`] alias are the types produced by the hand-written
 //! [`ExactSnapshot::parse`] parser. They are the sole input to
-//! [`Context::validate`](crate::context::Context::validate) and the canonical output of
+//! [`Context::verify`](crate::context::Context::verify) and the canonical output of
 //! [`ExactSnapshot::display`].
 
 use crate::{Snapshot, context::Context, format::FormatInfo};
@@ -13,13 +13,13 @@ use std::borrow::Cow;
 ///
 /// This is the raw text served by the Wayback Machine for the snapshot's final field (minus any
 /// closing whitespace) stored verbatim rather than as a parsed JSON value. It is the
-/// representation produced by [`ExactSnapshot::parse`] and consumed by digest validation and
+/// representation produced by [`ExactSnapshot::parse`] and consumed by digest verification and
 /// serialization.
 ///
 /// It is a distinct newtype around [`Cow<str>`] on purpose. A bare `Snapshot<'_, Cow<'_, str>>`
 /// would be ambiguous, since a `Cow<str>` content also arises from deserializing a snapshot whose
 /// content is a JSON *string value*. Keeping `ExactContent` separate ensures the exact-bytes
-/// representation (the only one for which `parse` and validation are meaningful) cannot be
+/// representation (the only one for which `parse` and verification are meaningful) cannot be
 /// confused with such a value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactContent<'a>(Cow<'a, str>);
@@ -85,7 +85,7 @@ impl bounded_static::IntoBoundedStatic for ExactContent<'_> {
 /// A [`Snapshot`] whose content is the exact serialized JSON bytes ([`ExactContent`]).
 ///
 /// This is the representation produced by [`ExactSnapshot::parse`] and consumed by digest
-/// validation ([`crate::context::Context::validate`]) and serialization
+/// verification ([`crate::context::Context::verify`]) and serialization
 /// ([`ExactSnapshot::display`]).
 pub type ExactSnapshot<'a> = Snapshot<'a, ExactContent<'a>>;
 
@@ -370,7 +370,7 @@ mod tests {
         let context = context();
         let parsed = RawSnapshot::parse(line)?;
         assert_eq!(line, parsed.display(&context).to_string());
-        assert_eq!(context.validate(&parsed, &mut Sha1::new()), Ok(()));
+        assert_eq!(context.verify(&parsed, &mut Sha1::new()), Ok(()));
         Ok(())
     }
 
@@ -381,7 +381,7 @@ mod tests {
         for line in lines {
             let parsed = RawSnapshot::parse(line)?;
             assert_eq!(line, parsed.display(&context).to_string());
-            assert_eq!(context.validate(&parsed, &mut Sha1::new()), Ok(()));
+            assert_eq!(context.verify(&parsed, &mut Sha1::new()), Ok(()));
         }
         Ok(())
     }
@@ -392,8 +392,8 @@ mod tests {
             "../../examples/wbm/twitter/lines-01.jsonl"
         )))
         .lines();
-        let validation = context().validate_lines(lines)?;
-        assert!(validation.is_successful());
+        let verification = context().validate_lines(lines)?;
+        assert!(verification.is_successful());
         Ok(())
     }
 

@@ -1,4 +1,4 @@
-//! Command-line tool for validating, exporting, compacting, and merging snapshot NDJSON.
+//! Command-line tool for verifying, exporting, compacting, and merging snapshot NDJSON.
 //!
 //! Each subcommand reads or writes Zstandard-compressed NDJSON of web archive snapshots, resolving
 //! digests to CDX metadata and reproducing original content bytes as needed.
@@ -45,17 +45,17 @@ async fn main() -> Result<(), Error> {
     opts.verbose.init_logging()?;
 
     match opts.command {
-        Command::Validate { format, input } => {
+        Command::Verify { format, input } => {
             let mut count = 0u64;
             let mut hasher = sha1::Sha1::default();
 
             for path in &input {
                 log::info!("Reading file: {}", path.as_os_str().to_string_lossy());
                 let context = resolve_context(format.as_ref(), path)?;
-                validate_file(path, &context, &mut hasher, &mut count)?;
+                verify_file(path, &context, &mut hasher, &mut count)?;
             }
 
-            log::info!("{count} valid");
+            log::info!("{count} verified");
         }
         Command::StreamingValidate { format, input, n } => {
             let context = resolve_context(format.as_ref(), &input)?;
@@ -254,7 +254,7 @@ async fn main() -> Result<(), Error> {
                     .sum::<usize>()
             );
 
-            let invalid_duplicates = data_info.validate_duplicates()?;
+            let invalid_duplicates = data_info.verify_duplicates()?;
 
             for invalid_duplicate in invalid_duplicates {
                 log::warn!(
@@ -276,7 +276,7 @@ async fn main() -> Result<(), Error> {
 
             log::info!("{read} data files, {} distinct digests", data_info.len());
 
-            for invalid_duplicate in data_info.validate_duplicates()? {
+            for invalid_duplicate in data_info.verify_duplicates()? {
                 log::warn!(
                     "Invalid digest: {}",
                     invalid_duplicate.as_os_str().to_string_lossy()
@@ -486,7 +486,7 @@ fn export_snapshot(
     }
 }
 
-fn validate_file(
+fn verify_file(
     path: &Path,
     context: &Context,
     hasher: &mut sha1::Sha1,
@@ -504,7 +504,7 @@ fn validate_file(
         }
         last_digest = snapshot.digest;
 
-        if let Err(error) = context.validate(&snapshot, hasher) {
+        if let Err(error) = context.verify(&snapshot, hasher) {
             log::error!("Invalid {}: {error}", snapshot.digest);
         } else {
             *count += 1;
@@ -571,7 +571,7 @@ struct Opts {
 
 #[derive(Debug, Parser)]
 enum Command {
-    Validate {
+    Verify {
         #[clap(long)]
         format: Option<Format>,
         #[clap(long)]

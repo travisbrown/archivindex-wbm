@@ -37,6 +37,8 @@ pub enum DownloadResult {
         url: String,
         timestamp: Timestamp,
         expected_digest: Digest<'static>,
+        /// The computed digest of the downloaded content, but only when it does not match the
+        /// expected digest; `None` means the digest was verified successfully.
         actual_digest: Option<Sha1Digest>,
     },
     NotFound {
@@ -72,7 +74,15 @@ impl DownloadResult {
 pub enum DownloadErrorType {
     Client,
     Sqlite,
-    Io,
+}
+
+impl From<&downloader::Error> for DownloadErrorType {
+    fn from(error: &downloader::Error) -> Self {
+        match error {
+            downloader::Error::Client(_) => Self::Client,
+            downloader::Error::Sqlite(_) => Self::Sqlite,
+        }
+    }
 }
 
 pub struct Manager {
@@ -85,9 +95,10 @@ pub struct Manager {
 ///
 /// The bytes are written on the blocking thread pool to a unique temporary file and then atomically
 /// renamed into place, so a crash mid-write cannot leave a partial file under the content-addressed
-/// `name`. A file that already exists is left untouched (its name is its digest, so the bytes are
-/// identical). `unique` must be distinct per concurrent write (e.g. worker id + counter) so two
-/// workers writing the same digest do not collide on the temporary path.
+/// `name`. A write that fails removes its temporary file (on a best-effort basis). A file that
+/// already exists is left untouched (its name is its digest, so the bytes are identical). `unique`
+/// must be distinct per concurrent write (e.g. worker id + counter) so two workers writing the same
+/// digest do not collide on the temporary path.
 async fn write_snapshot_file(
     dir: PathBuf,
     name: String,
@@ -101,12 +112,18 @@ async fn write_snapshot_file(
         }
 
         let temp = dir.join(format!("{name}.{unique}.tmp"));
-        let mut file = File::create(&temp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, &path)?;
+        let result = File::create(&temp).and_then(|mut file| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            std::fs::rename(&temp, &path)
+        });
 
-        Ok(())
+        if result.is_err() {
+            // Best-effort cleanup; the write error is the one worth reporting.
+            let _ = std::fs::remove_file(&temp);
+        }
+
+        result
     })
     .await??;
 
@@ -124,7 +141,6 @@ impl Manager {
     ///
     /// A worker panics if the shared queue mutex is poisoned, which happens only if another worker
     /// panicked while holding it.
-    #[allow(clippy::too_many_lines)]
     pub fn new<P: AsRef<Path>, D: AsRef<Path>>(
         output_path: P,
         invalid_log_path: D,
@@ -210,28 +226,12 @@ impl Manager {
                                         url,
                                         timestamp: next_item.url_parts.timestamp,
                                     },
-                                    Err(downloader::Error::Client(error)) => {
+                                    Err(error) => {
                                         log::error!("{error:?}");
                                         DownloadResult::Error {
                                             url,
                                             timestamp: next_item.url_parts.timestamp,
-                                            error_type: DownloadErrorType::Client,
-                                        }
-                                    }
-                                    Err(downloader::Error::Sqlite(error)) => {
-                                        log::error!("{error:?}");
-                                        DownloadResult::Error {
-                                            url,
-                                            timestamp: next_item.url_parts.timestamp,
-                                            error_type: DownloadErrorType::Sqlite,
-                                        }
-                                    }
-                                    Err(downloader::Error::Io(error)) => {
-                                        log::error!("{error:?}");
-                                        DownloadResult::Error {
-                                            url,
-                                            timestamp: next_item.url_parts.timestamp,
-                                            error_type: DownloadErrorType::Io,
+                                            error_type: DownloadErrorType::from(&error),
                                         }
                                     }
                                 };

@@ -18,7 +18,7 @@ use std::borrow::Cow;
 /// The default variant [`Utf8`](Format::Utf8) represents plain UTF-8 text: the digest is computed
 /// over the content bytes followed by the closing whitespace. Any other name (e.g. `"gzip_go"`) is
 /// represented as [`Other`](Format::Other) and must have a corresponding [`Codec`] registered on
-/// the validating [`Context`](crate::context::Context).
+/// the verifying [`Context`](crate::context::Context).
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Format {
     /// Plain UTF-8 text (the default). Digest = SHA-1(content bytes + closing whitespace bytes).
@@ -94,13 +94,13 @@ impl<'de> serde::Deserialize<'de> for Format {
 /// from a snapshot when it is [`is_default`](FormatInfo::is_default).
 ///
 /// `archivindex-wbm-json` itself only interprets `type` and `closing_whitespace`; the metadata is
-/// opaque to it and is handed to the format's [`Codec`] during validation.
+/// opaque to it and is handed to the format's [`Codec`] during verification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FormatInfo {
     /// The format name (the `type` key); the default ([`Format::Utf8`]) is omitted.
     #[serde(rename = "type", default, skip_serializing_if = "Format::is_utf8")]
     pub name: Format,
-    /// Whitespace following the content's closing brace; omitted when absent (the validating
+    /// Whitespace following the content's closing brace; omitted when absent (the verifying
     /// [`Context`](crate::context::Context) then supplies its default).
     #[serde(
         with = "crate::closing_whitespace",
@@ -109,7 +109,7 @@ pub struct FormatInfo {
     )]
     pub closing_whitespace: Option<Vec<char>>,
     /// Arbitrary format-specific metadata: every key in the object besides `type` and
-    /// `closing_whitespace`. Passed to the format's [`Codec`] during validation.
+    /// `closing_whitespace`. Passed to the format's [`Codec`] during verification.
     #[serde(flatten)]
     pub metadata: Map<String, Value>,
 }
@@ -147,7 +147,7 @@ type Encode = Box<dyn for<'a> Fn(&'a str, &Map<String, Value>) -> Cow<'a, [u8]> 
 /// The two halves are inverses: [`decode`](Codec::decode) reconstructs the content string from a
 /// stored file's bytes (for example by decompressing), and [`encode`](Codec::encode) reproduces the
 /// exact bytes that were hashed (for example by re-compressing), so a snapshot's digest can be
-/// validated. Both bounds are `Send + Sync` so a [`Context`](crate::context::Context) can be shared
+/// verified. Both bounds are `Send + Sync` so a [`Context`](crate::context::Context) can be shared
 /// across threads.
 ///
 /// A `Codec` is not itself cheap to clone; a [`Context`](crate::context::Context) holds each one in

@@ -113,8 +113,8 @@ impl Importer {
     }
 
     #[must_use]
-    pub fn validating(self) -> ValidatingImporter {
-        ValidatingImporter {
+    pub fn verifying(self) -> VerifyingImporter {
+        VerifyingImporter {
             underlying: self,
             hasher: Sha1::default(),
         }
@@ -156,12 +156,12 @@ impl Iterator for Importer {
     }
 }
 
-pub struct ValidatingImporter {
+pub struct VerifyingImporter {
     underlying: Importer,
     hasher: Sha1,
 }
 
-impl Iterator for ValidatingImporter {
+impl Iterator for VerifyingImporter {
     type Item = Result<File, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

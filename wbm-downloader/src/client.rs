@@ -129,6 +129,26 @@ pub struct RedirectResolution {
     pub valid_digest: bool,
 }
 
+/// A redirect resolution that stops at the first hop: the redirect's target and content, without
+/// following the target further.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShallowRedirectResolution {
+    pub info: UrlParts<'static>,
+    pub content: String,
+    /// Whether the content's digest matched the expected digest.
+    pub valid_digest: bool,
+}
+
+/// Redirect content resolved by [`Client::resolve_redirect_content`].
+struct RedirectContent {
+    info: UrlParts<'static>,
+    content: Bytes,
+    /// Whether the synthesized redirect HTML matched the expected digest.
+    valid_initial_content: bool,
+    /// Whether the content's digest matched the expected digest.
+    valid_digest: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct Client {
     underlying: reqwest::Client,
@@ -162,16 +182,11 @@ impl Client {
     }
 
     fn configured_wayback_url(&self, url: &str, timestamp: Timestamp) -> String {
-        format!(
-            "http{}://web.archive.org/web/{}{}/{}",
-            if self.configuration.secure { "s" } else { "" },
+        Self::wayback_url(
+            url,
             timestamp,
-            if self.configuration.original {
-                "id_"
-            } else {
-                "if_"
-            },
-            url
+            self.configuration.original,
+            self.configuration.secure,
         )
     }
 
@@ -186,24 +201,19 @@ impl Client {
             .map(tokio_retry::strategy::jitter)
             .take(self.configuration.max_retries);
 
-        let download = tokio_retry::RetryIf::start(
+        let mut result = tokio_retry::RetryIf::start(
             strategy,
             || self.download_once(url.into(), timestamp, original, 0),
             Error::can_retry,
         )
-        .await;
+        .await?;
 
-        match download {
-            Ok(mut result) => {
-                if let Ok(ref mut download) = result {
-                    // TODO: Confirm that this is the most likely thing users will expect.
-                    download.redirects.reverse();
-                }
-
-                Ok(result)
-            }
-            Err(other) => Err(other),
+        if let Ok(ref mut download) = result {
+            // TODO: Confirm that this is the most likely thing users will expect.
+            download.redirects.reverse();
         }
+
+        Ok(result)
     }
 
     fn download_once<'a>(
@@ -281,15 +291,13 @@ impl Client {
 
     /// Shared first hop of redirect resolution: `HEAD` the snapshot, parse the `Found` location,
     /// and resolve its content (the synthesized redirect HTML when it matches `expected_digest`,
-    /// and otherwise the directly-fetched bytes). Returns the parsed location, the content,
-    /// whether the synthesized HTML matched `valid_initial_content`, and whether the content's
-    /// digest matched.
+    /// and otherwise the directly-fetched bytes).
     async fn resolve_redirect_content(
         &self,
         url: &str,
         timestamp: Timestamp,
         expected_digest: Sha1Digest,
-    ) -> Result<(UrlParts<'_>, Bytes, bool, bool), Error> {
+    ) -> Result<RedirectContent, Error> {
         let initial_url = self.configured_wayback_url(url, timestamp);
         let initial_response = self.underlying.head(&initial_url).send().await?;
 
@@ -297,14 +305,19 @@ impl Client {
             StatusCode::FOUND => match redirect_location(&initial_response) {
                 Some(location) => {
                     let info = location
-                        .parse::<UrlParts<'_>>()
+                        .parse::<UrlParts<'static>>()
                         .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
 
                     let guess = archivindex_wbm::redirect::make_redirect_html(&info.url);
                     let guess_digest = Sha1Digest::compute(guess.as_bytes());
 
                     if guess_digest == expected_digest {
-                        Ok((info, Bytes::from(guess), true, true))
+                        Ok(RedirectContent {
+                            info,
+                            content: Bytes::from(guess),
+                            valid_initial_content: true,
+                            valid_digest: true,
+                        })
                     } else {
                         let direct_bytes = self
                             .underlying
@@ -315,7 +328,12 @@ impl Client {
                             .await?;
                         let direct_digest = Sha1Digest::compute(direct_bytes.as_ref());
 
-                        Ok((info, direct_bytes, false, direct_digest == expected_digest))
+                        Ok(RedirectContent {
+                            info,
+                            content: direct_bytes,
+                            valid_initial_content: false,
+                            valid_digest: direct_digest == expected_digest,
+                        })
                     }
                 }
                 None => Err(Error::UnexpectedRedirect(None)),
@@ -330,7 +348,12 @@ impl Client {
         timestamp: Timestamp,
         expected_digest: Sha1Digest,
     ) -> Result<RedirectResolution, Error> {
-        let (info, content, valid_initial_content, valid_digest) = self
+        let RedirectContent {
+            info,
+            content,
+            valid_initial_content,
+            valid_digest,
+        } = self
             .resolve_redirect_content(url, timestamp, expected_digest)
             .await?;
 
@@ -378,16 +401,21 @@ impl Client {
         url: &str,
         timestamp: Timestamp,
         expected_digest: Sha1Digest,
-    ) -> Result<(UrlParts<'_>, String, bool), Error> {
-        let (info, content, _valid_initial_content, valid_digest) = self
+    ) -> Result<ShallowRedirectResolution, Error> {
+        let RedirectContent {
+            info,
+            content,
+            valid_digest,
+            ..
+        } = self
             .resolve_redirect_content(url, timestamp, expected_digest)
             .await?;
 
-        Ok((
+        Ok(ShallowRedirectResolution {
             info,
-            std::str::from_utf8(&content)?.to_string(),
+            content: std::str::from_utf8(&content)?.to_string(),
             valid_digest,
-        ))
+        })
     }
 }
 

@@ -9,7 +9,7 @@
 //!
 //! 1. Efficiency. Reading millions of small files can take a long time.
 //! 2. Convenience. It keeps things simple to store metadata alongside snapshot content.
-//! 3. Validation. We need to preserve the original bytes so that we can confirm the CDX digests.
+//! 3. Verification. We need to preserve the original bytes so that we can confirm the CDX digests.
 //! 4. Tools. I've used Parquet to meet the requirements above in the general case, but it's nicer
 //!    to be able to use standard tools for working with JSON and NDJSON files.
 //!
@@ -19,7 +19,7 @@
 //! representation of its `content` field (typically [`ExactContent`](exact::ExactContent) for the
 //! raw JSON, or a deserialized struct for typed access).
 //!
-//! Interpreting a snapshot — resolving its effective closing whitespace, validating its digest, and
+//! Interpreting a snapshot — resolving its effective closing whitespace, verifying its digest, and
 //! re-deriving its canonical URL when serializing — is the job of a [`Context`](context::Context)
 //! *value*. A context can be constructed directly or *inferred* from a file via
 //! [`Context::infer`](context::Context::infer).
@@ -31,7 +31,7 @@
 //!
 //! # Modules
 //!
-//! - [`context`]: [`Context`](context::Context) — the entry point for digest validation
+//! - [`context`]: [`Context`](context::Context) — the entry point for digest verification
 //! - [`exact`]: [`ExactContent`](exact::ExactContent), [`ExactSnapshot`](exact::ExactSnapshot),
 //!   [`SnapshotDisplay`](exact::SnapshotDisplay), and parse / display
 //! - [`format`](mod@format): [`Format`](format::Format) and [`Codec`](format::Codec)
@@ -84,7 +84,7 @@ pub enum Error {
 /// Wayback Machine CDX results.
 ///
 /// A snapshot carries no configuration of its own. The single type parameter `C` is the
-/// representation of the `content` field. Closing whitespace, digest validation, and (during
+/// representation of the `content` field. Closing whitespace, digest verification, and (during
 /// serialization) URL inference are all resolved by a [`Context`](context::Context) value, which
 /// decides whether the `url` field can be omitted.
 ///
@@ -135,7 +135,7 @@ pub struct Snapshot<'a, C> {
     ///
     /// The default ([`FormatInfo::is_default`]) — plain UTF-8 text, default closing whitespace, no
     /// metadata — is omitted from serialization. A non-default `type` names a format that must be
-    /// registered on the validating [`Context`](context::Context) (for example a `gzip` format
+    /// registered on the verifying [`Context`](context::Context) (for example a `gzip` format
     /// whose content is the decompressed text but whose digest is of the original compressed
     /// bytes).
     #[serde(default, skip_serializing_if = "FormatInfo::is_default")]

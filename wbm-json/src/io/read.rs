@@ -2,7 +2,7 @@
 //!
 //! [`SnapshotReader`] decompresses a Zstandard file and yields one raw [`ExactSnapshot`] per line.
 //! Parsing keeps the content as raw JSON and needs no configuration; interpret the results with a
-//! [`Context`](crate::context::Context) when validation is needed.
+//! [`Context`](crate::context::Context) when verification is needed.
 
 use crate::{Error, exact::ExactSnapshot};
 use std::fs::File;
@@ -12,7 +12,7 @@ use std::path::Path;
 /// Reads NDJSON snapshot lines into raw [`Snapshot`](crate::Snapshot) values.
 ///
 /// Reading requires no configuration: lines are parsed structurally and the content is kept as raw
-/// JSON. Interpret the results with a [`Context`](crate::context::Context) when validation is
+/// JSON. Interpret the results with a [`Context`](crate::context::Context) when verification is
 /// needed.
 pub struct SnapshotReader<R> {
     underlying: Lines<BufReader<R>>,

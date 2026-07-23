@@ -1,4 +1,4 @@
-//! Integration tests exercising the downloader against live snapshots, covering digest validation
+//! Integration tests exercising the downloader against live snapshots, covering digest verification
 //! and logging of withheld URLs and invalid digests to the database.
 use archivindex_wbm::{
     item::{ItemInfo, UrlParts},
@@ -7,7 +7,7 @@ use archivindex_wbm::{
 use archivindex_wbm_downloader::{client::Client, downloader::Downloader};
 use archivindex_wbm_invalid_log::{Database, Entry};
 
-/// Test basic download and validation of a known archived page.
+/// Test basic download and verification of a known archived page.
 #[tokio::test]
 #[ignore]
 async fn test_downloader_basic() {

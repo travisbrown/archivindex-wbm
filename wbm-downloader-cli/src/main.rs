@@ -1,4 +1,4 @@
-//! Command-line tool to validate a content-addressed store and manage the invalid-digest log
+//! Command-line tool to verify a content-addressed store and manage the invalid-digest log
 //! database (merge, import, export, and dump operations).
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
@@ -16,17 +16,17 @@ async fn main() -> Result<(), Error> {
     opts.verbose.init_logging()?;
 
     match opts.command {
-        Command::Validate { base } => {
+        Command::Verify { base } => {
             let store = archivindex_wbm_cas::file::Store::inferred_structure(base)?;
 
-            let validation_result = store.validate()?;
+            let verification_result = store.verify()?;
 
-            for error in &validation_result.errors {
+            for error in &verification_result.errors {
                 log::warn!("{},{}", error.expected, error.actual);
             }
 
-            println!("Valid: {}", validation_result.valid_count);
-            println!("Invalid: {}", validation_result.errors.len());
+            println!("Verified: {}", verification_result.verified_count);
+            println!("Mismatched: {}", verification_result.errors.len());
         }
         Command::InvalidLog { command } => match command {
             InvalidLogCommand::Merge { source, target } => {
@@ -79,8 +79,8 @@ struct Opts {
 
 #[derive(Debug, Parser)]
 enum Command {
-    /// Validate a content-addressed store.
-    Validate {
+    /// Verify a content-addressed store.
+    Verify {
         #[clap(long)]
         base: PathBuf,
     },

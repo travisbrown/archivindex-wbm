@@ -109,7 +109,7 @@ impl crate::Store for Store<entry::Buffered> {
         &self,
         digest: Sha1Digest,
         bytes: &[u8],
-        validate: bool,
+        verify: bool,
     ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(digest.0).expect("Invalid name");
@@ -120,7 +120,7 @@ impl crate::Store for Store<entry::Buffered> {
 
         match File::create_new(path) {
             Ok(mut file) => {
-                let actual_digest = if validate {
+                let actual_digest = if verify {
                     let actual_digest = Sha1Digest::compute(bytes);
 
                     if actual_digest == digest {
@@ -197,7 +197,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
         &self,
         digest: Sha1Digest,
         bytes: &[u8],
-        validate: bool,
+        verify: bool,
     ) -> Result<SaveSummary, Self::Error> {
         // Safe by construction (since we were able to build the tree).
         let path = self.tree.path(digest.0).expect("Invalid name");
@@ -210,7 +210,7 @@ impl crate::Store for Store<entry::zstd::Compressed> {
             Ok(file) => {
                 let mut writer = zstd::stream::write::Encoder::new(file, self.configuration.level)?;
 
-                let actual_digest = if validate {
+                let actual_digest = if verify {
                     let actual_digest = Sha1Digest::compute(bytes);
 
                     if actual_digest == digest {

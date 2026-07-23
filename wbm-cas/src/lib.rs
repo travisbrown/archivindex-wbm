@@ -1,6 +1,6 @@
 //! Content-addressed storage for snapshot bytes, indexed by SHA-1 digest.
 //!
-//! Defines the [`Store`] trait for saving, looking up, validating, and copying downloaded archive
+//! Defines the [`Store`] trait for saving, looking up, verifying, and copying downloaded archive
 //! data across backing implementations.
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
 #![allow(clippy::missing_errors_doc)]
@@ -15,7 +15,7 @@ use crate::entry::Entry;
 pub mod entry;
 pub mod file;
 pub mod legacy;
-pub mod validation;
+pub mod verification;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SaveSummary {
@@ -43,22 +43,22 @@ pub trait Store {
     /// Iterate over downloads, ordered by digest (bytes, not the string representation).
     fn iter(&self) -> Self::Iterator<'_>;
 
-    /// Add a download to the store, optionally validating the digest.
+    /// Add a download to the store, optionally verifying the digest.
     fn save(
         &self,
         digest: Sha1Digest,
         bytes: &[u8],
-        validate: bool,
+        verify: bool,
     ) -> Result<SaveSummary, Self::Error>;
 
     /// Look up a download in the store.
     fn get(&self, digest: Sha1Digest) -> Result<Option<Bytes>, Self::Error>;
 
     /// Verify that the digest associated with each download matches the content.
-    fn validate(&self) -> Result<validation::Summary, Self::IterationError> {
+    fn verify(&self) -> Result<verification::Summary, Self::IterationError> {
         use entry::Entry;
 
-        let mut valid_count = 0;
+        let mut verified_count = 0;
         let mut errors = vec![];
 
         for result in self.iter() {
@@ -71,27 +71,23 @@ pub trait Store {
                 Sha1Digest::from_reader(&mut reader).map_err(Self::IterationError::from)?;
 
             if expected_digest == actual_digest {
-                valid_count += 1;
+                verified_count += 1;
             } else {
-                errors.push(validation::Error {
+                errors.push(verification::Error {
                     expected: expected_digest,
                     actual: actual_digest,
                 });
             }
         }
 
-        Ok(validation::Summary {
-            valid_count,
+        Ok(verification::Summary {
+            verified_count,
             errors,
         })
     }
 
     /// Copy all downloads from one store to another.
-    fn copy<T: Store>(
-        &self,
-        target: &T,
-        validate: bool,
-    ) -> Result<CopySummary, Self::IterationError>
+    fn copy<T: Store>(&self, target: &T, verify: bool) -> Result<CopySummary, Self::IterationError>
     where
         Self::IterationError: From<Self::Error> + From<T::Error>,
     {
@@ -105,7 +101,7 @@ pub trait Store {
 
             entry.reader()?.read_to_end(&mut bytes)?;
 
-            let save_result = target.save(digest, &bytes, validate)?;
+            let save_result = target.save(digest, &bytes, verify)?;
 
             match save_result {
                 SaveSummary::Success { .. } => {

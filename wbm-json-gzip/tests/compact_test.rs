@@ -1,5 +1,5 @@
 //! End-to-end: `compact` populates a snapshot's `format` object from the discriminator's gzip
-//! [`GzipParams`], and the result validates against a context with the gzip codec registered.
+//! [`GzipParams`], and the result verifies against a context with the gzip codec registered.
 
 #[cfg(feature = "zlib")]
 mod zlib_tests {
@@ -67,7 +67,7 @@ mod zlib_tests {
         let snapshot = &snapshots[0];
         assert_eq!(snapshot.format.name, Format::from(FORMAT));
         // The gzip metadata is populated; the exact `level` may differ from the original, since for
-        // short content several levels reproduce identical bytes (validation below confirms
+        // short content several levels reproduce identical bytes (verification below confirms
         // fidelity).
         let metadata = &snapshot.format.metadata;
         assert_eq!(metadata.get("compressor"), Some(&Value::from("zlib")));
@@ -75,9 +75,6 @@ mod zlib_tests {
         assert_eq!(metadata.get("os"), Some(&Value::from(3)));
         assert!(metadata.contains_key("level"));
         assert_eq!(snapshot.content.as_str(), text);
-        assert_eq!(
-            context.validate(snapshot, &mut sha1::Sha1::default()),
-            Ok(())
-        );
+        assert_eq!(context.verify(snapshot, &mut sha1::Sha1::default()), Ok(()));
     }
 }

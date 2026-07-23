@@ -1,20 +1,21 @@
-//! Digest validation result types.
+//! Snapshot validation result types.
 //!
-//! These types record why validating a snapshot against its stored digest failed and accumulate
-//! per-line outcomes (invalid lines, unexpected digests, unsupported formats, and out-of-order
-//! digests) when validating a whole NDJSON stream.
+//! These types record why interpreting a snapshot under a context failed (a digest that does not
+//! verify, or an unsupported format) and accumulate per-line outcomes (invalid lines, unexpected
+//! digests, unsupported formats, and out-of-order digests) when validating a whole NDJSON stream.
 
 use archivindex_wbm::digest::Sha1Digest;
 
 use crate::format::Format;
 
-/// Why validating a single snapshot's digest failed.
+/// Why interpreting a single snapshot under a context failed: its digest did not verify, or its
+/// format is not registered.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ValidationError {
     /// The bytes produced by the snapshot's format hashed to a different digest than stored.
     #[error("digest mismatch (computed {0})")]
     Mismatch(Sha1Digest),
-    /// The snapshot named a format that is not registered on the validating context.
+    /// The snapshot named a format that is not registered on the verifying context.
     #[error("unsupported format: {0}")]
     UnsupportedFormat(Format),
 }

@@ -1,7 +1,7 @@
 //! Byte-exact gzip reproduction for [`archivindex-wbm-json`](archivindex_wbm_json) snapshots.
 //!
 //! Some snapshots store their content *decompressed* (the text inside a gzip archive) while their
-//! SHA-1 digest is taken over the *original gzip bytes*. Validating such a snapshot means
+//! SHA-1 digest is taken over the *original gzip bytes*. Verifying such a snapshot means
 //! reproducing the gzip archive byte-for-byte from the decompressed content. The exact bytes depend
 //! on the deflate implementation and a handful of header parameters that are not recoverable from
 //! the content alone, so they travel as [`GzipParams`] fields inside the snapshot's `format`
@@ -19,7 +19,7 @@
 //!
 //! [`register`] adds the [`FORMAT`] codec to a [`Context`]. At ingest time, [`GzipParams::infer`]
 //! recovers the parameters from the raw archive bytes; store [`GzipParams::format_info`] (or its
-//! [`metadata`](GzipParams::metadata)) in the snapshot's `format` object. At validation time the
+//! [`metadata`](GzipParams::metadata)) in the snapshot's `format` object. At verification time the
 //! codec reads that metadata and calls [`GzipParams::reproduce`].
 
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
@@ -365,7 +365,7 @@ fn sync_marker_count(archive: &[u8]) -> usize {
 /// exact archive bytes from the snapshot's content and its `metadata` ([`GzipParams`]) string.
 ///
 /// If the metadata is missing or unparseable, encode returns the content bytes unchanged, which
-/// fails digest validation — the correct outcome when an archive cannot be reproduced.
+/// fails digest verification — the correct outcome when an archive cannot be reproduced.
 #[must_use]
 pub fn codec() -> Codec {
     Codec::new(
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn codec_falls_back_on_unreproducible_level() {
         // An invalid GoFlate level from untrusted metadata must not panic. The codec returns the
-        // content unchanged (which then fails digest validation, which is the safe outcome).
+        // content unchanged (which then fails digest verification, which is the safe outcome).
         let bad = GzipParams {
             compressor: Compressor::GoFlate,
             level: 99,
@@ -578,11 +578,11 @@ mod tests {
         }
     }
 
-    /// A `gzip`-format snapshot whose `format` object holds the [`GzipParams`] metadata validates
+    /// A `gzip`-format snapshot whose `format` object holds the [`GzipParams`] metadata verifies
     /// against a context with the gzip codec registered, and round-trips through display.
     #[test]
     #[cfg(feature = "zlib")]
-    fn validates_via_context() {
+    fn verifies_via_context() {
         let text = content();
         let mut context = Context::from_static(&[]);
         register(&mut context);
@@ -601,9 +601,9 @@ mod tests {
                 "round-trip {params:?}"
             );
             assert_eq!(
-                context.validate(&snapshot, &mut sha1::Sha1::default()),
+                context.verify(&snapshot, &mut sha1::Sha1::default()),
                 Ok(()),
-                "validation failed for {params:?}"
+                "verification failed for {params:?}"
             );
         }
     }

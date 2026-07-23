@@ -13,15 +13,16 @@ use chrono::Utc;
 pub enum Error {
     #[error("HTTP client error")]
     Client(#[from] crate::client::Error),
-    #[error("I/O error computing digest")]
-    Io(#[from] std::io::Error),
     #[error("SQLite error logging invalid digest")]
     Sqlite(#[from] rusqlite::Error),
 }
 
+/// A download whose content digest has been verified against the expected digest.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DownloadResult<'a> {
+pub struct VerifiedDownload<'a> {
     pub download: Download<'a>,
+    /// The computed digest of the downloaded content, but only when it does not match the expected
+    /// digest (`None` means the digest was verified successfully).
     pub actual_digest: Option<Sha1Digest>,
 }
 
@@ -45,7 +46,7 @@ impl Downloader {
         url: &'a str,
         timestamp: Timestamp,
         expected_digest: &Digest<'a>,
-    ) -> Result<Option<DownloadResult<'a>>, Error> {
+    ) -> Result<Option<VerifiedDownload<'a>>, Error> {
         let now = Utc::now();
 
         // We're checking the digest, so we always want the original archive snapshot (not the
@@ -75,7 +76,7 @@ impl Downloader {
                     }
                 };
 
-                let result = DownloadResult {
+                let result = VerifiedDownload {
                     download,
                     actual_digest: result_actual_digest,
                 };

@@ -200,7 +200,7 @@ async fn merge_dual_zstd_end_to_end() {
 
 /// Verify that snapshots in the output are valid (digest matches content).
 #[tokio::test]
-async fn merge_output_validates() {
+async fn merge_output_verifies() {
     let merge_dir = examples_merge_dir();
     let merge_raw_dir = merge_dir.join("raw");
     let manifest = read_manifest();
@@ -229,7 +229,7 @@ async fn merge_output_validates() {
     .await
     .unwrap();
 
-    // Validate every snapshot in both outputs.
+    // Verify every snapshot in both outputs.
     let flat_reader = SnapshotReader::open(tmp.path().join("flat_output.ndjson.zst")).unwrap();
 
     let flat_context = wxj_context();
@@ -237,7 +237,7 @@ async fn merge_output_validates() {
     for result in flat_reader {
         let snapshot = result.unwrap();
         flat_context
-            .validate(&snapshot, &mut hasher)
+            .verify(&snapshot, &mut hasher)
             .unwrap_or_else(|error| panic!("flat snapshot {}: {error}", snapshot.digest));
     }
 
@@ -247,7 +247,7 @@ async fn merge_output_validates() {
     for result in data_reader {
         let snapshot = result.unwrap();
         data_context
-            .validate(&snapshot, &mut hasher)
+            .verify(&snapshot, &mut hasher)
             .unwrap_or_else(|error| panic!("data snapshot {}: {error}", snapshot.digest));
     }
 }

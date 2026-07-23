@@ -2,7 +2,7 @@
 //!
 //! [`Data`] scans directories of content-addressed files (each named by the SHA-1 digest of its
 //! bytes), groups paths by digest, and iterates them in digest-sorted order. It also reports
-//! duplicate digests and validates that duplicate files hash to the digest they are named by.
+//! duplicate digests and verifies that duplicate files hash to the digest they are named by.
 
 use archivindex_wbm::digest::Sha1Digest;
 use std::collections::{BTreeMap, btree_map::Entry};
@@ -109,7 +109,7 @@ impl Data {
     }
 
     /// Check the digests of duplicate files against their contents, returning any mismatches.
-    pub fn validate_duplicates(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+    pub fn verify_duplicates(&self) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut invalid = vec![];
 
         for (digest, paths) in self.duplicates() {
