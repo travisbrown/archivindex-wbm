@@ -168,17 +168,11 @@ impl rusqlite::ToSql for Timestamp {
 mod tests {
     use super::Timestamp;
     use chrono::{SubsecRound, Utc};
-    use quickcheck::{Arbitrary, Gen};
+    use proptest::prelude::*;
+    use test_strategy::proptest;
 
-    impl Arbitrary for Timestamp {
-        fn arbitrary(g: &mut Gen) -> Self {
-            Self::try_from(u32::arbitrary(g)).unwrap()
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            let timestamp_s = self.0.timestamp();
-            Box::new((0..timestamp_s).filter_map(|timestamp_s| Self::try_from(timestamp_s).ok()))
-        }
+    fn arb_timestamp() -> impl Strategy<Value = Timestamp> {
+        any::<u32>().prop_map(|timestamp_s| Timestamp::try_from(timestamp_s).unwrap())
     }
 
     #[test]
@@ -239,23 +233,23 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[quickcheck_macros::quickcheck]
-    fn prop_timestamp_display_parse_round_trip(timestamp: Timestamp) -> bool {
+    #[proptest]
+    fn prop_timestamp_display_parse_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
         let s = timestamp.to_string();
         let parsed: Result<Timestamp, _> = s.parse();
-        parsed.is_ok_and(|t| t == timestamp)
+        prop_assert_eq!(parsed.ok(), Some(timestamp));
     }
 
-    #[quickcheck_macros::quickcheck]
-    fn prop_timestamp_i64_round_trip(timestamp: Timestamp) -> bool {
+    #[proptest]
+    fn prop_timestamp_i64_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
         let timestamp_s: i64 = timestamp.into();
         let reconstructed = Timestamp::try_from(timestamp_s);
-        reconstructed.is_ok_and(|t| t == timestamp)
+        prop_assert_eq!(reconstructed.ok(), Some(timestamp));
     }
 
     #[cfg(feature = "sqlite")]
-    #[quickcheck_macros::quickcheck]
-    fn prop_timestamp_sql_round_trip(timestamp: Timestamp) -> bool {
+    #[proptest]
+    fn prop_timestamp_sql_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute(
             "CREATE TABLE test (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL)",
@@ -270,6 +264,6 @@ mod tests {
             .query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))
             .unwrap();
 
-        retrieved == timestamp
+        prop_assert_eq!(retrieved, timestamp);
     }
 }

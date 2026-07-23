@@ -168,13 +168,6 @@ impl From<StatusCode> for http::status::StatusCode {
 
 #[cfg(test)]
 mod test {
-    impl quickcheck::Arbitrary for super::StatusCode {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            // Safe because we know the slice is non-empty.
-            *g.choose(&super::STATUS_CODE_VALUES).unwrap()
-        }
-    }
-
     #[test]
     fn ordering() {
         let mut values = super::STATUS_CODE_VALUES.to_vec();

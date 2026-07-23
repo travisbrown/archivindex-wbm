@@ -319,64 +319,21 @@ pub mod sha1_base32 {
 
 #[cfg(test)]
 mod tests {
-    use quickcheck::{Arbitrary, Gen};
+    use proptest::prelude::*;
+    use test_strategy::proptest;
 
-    impl Arbitrary for super::Sha1Digest {
-        fn arbitrary(g: &mut Gen) -> Self {
-            let mut bytes = [0u8; 20];
-            for byte in &mut bytes {
-                *byte = u8::arbitrary(g);
-            }
-            Self(bytes)
-        }
+    fn arb_sha1_digest() -> impl Strategy<Value = super::Sha1Digest> {
+        any::<[u8; 20]>().prop_map(super::Sha1Digest)
     }
 
-    impl Arbitrary for super::Digest<'static> {
-        fn arbitrary(g: &mut Gen) -> Self {
-            // Generate either a valid or invalid digest:
-            // For valid: convert random `Sha1Digest to string and parse.
-            // For invalid: generate wrong length string with valid Base32 chars.
-            if bool::arbitrary(g) {
-                // Valid digest
-                let digest = super::Sha1Digest::arbitrary(g);
-                Self::Valid(digest)
-            } else {
-                // Invalid digest: wrong length but valid Base32 characters
-                let len = (1..100)
-                    .filter(|&x| x != 32)
-                    .nth(usize::arbitrary(g) % 98)
-                    .unwrap_or(10);
-                let s: String = (0..len)
-                    .map(|_| {
-                        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-                        chars[usize::arbitrary(g) % chars.len()] as char
-                    })
-                    .collect();
-                Self::Invalid(std::borrow::Cow::Owned(s))
-            }
-        }
-
-        fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-            match self {
-                Self::Valid(_) => {
-                    // Don't shrink valid digests, since they're already minimal.
-                    Box::new(std::iter::empty())
-                }
-                Self::Invalid(s) => {
-                    // Shrink invalid digests by shortening the string.
-                    let s = s.to_string();
-                    Box::new(
-                        (1..s.len())
-                            .rev()
-                            // Skip length 32 to avoid creating valid digests.
-                            .filter(|&len| len != 32)
-                            .map(move |len| {
-                                Self::Invalid(std::borrow::Cow::Owned(s[..len].to_string()))
-                            }),
-                    )
-                }
-            }
-        }
+    fn arb_digest() -> impl Strategy<Value = super::Digest<'static>> {
+        prop_oneof![
+            arb_sha1_digest().prop_map(super::Digest::Valid),
+            // Invalid digest: wrong length (never 32, which could be valid) but valid Base32
+            // characters.
+            "[A-Z2-7]{1,31}|[A-Z2-7]{33,99}"
+                .prop_map(|s| super::Digest::Invalid(std::borrow::Cow::Owned(s))),
+        ]
     }
 
     #[test]
@@ -503,23 +460,25 @@ mod tests {
         assert_eq!(original, retrieved);
     }
 
-    #[quickcheck_macros::quickcheck]
-    fn prop_sha1_digest_display_parse_round_trip(digest: super::Sha1Digest) -> bool {
+    #[proptest]
+    fn prop_sha1_digest_display_parse_round_trip(
+        #[strategy(arb_sha1_digest())] digest: super::Sha1Digest,
+    ) {
         let s = digest.to_string();
         let parsed: Result<super::Sha1Digest, _> = s.parse();
-        parsed.is_ok_and(|d| d == digest)
+        prop_assert_eq!(parsed.ok(), Some(digest));
     }
 
-    #[quickcheck_macros::quickcheck]
-    fn prop_sha1_digest_bytes_round_trip(digest: super::Sha1Digest) -> bool {
+    #[proptest]
+    fn prop_sha1_digest_bytes_round_trip(#[strategy(arb_sha1_digest())] digest: super::Sha1Digest) {
         let bytes: [u8; 20] = digest.into();
         let reconstructed = super::Sha1Digest::from(bytes);
-        reconstructed == digest
+        prop_assert_eq!(reconstructed, digest);
     }
 
     #[cfg(feature = "sqlite")]
-    #[quickcheck_macros::quickcheck]
-    fn prop_sha1_digest_sql_round_trip(digest: super::Sha1Digest) -> bool {
+    #[proptest]
+    fn prop_sha1_digest_sql_round_trip(#[strategy(arb_sha1_digest())] digest: super::Sha1Digest) {
         use rusqlite::Connection;
 
         let conn = Connection::open_in_memory().unwrap();
@@ -536,13 +495,12 @@ mod tests {
             .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
             .unwrap();
 
-        retrieved == digest
+        prop_assert_eq!(retrieved, digest);
     }
 
     #[cfg(feature = "sqlite")]
-    #[quickcheck_macros::quickcheck]
-    #[allow(clippy::needless_pass_by_value)]
-    fn prop_digest_sql_round_trip(digest: super::Digest<'static>) -> bool {
+    #[proptest]
+    fn prop_digest_sql_round_trip(#[strategy(arb_digest())] digest: super::Digest<'static>) {
         use rusqlite::Connection;
 
         let conn = Connection::open_in_memory().unwrap();
@@ -559,6 +517,6 @@ mod tests {
             .query_row("SELECT digest FROM test WHERE id = 1", [], |row| row.get(0))
             .unwrap();
 
-        retrieved == digest
+        prop_assert_eq!(retrieved, digest);
     }
 }
