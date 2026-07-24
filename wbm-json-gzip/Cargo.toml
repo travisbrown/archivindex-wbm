@@ -1,10 +1,15 @@
 [package]
 name = "archivindex-wbm-json-gzip"
 description = "Byte-exact gzip reproduction for archivindex-wbm-json snapshots"
+keywords = ["wayback-machine", "web-archive", "gzip"]
+categories = ["compression"]
 authors = { workspace = true }
 repository = { workspace = true }
 edition = { workspace = true }
-license = { workspace = true }
+# src/go_flate.rs is a derivative of Go's BSD-3-Clause compress/flate (see LICENSE-GO and
+# PATENTS-GO), so the package license is a composite expression rather than the workspace value.
+license = "AGPL-3.0-only AND BSD-3-Clause"
+readme = { workspace = true }
 version = { workspace = true }
 
 [features]
@@ -12,7 +17,7 @@ default = ["zlib"]
 zlib = ["dep:libz-sys", "dep:libz-ng-sys"]
 
 [dependencies]
-archivindex-wbm-json = { path = "../wbm-json/" }
+archivindex-wbm-json = { version = "0.1.0", path = "../wbm-json/" }
 flate2 = { workspace = true }
 libz-sys = { workspace = true, optional = true }
 libz-ng-sys = { workspace = true, optional = true }

@@ -1,14 +1,18 @@
 [package]
 name = "archivindex-wbm-json"
+description = "Compact NDJSON snapshot files for JSON content archived by the Wayback Machine"
+keywords = ["wayback-machine", "web-archive", "ndjson"]
+categories = ["parser-implementations", "encoding"]
 authors = { workspace = true }
 repository = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
+readme = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
+archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" }
 bounded-static = { workspace = true }
 cel = { workspace = true }
 chrono = { workspace = true }

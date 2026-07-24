@@ -1,20 +1,23 @@
 [package]
 name = "archivindex-wbm-cas"
+description = "Content-addressable storage for Wayback Machine snapshot data"
+keywords = ["wayback-machine", "web-archive", "content-addressable"]
+categories = ["filesystem"]
 authors = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
+readme = { workspace = true }
 
 [features]
 default = ["zstd"]
 zstd = ["dep:zstd"]
 
 [dependencies]
-archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
 bytes = { workspace = true }
 flate2 = { workspace = true }
-chrono = { workspace = true }
 prefix-file-tree = { workspace = true }
 sha1 = { workspace = true }
 thiserror = { workspace = true }

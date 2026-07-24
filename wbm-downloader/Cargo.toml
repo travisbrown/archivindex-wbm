@@ -8,6 +8,7 @@ repository = { workspace = true }
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
+readme = { workspace = true }
 
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
@@ -15,7 +16,6 @@ archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" 
 bounded-static = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
-futures = { workspace = true }
 http = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
