@@ -19,6 +19,43 @@ const ITEM_LIST_HEADER: [&str; 7] = [
     "length",
 ];
 
+/// A `Cow<str>` that borrows from the deserializer input when possible.
+///
+/// Serde's stock `Cow` deserialization always produces `Cow::Owned`; this wrapper implements the
+/// zero-copy path for borrowed input (the common case when parsing a response held in memory).
+struct BorrowableCow<'a>(Cow<'a, str>);
+
+impl<'de> Deserialize<'de> for BorrowableCow<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct BorrowableCowVisitor;
+
+        impl<'de> Visitor<'de> for BorrowableCowVisitor {
+            type Value = BorrowableCow<'de>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a string")
+            }
+
+            fn visit_borrowed_str<E: serde::de::Error>(
+                self,
+                v: &'de str,
+            ) -> Result<Self::Value, E> {
+                Ok(BorrowableCow(Cow::Borrowed(v)))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                Ok(BorrowableCow(Cow::Owned(v.to_string())))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+                Ok(BorrowableCow(Cow::Owned(v)))
+            }
+        }
+
+        deserializer.deserialize_str(BorrowableCowVisitor)
+    }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Item<'a> {
     pub key: Surt<'a>,
@@ -55,7 +92,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                         let timestamp = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(1, &INVALID_LENGTH_MESSAGE)
                         })?;
-                        let original = seq.next_element()?.ok_or_else(|| {
+                        let BorrowableCow(original) = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(2, &INVALID_LENGTH_MESSAGE)
                         })?;
                         let mime_type = seq.next_element()?.ok_or_else(|| {
@@ -138,7 +175,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemList<'a> {
                             }
 
                             let resume_key = if expect_resume_key {
-                                let (resume_key,) = seq
+                                let (BorrowableCow(resume_key),) = seq
                                     .next_element()?
                                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
 

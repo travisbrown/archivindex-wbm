@@ -53,9 +53,10 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                         let timestamp = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(1, &INVALID_LENGTH_MESSAGE)
                         })?;
-                        let original = seq.next_element()?.ok_or_else(|| {
-                            serde::de::Error::invalid_length(2, &INVALID_LENGTH_MESSAGE)
-                        })?;
+                        let super::BorrowableCow(original) =
+                            seq.next_element()?.ok_or_else(|| {
+                                serde::de::Error::invalid_length(2, &INVALID_LENGTH_MESSAGE)
+                            })?;
                         let mime_type = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(3, &INVALID_LENGTH_MESSAGE)
                         })?;
@@ -66,9 +67,10 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             serde::de::Error::invalid_length(5, &INVALID_LENGTH_MESSAGE)
                         })?;
 
-                        let redirect_str: Cow<'_, str> = seq.next_element()?.ok_or_else(|| {
-                            serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
-                        })?;
+                        let super::BorrowableCow(redirect_str) =
+                            seq.next_element()?.ok_or_else(|| {
+                                serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
+                            })?;
 
                         let redirect = if redirect_str == "-" {
                             None
@@ -76,7 +78,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             Some(redirect_str)
                         };
 
-                        let robot_flags_str: Cow<'_, str> =
+                        let super::BorrowableCow(robot_flags_str) =
                             seq.next_element()?.ok_or_else(|| {
                                 serde::de::Error::invalid_length(7, &INVALID_LENGTH_MESSAGE)
                             })?;
@@ -103,9 +105,10 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             serde::de::Error::invalid_value(Unexpected::Str(offset_str), &"offset")
                         })?;
 
-                        let file_name = seq.next_element()?.ok_or_else(|| {
-                            serde::de::Error::invalid_length(10, &INVALID_LENGTH_MESSAGE)
-                        })?;
+                        let super::BorrowableCow(file_name) =
+                            seq.next_element()?.ok_or_else(|| {
+                                serde::de::Error::invalid_length(10, &INVALID_LENGTH_MESSAGE)
+                            })?;
 
                         let end: Option<IgnoredAny> = seq.next_element()?;
 
@@ -177,7 +180,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ExtendedItemList<'a> {
                             }
 
                             let resume_key = if expect_resume_key {
-                                let (resume_key,) = seq
+                                let (super::BorrowableCow(resume_key),) = seq
                                     .next_element()?
                                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
 
