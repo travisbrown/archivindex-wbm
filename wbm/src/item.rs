@@ -5,8 +5,10 @@ use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
+// The optional flag after the timestamp selects a rendering (`id_` for original bytes, and `im_`,
+// `js_`, `cs_`, `if_`, etc. for media, scripts, stylesheets, and frames).
 const WAYBACK_URL_PATTERN: &str =
-    r"^https?://web\.archive\.org/web/(?P<timestamp>\d{14})(?:id_)?/(?P<url>.+)$";
+    r"^https?://web\.archive\.org/web/(?P<timestamp>\d{14})(?:[a-z]{2}_)?/(?P<url>.+)$";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -100,7 +102,7 @@ impl FromStr for UrlParts<'static> {
 
         Ok(Self::new(
             captures["url"].to_string(),
-            captures["timestamp"].to_string().parse()?,
+            captures["timestamp"].parse()?,
         ))
     }
 }
@@ -150,5 +152,24 @@ mod tests {
         let parsed: UrlParts<'_> = url.parse().unwrap();
 
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn parse_with_rendering_flags() {
+        // The Wayback Machine also serves `im_`, `js_`, `cs_`, `if_`, etc. renderings.
+        for flag in ["id_", "im_", "js_", "cs_", "if_", ""] {
+            let url = format!(
+                "https://web.archive.org/web/20160508215503{flag}/https://example.com/image.png"
+            );
+            let parsed: UrlParts<'_> = url.parse().unwrap();
+
+            assert_eq!(
+                parsed,
+                UrlParts::new(
+                    "https://example.com/image.png".to_string(),
+                    "20160508215503".parse().unwrap(),
+                )
+            );
+        }
     }
 }
