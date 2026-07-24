@@ -23,7 +23,7 @@ use archivindex_wbm::{digest::Sha1Digest, item::ItemInfo};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, params};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 pub mod types;
 
@@ -148,6 +148,21 @@ const SELECT_WITHHELD_URLS_FROM: &str = "
     ORDER BY timestamp ASC
 ";
 
+/// Maps one `invalid_digest` row to its observation time and [`Entry`].
+fn invalid_digest_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<(DateTime<Utc>, Entry<'static>), rusqlite::Error> {
+    let timestamp: types::TimestampSecond = row.get(0)?;
+    let url: String = row.get(1)?;
+    let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
+    let expected_digest: Digest<'static> = row.get(3)?;
+    let actual_digest: Sha1Digest = row.get(4)?;
+    let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
+    let entry = Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
+
+    Ok((timestamp.into(), entry))
+}
+
 /// A SQLite database for logging Wayback Machine download failures and withheld URLs.
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -179,12 +194,29 @@ impl Database {
         Self::new(Connection::open_in_memory()?)
     }
 
-    /// Initializes the database schema.
+    /// Initializes the database schema and connection settings.
     ///
     /// Creates the `invalid_digest` and `withheld_url` tables along with their indices. Safe to
     /// call multiple times.
     fn initialize(connection: &Connection) -> Result<(), rusqlite::Error> {
+        // Concurrent writers (e.g. multiple downloader workers) wait for the lock instead of
+        // failing immediately with `SQLITE_BUSY`, and WAL mode allows readers during writes while
+        // reducing flush cost. The `journal_mode` pragma returns the resulting mode (e.g.
+        // `memory` for in-memory databases), so it is read with `query_row`.
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.execute_batch(include_str!("schemas/db.sql"))
+    }
+
+    /// Locks the connection, ignoring mutex poisoning.
+    ///
+    /// Each operation is a single statement or transaction, so a panic in another thread cannot
+    /// leave the connection in a logically inconsistent state.
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.connection
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Inserts an invalid digest entry into the database.
@@ -203,17 +235,13 @@ impl Database {
     /// * `Ok(true)` - A new row was inserted
     /// * `Ok(false)` - Entry already exists (duplicate, no insertion)
     /// * `Err(_)` - Database error occurred
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     #[allow(clippy::significant_drop_tightening)]
     pub fn insert_invalid_digest(
         &self,
         entry: &Entry<'_>,
         timestamp: DateTime<Utc>,
     ) -> Result<bool, rusqlite::Error> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.lock();
 
         let mut statement = connection.prepare_cached(INSERT_INVALID_DIGEST)?;
 
@@ -244,17 +272,13 @@ impl Database {
     /// * `Ok(true)` - A new row was inserted
     /// * `Ok(false)` - This `(url, timestamp)` pair already exists (no insertion)
     /// * `Err(_)` - Database error occurred
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     #[allow(clippy::significant_drop_tightening)]
     pub fn insert_withheld(
         &self,
         url: &str,
         timestamp: DateTime<Utc>,
     ) -> Result<bool, rusqlite::Error> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.lock();
 
         let mut statement = connection.prepare_cached(INSERT_WITHHELD)?;
 
@@ -267,55 +291,30 @@ impl Database {
     ///
     /// Returns an iterator that yields tuples of `(timestamp, entry)` where the timestamp indicates
     /// when the invalid digest was observed. Results are ordered by observation timestamp in
-    /// ascending order.
+    /// ascending order. All rows are read (and the connection lock released) before this method
+    /// returns; the iterator itself cannot fail.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
     ///   observed at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     #[allow(clippy::significant_drop_tightening)]
     pub fn invalid_digests(
         &self,
         from: Option<DateTime<Utc>>,
     ) -> Result<InvalidDigestIterator, rusqlite::Error> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.lock();
 
         let entries = if let Some(ts) = from {
-            let mut statement = connection.prepare(SELECT_INVALID_DIGESTS_FROM)?;
+            let mut statement = connection.prepare_cached(SELECT_INVALID_DIGESTS_FROM)?;
             statement
-                .query_map([ts.timestamp()], |row| {
-                    let timestamp: types::TimestampSecond = row.get(0)?;
-                    let url: String = row.get(1)?;
-                    let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
-                    let expected_digest: Digest<'static> = row.get(3)?;
-                    let actual_digest: Sha1Digest = row.get(4)?;
-                    let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
-                    let entry =
-                        Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
-
-                    Ok((timestamp.into(), entry))
-                })?
+                .query_map([ts.timestamp()], invalid_digest_row)?
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            let mut statement = connection.prepare(SELECT_ALL_INVALID_DIGESTS)?;
+            let mut statement = connection.prepare_cached(SELECT_ALL_INVALID_DIGESTS)?;
             statement
-                .query_map([], |row| {
-                    let timestamp: types::TimestampSecond = row.get(0)?;
-                    let url: String = row.get(1)?;
-                    let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
-                    let expected_digest: Digest<'static> = row.get(3)?;
-                    let actual_digest: Sha1Digest = row.get(4)?;
-                    let url_parts = archivindex_wbm::item::UrlParts::new(url, archive_timestamp);
-                    let entry =
-                        Entry::new(ItemInfo::new(url_parts, expected_digest), actual_digest);
-
-                    Ok((timestamp.into(), entry))
-                })?
+                .query_map([], invalid_digest_row)?
                 .collect::<Result<Vec<_>, _>>()?
         };
 
@@ -328,23 +327,20 @@ impl Database {
     ///
     /// Returns an iterator that yields tuples of `(timestamp, url)` where the timestamp indicates
     /// when the withheld status was observed. Results are ordered by observation timestamp in
-    /// ascending order.
+    /// ascending order. All rows are read (and the connection lock released) before this method
+    /// returns; the iterator itself cannot fail.
     ///
     /// # Arguments
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries
     ///   observed at or after this timestamp are returned. If `None`, all entries
     ///   are returned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     #[allow(clippy::significant_drop_tightening)]
     pub fn withheld_urls(
         &self,
         from: Option<DateTime<Utc>>,
     ) -> Result<WithheldUrlIterator, rusqlite::Error> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.lock();
 
         let entries = if let Some(ts) = from {
             let mut statement = connection.prepare_cached(SELECT_WITHHELD_URLS_FROM)?;
@@ -375,11 +371,13 @@ impl Database {
 
     /// Merges entries from another database into this database.
     ///
-    /// For each entry in the source database, if it doesn't exist in this database, it will be
-    /// inserted. If it already exists but the source has an older timestamp, the entry in this
-    /// database will be updated with the older timestamp.
+    /// Each invalid-digest entry from the source is inserted if absent; if it already exists, the
+    /// earlier of the two observation timestamps is kept. Withheld URLs are keyed by
+    /// `(url, timestamp)`, so every source observation absent from this database is inserted as
+    /// its own row.
     ///
-    /// This operation is performed in a transaction for consistency.
+    /// This operation is performed in a transaction for consistency. Merging a database into
+    /// itself is a no-op.
     ///
     /// # Arguments
     ///
@@ -389,21 +387,26 @@ impl Database {
     ///
     /// * `Ok(())` - Merge completed successfully
     /// * `Err(_)` - Database error occurred
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     #[allow(clippy::significant_drop_tightening)]
     pub fn merge(&self, other: &Self) -> Result<(), rusqlite::Error> {
-        let mut connection = self.connection.lock().unwrap();
+        // Guard against taking the same non-reentrant lock twice, which would deadlock.
+        if Arc::ptr_eq(&self.connection, &other.connection) {
+            return Ok(());
+        }
+
+        // Materialize the source rows before taking this database's lock, so that two databases
+        // concurrently merging from each other cannot deadlock on lock order.
+        let invalid_digests: Vec<_> = other.invalid_digests(None)?.collect::<Result<_, _>>()?;
+        let withheld_urls: Vec<_> = other.withheld_urls(None)?.collect::<Result<_, _>>()?;
+
+        let mut connection = self.lock();
         let transaction = connection.transaction()?;
 
         // Merge invalid digests: insert each, keeping the earliest observation timestamp on
         // conflict (one statement per row, no separate existence check).
         {
             let mut merge_statement = transaction.prepare_cached(MERGE_INVALID_DIGEST)?;
-            for result in other.invalid_digests(None)? {
-                let (timestamp, entry) = result?;
+            for (timestamp, entry) in invalid_digests {
                 merge_statement.execute(params![
                     timestamp.timestamp(),
                     entry.item_info.url_parts.url,
@@ -415,10 +418,11 @@ impl Database {
         }
 
         // Merge withheld URLs.
-        for result in other.withheld_urls(None)? {
-            let (timestamp, url) = result?;
+        {
             let mut insert_statement = transaction.prepare_cached(INSERT_WITHHELD)?;
-            insert_statement.execute(params![timestamp.timestamp(), &url])?;
+            for (timestamp, url) in withheld_urls {
+                insert_statement.execute(params![timestamp.timestamp(), &url])?;
+            }
         }
 
         transaction.commit()?;
@@ -427,10 +431,6 @@ impl Database {
     }
 
     /// Reads every record from both tables into an [`Export`], each ordered by observation time.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
     pub fn export(&self) -> Result<Export, rusqlite::Error> {
         let invalid_digests = self
             .invalid_digests(None)?
@@ -450,15 +450,12 @@ impl Database {
     /// Inserts every record from `export` into both tables, in a single transaction.
     ///
     /// Duplicates are ignored (per the tables' uniqueness constraints), so importing an [`Export`]
-    /// into a fresh database reproduces the original, and importing into a populated one merges the
-    /// rows.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal connection mutex is poisoned.
+    /// into a fresh database reproduces the original. Importing into a populated database adds the
+    /// missing rows but — unlike [`merge`](Self::merge) — leaves the observation timestamps of
+    /// existing invalid-digest rows unchanged.
     #[allow(clippy::significant_drop_tightening)]
     pub fn import(&self, export: &Export) -> Result<(), rusqlite::Error> {
-        let mut connection = self.connection.lock().unwrap();
+        let mut connection = self.lock();
         let transaction = connection.transaction()?;
 
         {
@@ -798,6 +795,91 @@ mod tests {
         let target = Database::in_memory()?;
         target.import(&export)?;
         assert_eq!(target.export()?, export);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_merge_with_self_is_a_no_op() -> Result<(), rusqlite::Error> {
+        let database = Database::in_memory()?;
+        database.insert_invalid_digest(&example_entry_01(), Utc::now())?;
+
+        // Merging a database into itself (via a clone sharing the connection) must not deadlock
+        // or duplicate rows.
+        database.merge(&database.clone())?;
+
+        assert_eq!(database.invalid_digests(None)?.count(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_expected_digest_round_trips() -> Result<(), rusqlite::Error> {
+        let database = Database::in_memory()?;
+
+        // An expected digest that is not valid Base32 takes the `Digest::Invalid` column path.
+        let entry = Entry::new(
+            ItemInfo::new(
+                UrlParts::new(
+                    "https://twitter.com/example/status/1",
+                    "20250101120000".parse().unwrap(),
+                ),
+                archivindex_wbm::digest::Digest::Invalid("not-a-digest".into()),
+            ),
+            "3GLCSCLXQ4NPRKRPEZCI55PGUG472WGE".parse().unwrap(),
+        );
+
+        database.insert_invalid_digest(&entry, Utc::now())?;
+
+        let read = database
+            .invalid_digests(None)?
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].1, entry);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_keeps_existing_timestamps_unlike_merge() -> Result<(), rusqlite::Error> {
+        let older = Utc::now();
+        let newer = older + chrono::Duration::seconds(100);
+
+        let source = Database::in_memory()?;
+        source.insert_invalid_digest(&example_entry_01(), older)?;
+        let export = source.export()?;
+
+        // `import` ignores the conflicting row, keeping the newer existing timestamp.
+        let imported = Database::in_memory()?;
+        imported.insert_invalid_digest(&example_entry_01(), newer)?;
+        imported.import(&export)?;
+        let (timestamp, _) = imported.invalid_digests(None)?.next().unwrap()?;
+        assert_eq!(timestamp.timestamp(), newer.timestamp());
+
+        // `merge` keeps the earliest observation timestamp.
+        let merged = Database::in_memory()?;
+        merged.insert_invalid_digest(&example_entry_01(), newer)?;
+        merged.merge(&source)?;
+        let (timestamp, _) = merged.invalid_digests(None)?.next().unwrap()?;
+        assert_eq!(timestamp.timestamp(), older.timestamp());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_timestamp_boundary_is_inclusive() -> Result<(), rusqlite::Error> {
+        let database = Database::in_memory()?;
+        let timestamp = Utc::now();
+
+        database.insert_invalid_digest(&example_entry_01(), timestamp)?;
+
+        assert_eq!(database.invalid_digests(Some(timestamp))?.count(), 1);
+        assert_eq!(
+            database
+                .invalid_digests(Some(timestamp + chrono::Duration::seconds(1)))?
+                .count(),
+            0
+        );
 
         Ok(())
     }
