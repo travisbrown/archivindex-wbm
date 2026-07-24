@@ -64,7 +64,9 @@ impl<'a> Surt<'a> {
         let mut len = 0;
 
         for ch in input.chars() {
-            if ch.is_ascii_alphanumeric() || ch == '-' {
+            // Underscores appear in real (nonstandard) hostnames, and a colon marks a port, which
+            // the Wayback Machine keeps in the urlkey (e.g. `com,example:8080)/`).
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == ':' {
                 if len == u8::MAX {
                     return Err(Error::InvalidSurt(input.to_string()));
                 }
