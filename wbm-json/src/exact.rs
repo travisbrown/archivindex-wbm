@@ -95,7 +95,6 @@ const DIGEST_LEN: usize = 32;
 const TIMESTAMP_LEN: usize = 14;
 
 const DIGEST_KEY: &str = "digest";
-const DIGEST_KEY_LEN: usize = DIGEST_KEY.len();
 const EXPECTED_DIGEST_KEY: &str = "expected_digest";
 const EXPECTED_DIGEST_KEY_LEN: usize = EXPECTED_DIGEST_KEY.len();
 const FORMAT_KEY: &str = "format";
@@ -105,7 +104,6 @@ const TIMESTAMP_KEY_LEN: usize = TIMESTAMP_KEY.len();
 const URL_KEY: &str = "url";
 const URL_KEY_LEN: usize = URL_KEY.len();
 const CONTENT_KEY: &str = "content";
-const CONTENT_KEY_LEN: usize = CONTENT_KEY.len();
 
 // ── ExactSnapshot::parse / display ─────────────────────────────────────────────
 
@@ -116,41 +114,42 @@ impl<'a> ExactSnapshot<'a> {
     /// available only for snapshots whose content is [`ExactContent`], since parsing yields the
     /// exact serialized bytes (not a deserialized JSON value).
     pub fn parse(line: &'a str) -> Result<Self, crate::Error> {
-        // Every slice goes through `slice` and `rest`, which map an out-of-range or
-        // non-character-boundary index to `InvalidLine` rather than panicking on truncated or
-        // malformed input.
-        let mut index = DIGEST_KEY_LEN + 5;
+        // Every slice goes through `slice`, `rest`, and `expect`, which map an out-of-range or
+        // non-character-boundary index (or a delimiter mismatch) to `InvalidLine` rather than
+        // panicking on truncated or malformed input. Key names and delimiters are verified
+        // exactly, so `parse` to `display` is byte-exact for every accepted line.
+        let mut index = expect(line, 0, "{\"digest\":\"")?;
 
         let digest = slice(line, index..index + DIGEST_LEN)?
             .parse::<Sha1Digest>()
             .map_err(|_| crate::Error::InvalidLine)?;
 
-        index += DIGEST_LEN + 3;
+        index = expect(line, index + DIGEST_LEN, "\",\"")?;
 
         let expected_digest = if rest(line, index)?.starts_with(EXPECTED_DIGEST_KEY) {
-            index += EXPECTED_DIGEST_KEY_LEN + 3;
+            index = expect(line, index + EXPECTED_DIGEST_KEY_LEN, "\":\"")?;
             let expected_digest = Cow::Borrowed(slice(line, index..index + DIGEST_LEN)?);
-            index += DIGEST_LEN + 3;
+            index = expect(line, index + DIGEST_LEN, "\",\"")?;
             Some(expected_digest)
         } else {
             None
         };
 
         let timestamp = if rest(line, index)?.starts_with(TIMESTAMP_KEY) {
-            index += TIMESTAMP_KEY_LEN + 3;
+            index = expect(line, index + TIMESTAMP_KEY_LEN, "\":\"")?;
             let timestamp = slice(line, index..index + TIMESTAMP_LEN)?
                 .parse::<Timestamp>()
                 .map_err(|_| crate::Error::InvalidLine)?;
-            index += TIMESTAMP_LEN + 3;
+            index = expect(line, index + TIMESTAMP_LEN, "\",\"")?;
             Some(timestamp)
         } else {
             None
         };
 
         let url = if rest(line, index)?.starts_with(URL_KEY) {
-            index += URL_KEY_LEN + 3;
-            let (value, next) = read_string_value(line, index)?;
-            index = next;
+            index = expect(line, index + URL_KEY_LEN, "\":\"")?;
+            let (value, closing) = read_string_value(line, index)?;
+            index = expect(line, closing, "\",\"")?;
             Some(Cow::Borrowed(value))
         } else {
             None
@@ -159,18 +158,22 @@ impl<'a> ExactSnapshot<'a> {
         // The `format` object is parsed with `serde_json` (it carries `type`, `closing_whitespace`,
         // and arbitrary metadata), while the rest of the line is read by hand.
         let format = if rest(line, index)?.starts_with(FORMAT_KEY) {
-            index += FORMAT_KEY_LEN + 2;
+            index = expect(line, index + FORMAT_KEY_LEN, "\":")?;
             let (object, next) = read_object_value(line, index)?;
-            index = next + 2;
+            index = expect(line, next, ",\"")?;
             serde_json::from_str::<FormatInfo>(object).map_err(|_| crate::Error::InvalidLine)?
         } else {
             FormatInfo::default()
         };
 
-        index += CONTENT_KEY_LEN + 2;
+        index = expect(line, index, CONTENT_KEY)?;
+        index = expect(line, index, "\":")?;
 
-        // The content runs from here to just before the closing `}`.
-        let content_end = line.len().checked_sub(1).ok_or(crate::Error::InvalidLine)?;
+        // The content runs from here to just before the closing `}`, which must be present.
+        if !line.ends_with('}') {
+            return Err(crate::Error::InvalidLine);
+        }
+        let content_end = line.len() - 1;
 
         Ok(Self {
             digest,
@@ -214,6 +217,11 @@ impl std::fmt::Display for SnapshotDisplay<'_, '_> {
         write!(f, "{{\"{DIGEST_KEY}\":\"{}\",", snapshot.digest)?;
 
         if let Some(expected_digest) = &snapshot.expected_digest {
+            // Values are written verbatim; one that would need JSON escaping cannot be
+            // represented in the canonical form and must not corrupt the output line.
+            if needs_json_escaping(expected_digest) {
+                return Err(std::fmt::Error);
+            }
             write!(f, "\"{EXPECTED_DIGEST_KEY}\":\"{expected_digest}\",")?;
         }
 
@@ -227,6 +235,11 @@ impl std::fmt::Display for SnapshotDisplay<'_, '_> {
         if let Some(url) = &snapshot.url
             && Some(url.as_ref()) != self.context.infer_url(&snapshot.content).as_deref()
         {
+            // Values are written verbatim; one that would need JSON escaping cannot be
+            // represented in the canonical form and must not corrupt the output line.
+            if needs_json_escaping(url) {
+                return Err(std::fmt::Error);
+            }
             write!(f, "\"{URL_KEY}\":\"{url}\",")?;
         }
 
@@ -257,6 +270,22 @@ fn slice(line: &str, range: std::ops::Range<usize>) -> Result<&str, crate::Error
 /// [`Error::InvalidLine`](crate::Error::InvalidLine) instead of panicking.
 fn rest(line: &str, start: usize) -> Result<&str, crate::Error> {
     line.get(start..).ok_or(crate::Error::InvalidLine)
+}
+
+/// Whether a string cannot be written verbatim inside a JSON string value (it contains a quote,
+/// a backslash, or a control character that JSON requires to be escaped).
+fn needs_json_escaping(value: &str) -> bool {
+    value.contains(['"', '\\']) || value.contains(|c: char| c.is_control())
+}
+
+/// Advance past `literal` at `index`, or return
+/// [`Error::InvalidLine`](crate::Error::InvalidLine) if the line differs from it.
+fn expect(line: &str, index: usize, literal: &str) -> Result<usize, crate::Error> {
+    if rest(line, index)?.starts_with(literal) {
+        Ok(index + literal.len())
+    } else {
+        Err(crate::Error::InvalidLine)
+    }
 }
 
 /// Read a JSON object value during [`ExactSnapshot::parse`].
@@ -306,23 +335,25 @@ fn read_object_value(line: &str, index: usize) -> Result<(&str, usize), crate::E
 /// Read a quoted JSON string value during [`ExactSnapshot::parse`].
 ///
 /// `index` must point at the first character of the value (just past the opening `"`). Returns the
-/// borrowed value and the index just past the value's trailing `","`. Returns
-/// [`Error::InvalidLine`](crate::Error::InvalidLine) if the closing quote is missing.
+/// borrowed value and the index of the closing `"`. The canonical serialization never escapes, so
+/// a backslash (which would make the quote scan ambiguous) is rejected as
+/// [`Error::InvalidLine`](crate::Error::InvalidLine), as is a missing closing quote.
 fn read_string_value(line: &str, index: usize) -> Result<(&str, usize), crate::Error> {
     // Scan bytes (not `str` slices) for the closing quote so a multi-byte character in the value
-    // cannot trigger a mid-codepoint slice panic. `display` writes `url` values verbatim (without
-    // escaping), so a raw `"` terminates the value here too.
+    // cannot trigger a mid-codepoint slice panic.
     let bytes = line.as_bytes();
     let mut end = index;
     while end < bytes.len() && bytes[end] != b'"' {
+        if bytes[end] == b'\\' {
+            return Err(crate::Error::InvalidLine);
+        }
         end += 1;
     }
     if end >= bytes.len() {
         Err(crate::Error::InvalidLine)
     } else {
-        // `index` (just past the opening `"`) and `end` (the closing `"`) are byte boundaries; the
-        // returned index skips the closing `"`, the `,`, and the next field's opening `"`.
-        Ok((slice(line, index..end)?, end + 3))
+        // `index` (just past the opening `"`) and `end` (the closing `"`) are byte boundaries.
+        Ok((slice(line, index..end)?, end))
     }
 }
 
@@ -366,7 +397,7 @@ mod tests {
 
     #[test]
     fn parse_inferred_url() -> Result<(), Box<dyn std::error::Error>> {
-        let line = include_str!("../../examples/wbm/twitter/inferred-url-01.json").trim();
+        let line = include_str!("../tests/data/inferred-url-01.json").trim();
         let context = context();
         let parsed = RawSnapshot::parse(line)?;
         assert_eq!(line, parsed.display(&context).to_string());
@@ -377,7 +408,7 @@ mod tests {
     #[test]
     fn parse_examples() -> Result<(), Box<dyn std::error::Error>> {
         let context = context();
-        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
+        let lines = include_str!("../tests/data/lines-01.jsonl").split('\n');
         for line in lines {
             let parsed = RawSnapshot::parse(line)?;
             assert_eq!(line, parsed.display(&context).to_string());
@@ -389,7 +420,7 @@ mod tests {
     #[test]
     fn validate_all_examples() -> Result<(), Box<dyn std::error::Error>> {
         let lines = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
-            "../../examples/wbm/twitter/lines-01.jsonl"
+            "../tests/data/lines-01.jsonl"
         )))
         .lines();
         let verification = context().validate_lines(lines)?;
@@ -399,7 +430,7 @@ mod tests {
 
     #[test]
     fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
+        let lines = include_str!("../tests/data/lines-01.jsonl").split('\n');
         for line in lines {
             let _snapshot = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
         }
@@ -408,7 +439,7 @@ mod tests {
 
     #[test]
     fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
-        let lines = include_str!("../../examples/wbm/twitter/lines-01.jsonl").split('\n');
+        let lines = include_str!("../tests/data/lines-01.jsonl").split('\n');
         for line in lines {
             let snapshot_parse = RawSnapshot::parse(line)?;
             let snapshot_from_str = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
@@ -457,7 +488,7 @@ mod tests {
     fn parse_truncations_never_panic() {
         // Truncating a valid line at any byte offset must yield `Ok`/`Err`, never a panic from an
         // out-of-bounds or non-character-boundary slice.
-        for line in include_str!("../../examples/wbm/twitter/lines-01.jsonl").lines() {
+        for line in include_str!("../tests/data/lines-01.jsonl").lines() {
             for n in 0..=line.len() {
                 if let Ok(prefix) = std::str::from_utf8(&line.as_bytes()[..n]) {
                     let _ = RawSnapshot::parse(prefix);
@@ -478,7 +509,64 @@ mod tests {
 
     #[test]
     fn deserialize_bad_01() {
-        let content = include_str!("../../examples/wbm/twitter/bad-01.json").trim();
+        let content = include_str!("../tests/data/bad-01.json").trim();
         assert!(serde_json::from_str::<TypedSnapshot<'_>>(content).is_ok());
+    }
+
+    #[test]
+    fn parse_rejects_wrong_keys_and_framing() {
+        let digest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2";
+
+        // A valid line parses.
+        let valid = format!("{{\"digest\":\"{digest}\",\"content\":{{}}}}");
+        assert!(ExactSnapshot::parse(&valid).is_ok());
+
+        // A wrong leading key, a wrong optional-field key, a wrong delimiter, and a missing
+        // closing brace must all be rejected: `parse` to `display` is byte-exact only for lines in
+        // the canonical form.
+        for line in [
+            format!("{{\"birdie\":\"{digest}\",\"content\":{{}}}}"),
+            format!("{{\"digest\":\"{digest}\",\"urls\":\"x\",\"content\":{{}}}}"),
+            format!("{{\"digest\":\"{digest}\";\"content\":{{}}}}"),
+            format!("{{\"digest\":\"{digest}\",\"content\":12"),
+        ] {
+            assert!(ExactSnapshot::parse(&line).is_err(), "must reject: {line}");
+        }
+    }
+
+    #[test]
+    fn url_needing_escaping_is_rejected_not_corrupted() {
+        let digest: Sha1Digest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"
+            .parse()
+            .expect("valid digest");
+        let context = context();
+
+        // A URL containing a quote or backslash cannot be written verbatim, so display must
+        // error instead of emitting an invalid (or reinterpretable) JSON line.
+        for url in ["https://example.com/a\"b", "https://example.com/a\\b"] {
+            let snapshot = ExactSnapshot {
+                digest,
+                expected_digest: None,
+                timestamp: Some("20240101000000".parse().expect("valid timestamp")),
+                url: Some(url.into()),
+                format: FormatInfo::default(),
+                content: "{}".into(),
+            };
+
+            assert!(
+                std::fmt::write(
+                    &mut String::new(),
+                    format_args!("{}", snapshot.display(&context))
+                )
+                .is_err()
+            );
+        }
+
+        // An escaped URL in Serde-serialized form must be rejected by the exact parser rather
+        // than silently mis-parsed.
+        let line = format!(
+            "{{\"digest\":\"{digest}\",\"url\":\"https://example.com/a\\\"b\",\"content\":{{}}}}"
+        );
+        assert!(ExactSnapshot::parse(&line).is_err());
     }
 }

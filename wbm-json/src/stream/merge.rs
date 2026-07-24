@@ -349,8 +349,17 @@ where
 
         match content_result {
             Ok(content) => {
+                // Verify the file's contents hash to the digest it is named by (mirroring
+                // `compact`): the named digest determines the merge position, so corrupt bytes
+                // would otherwise be written under it, silently breaking output ordering.
+                let actual_digest = Sha1Digest::compute(content.as_bytes());
+                if actual_digest != digest {
+                    log::warn!(
+                        "Digest mismatch (named {digest}, contents hash to {actual_digest})"
+                    );
+                    stats.skipped += 1;
                 // Skip files with internal line breaks (not representable in NDJSON).
-                if content.trim().contains(['\n', '\r']) {
+                } else if content.trim().contains(['\n', '\r']) {
                     stats.skipped += 1;
                 } else {
                     match classify(&content) {

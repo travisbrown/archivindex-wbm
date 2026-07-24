@@ -249,7 +249,9 @@ impl Context {
         let mut chars_read = 0;
         let mut reversed_chars = line.chars().rev();
 
-        for whitespace_char in default.iter() {
+        // The line is walked backwards, so the default must be walked backwards too: the line
+        // matches the default when its final characters equal the default in order.
+        for whitespace_char in default.iter().rev() {
             if let Some(next_char) = reversed_chars.next() {
                 if *whitespace_char == next_char {
                     chars_read += 1;
@@ -616,5 +618,40 @@ mod tests {
             Some("https://truthsocial.com/api/v1/statuses/42")
         );
         assert_eq!(Context::default().infer_url(r#"{"id":"42"}"#), None);
+    }
+
+    #[test]
+    fn non_default_closing_whitespace_with_multi_char_default() {
+        // A non-palindromic multi-character default catches direction bugs: the line matches the
+        // default only when its final characters equal the default in order.
+        let context = Context::from_static(&['\r', '\r', '\n']);
+
+        assert_eq!(
+            context.non_default_closing_whitespace("{\"a\":1}\r\r\n"),
+            None
+        );
+        assert_eq!(
+            context.non_default_closing_whitespace("{\"a\":1}\n\r\r"),
+            Some(vec!['\n', '\r', '\r'])
+        );
+        assert_eq!(
+            context.non_default_closing_whitespace("{\"a\":1}\n"),
+            Some(vec!['\n'])
+        );
+    }
+
+    #[test]
+    fn unprocessed_snapshot_with_multi_char_default_verifies() {
+        let context = Context::from_static(&['\r', '\r', '\n']);
+        let mut hasher = sha1::Sha1::default();
+
+        // Both the default ending and a non-default ending must produce snapshots whose digest
+        // verifies (i.e. whose serialization reproduces the original bytes).
+        for bytes in [b"{\"a\":1}\r\r\n".as_slice(), b"{\"a\":1}\n\r\r".as_slice()] {
+            let snapshot = context
+                .unprocessed_snapshot(&crate::format::Format::Utf8, bytes)
+                .expect("valid snapshot");
+            assert_eq!(context.verify(&snapshot, &mut hasher), Ok(()));
+        }
     }
 }

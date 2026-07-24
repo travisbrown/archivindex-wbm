@@ -26,6 +26,20 @@ fn examples_merge_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../examples/wbm/twitter/merge")
 }
 
+/// Whether the repository's merge fixtures (outside the packaged crate) are available; tests skip
+/// gracefully when they are not (e.g. when running from a published package).
+fn fixtures_available() -> bool {
+    if examples_merge_dir().join("manifest.csv").exists() {
+        true
+    } else {
+        eprintln!(
+            "skipping: merge fixtures not available at {}",
+            examples_merge_dir().display()
+        );
+        false
+    }
+}
+
 /// Entry from `manifest.csv`.
 #[derive(Debug, Clone)]
 struct ManifestEntry {
@@ -81,6 +95,10 @@ fn classify_content(content: &str) -> NewSnapshotTarget {
 /// both the statistics and the output contents.
 #[tokio::test]
 async fn merge_dual_zstd_end_to_end() {
+    if !fixtures_available() {
+        return;
+    }
+
     let merge_dir = examples_merge_dir();
     let merge_raw_dir = merge_dir.join("raw");
     let manifest = read_manifest();
@@ -201,6 +219,10 @@ async fn merge_dual_zstd_end_to_end() {
 /// Verify that snapshots in the output are valid (digest matches content).
 #[tokio::test]
 async fn merge_output_verifies() {
+    if !fixtures_available() {
+        return;
+    }
+
     let merge_dir = examples_merge_dir();
     let merge_raw_dir = merge_dir.join("raw");
     let manifest = read_manifest();
@@ -255,6 +277,10 @@ async fn merge_output_verifies() {
 /// With parallelism > 1, the merge should produce identical results.
 #[tokio::test]
 async fn merge_parallel_matches_sequential() {
+    if !fixtures_available() {
+        return;
+    }
+
     let merge_dir = examples_merge_dir();
     let merge_raw_dir = merge_dir.join("raw");
     let manifest = read_manifest();

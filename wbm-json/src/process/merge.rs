@@ -33,7 +33,7 @@ pub struct Collision {
     pub digest: Sha1Digest,
 }
 
-/// Indicates which input file produced a merged line.
+/// A merged output line together with which input file (or both) produced it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SourceLine {
     First(String),
@@ -43,6 +43,10 @@ pub enum SourceLine {
 }
 
 impl SourceLine {
+    /// Return the line value to include in the merged output.
+    ///
+    /// In case of a collision, we prefer the shorter value, since this will generally be the case
+    /// where one line has an `expected_digest` field and the other does not.
     #[must_use]
     pub fn value(&self) -> &str {
         match self {
@@ -143,8 +147,12 @@ pub fn merge_zst<P: AsRef<Path>>(
     let reader_first = BufReader::new(zstd::Decoder::new(std::fs::File::open(first)?)?);
     let reader_second = BufReader::new(zstd::Decoder::new(std::fs::File::open(second)?)?);
 
-    let mut writer =
-        zstd::Encoder::new(std::fs::File::create(output)?, i32::from(compression_level))?;
+    // `create_new` (as in `SnapshotWriter::create`) so an accidental rerun cannot clobber an
+    // existing merge output.
+    let mut writer = zstd::Encoder::new(
+        std::fs::File::create_new(output)?,
+        i32::from(compression_level),
+    )?;
 
     let mut summary = MergeSummary::default();
 
