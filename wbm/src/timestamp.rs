@@ -68,12 +68,21 @@ impl From<Timestamp> for DateTime<Utc> {
     }
 }
 
+/// Unix-second bounds of the instants whose year renders as exactly four digits (1000-01-01
+/// through 9999-12-31), keeping the fourteen-digit timestamp representation valid.
+const MIN_TIMESTAMP_SECS: i64 = -30_610_224_000;
+const MAX_TIMESTAMP_SECS: i64 = 253_402_300_799;
+
 impl TryFrom<i64> for Timestamp {
     type Error = Error;
     fn try_from(value: i64) -> Result<Self, Self::Error> {
-        Ok(Self(
-            DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
-        ))
+        if (MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&value) {
+            Ok(Self(
+                DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
+            ))
+        } else {
+            Err(Error::InvalidTimestampI64(value))
+        }
     }
 }
 
@@ -142,7 +151,7 @@ impl<'de> Deserialize<'de> for Timestamp {
 
 impl Serialize for Timestamp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        serializer.collect_str(self)
     }
 }
 
@@ -151,9 +160,8 @@ impl rusqlite::types::FromSql for Timestamp {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         let timestamp_s = value.as_i64()?;
 
-        DateTime::from_timestamp(timestamp_s, 0)
-            .map(Timestamp)
-            .ok_or_else(|| rusqlite::types::FromSqlError::OutOfRange(timestamp_s))
+        Self::try_from(timestamp_s)
+            .map_err(|_| rusqlite::types::FromSqlError::OutOfRange(timestamp_s))
     }
 }
 
@@ -265,5 +273,22 @@ mod tests {
             .unwrap();
 
         prop_assert_eq!(retrieved, timestamp);
+    }
+
+    #[test]
+    fn try_from_i64_accepts_only_four_digit_years() {
+        // The bounds are the first second of year 1000 and the last second of year 9999.
+        let min = super::Timestamp::try_from(super::MIN_TIMESTAMP_SECS).unwrap();
+        let max = super::Timestamp::try_from(super::MAX_TIMESTAMP_SECS).unwrap();
+        assert_eq!(min.to_string(), "10000101000000");
+        assert_eq!(max.to_string(), "99991231235959");
+
+        // Everything in range round-trips through the fourteen-digit representation.
+        assert_eq!(max.to_string().parse::<super::Timestamp>().unwrap(), max);
+
+        // Out-of-range instants would break the fourteen-digit representation, so they are
+        // rejected rather than accepted silently.
+        assert!(super::Timestamp::try_from(super::MIN_TIMESTAMP_SECS - 1).is_err());
+        assert!(super::Timestamp::try_from(super::MAX_TIMESTAMP_SECS + 1).is_err());
     }
 }
