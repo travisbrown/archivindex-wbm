@@ -74,6 +74,7 @@ async fn main() -> Result<(), Error> {
             log::info!("Loaded {} excluded digests", excluded.len());
 
             let index = CdxIndex::open(&db)?;
+            let mut writer = csv::Writer::from_writer(std::io::stdout());
 
             if let Some(order) = sort {
                 // Collect, sort by timestamp, then print.
@@ -89,17 +90,19 @@ async fn main() -> Result<(), Error> {
                     SortOrder::Desc => items.sort_unstable_by_key(|i| Reverse(i.timestamp_secs)),
                 }
                 for item in &items {
-                    print_item(item);
+                    write_item(&mut writer, item)?;
                 }
             } else {
-                // Stream in natural SURL+timestamp order.
+                // Stream in natural SURT and timestamp order.
                 for result in index.iter_all() {
                     let item = result?;
                     if is_missing(&item, &excluded) {
-                        print_item(&item);
+                        write_item(&mut writer, &item)?;
                     }
                 }
             }
+
+            writer.flush()?;
         }
     }
 
@@ -111,12 +114,19 @@ fn is_missing(item: &StoredItem, excluded: &HashSet<Sha1Digest>) -> bool {
     item.digest.as_ref().is_some_and(|d| !excluded.contains(d))
 }
 
-/// Tab-separated: `<digest>\t<timestamp_secs>\t<surl>\t<original>`.
-fn print_item(item: &StoredItem) {
-    println!(
-        "{}\t{}\t{}\t{}",
-        item.digest_str, item.timestamp_secs, item.surl, item.original
-    );
+/// Write an item as a CSV record: digest, timestamp (Unix seconds), SURT, original URL.
+///
+/// SURTs and URLs routinely contain commas, so fields are quoted as needed by the `csv` writer.
+fn write_item<W: std::io::Write>(
+    writer: &mut csv::Writer<W>,
+    item: &StoredItem,
+) -> Result<(), csv::Error> {
+    writer.write_record([
+        item.digest_str.as_str(),
+        &item.timestamp_secs.to_string(),
+        &item.surt,
+        &item.original,
+    ])
 }
 
 /// Read digests from all snapshot Zstandard-compressed NDJSON files and plain-text digest files.
@@ -173,6 +183,8 @@ pub enum Error {
     Args(#[from] cli_helpers::Error),
     #[error("CDX index error")]
     Index(#[from] archivindex_wbm_cdx_index::Error),
+    #[error("CSV output error")]
+    Csv(#[from] csv::Error),
 }
 
 #[derive(Debug, Parser)]
@@ -211,7 +223,7 @@ enum Command {
     },
     /// Print index items whose digest is absent from the given snapshot or digest files.
     ///
-    /// Output is tab-separated: digest, timestamp (Unix seconds), SURL, original URL.
+    /// Output is CSV: digest, timestamp (Unix seconds), SURT, original URL.
     MissingFrom {
         /// Path to the `RocksDB` index directory.
         #[clap(long)]

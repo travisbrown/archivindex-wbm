@@ -15,3 +15,6 @@ archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
 chrono = { workspace = true }
 rocksdb = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

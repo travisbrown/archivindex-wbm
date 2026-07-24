@@ -4,7 +4,7 @@
 
 //! On-disk CDX item index backed by `RocksDB` with Zstandard compression.
 //!
-//! Supports fast lookup by digest and prefix iteration by SURL (Sort-friendly URI Reordering
+//! Supports fast lookup by digest and prefix iteration by SURT (Sort-friendly URI Reordering
 //! Transform key). Each item carries a status of [`ItemStatus::Available`],
 //! [`ItemStatus::InProgress`] (with a timeout after which it reverts to Available), or
 //! [`ItemStatus::Done`].
@@ -38,10 +38,10 @@ pub enum ItemStatus {
 
 /// A CDX item retrieved from the index (without status; use [`CdxIndex::get_status`] for the
 /// mutable processing state).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredItem {
-    /// SURL (Sort-friendly URI Reordering Transform) key.
-    pub surl: String,
+    /// SURT (Sort-friendly URI Reordering Transform) key.
+    pub surt: String,
     /// Capture timestamp as Unix seconds.
     pub timestamp_secs: i64,
     pub original: String,
@@ -79,10 +79,14 @@ pub enum Error {
     DecodeTruncatedStatusCode,
     #[error("missing digest tag byte")]
     DecodeMissingDigestTag,
+    #[error("unknown digest tag byte: {0:#x}")]
+    DecodeUnknownDigestTag(u8),
     #[error("not enough bytes to read SHA-1")]
     DecodeTruncatedSha1,
     #[error("missing length tag byte")]
     DecodeMissingLengthTag,
+    #[error("unknown length tag byte: {0:#x}")]
+    DecodeUnknownLengthTag(u8),
     #[error("not enough bytes to read length field")]
     DecodeTruncatedLength,
     #[error("missing status tag byte")]
@@ -99,6 +103,8 @@ pub enum Error {
     DecodeDigestKeyTooShort,
     #[error("digest index references missing item")]
     DecodeIndexReferenceMissing,
+    #[error("SURT contains a NUL byte")]
+    EncodeSurtNul,
 }
 
 /// On-disk CDX item index.
@@ -106,22 +112,22 @@ pub struct CdxIndex {
     db: DB,
 }
 
-/// `surl_bytes || NUL || big-endian u64 unix seconds`
-fn item_key(surl: &str, timestamp_secs: i64) -> Vec<u8> {
-    let surl_bytes = surl.as_bytes();
-    let mut key = Vec::with_capacity(surl_bytes.len() + 9);
-    key.extend_from_slice(surl_bytes);
+/// `surt_bytes || NUL || big-endian u64 unix seconds`
+fn item_key(surt: &str, timestamp_secs: i64) -> Vec<u8> {
+    let surt_bytes = surt.as_bytes();
+    let mut key = Vec::with_capacity(surt_bytes.len() + 9);
+    key.extend_from_slice(surt_bytes);
     key.push(0);
     key.extend_from_slice(&timestamp_secs.cast_unsigned().to_be_bytes());
     key
 }
 
-/// `sha1_20_bytes || surl_bytes || NUL || big-endian u64 unix seconds`
-fn digest_key(digest: &Sha1Digest, surl: &str, timestamp_secs: i64) -> Vec<u8> {
-    let surl_bytes = surl.as_bytes();
-    let mut key = Vec::with_capacity(20 + surl_bytes.len() + 9);
+/// `sha1_20_bytes || surt_bytes || NUL || big-endian u64 unix seconds`
+fn digest_key(digest: &Sha1Digest, surt: &str, timestamp_secs: i64) -> Vec<u8> {
+    let surt_bytes = surt.as_bytes();
+    let mut key = Vec::with_capacity(20 + surt_bytes.len() + 9);
     key.extend_from_slice(&digest.0);
-    key.extend_from_slice(surl_bytes);
+    key.extend_from_slice(surt_bytes);
     key.push(0);
     key.extend_from_slice(&timestamp_secs.cast_unsigned().to_be_bytes());
     key
@@ -130,7 +136,9 @@ fn digest_key(digest: &Sha1Digest, surl: &str, timestamp_secs: i64) -> Vec<u8> {
 fn encode_item_value(item: &Item<'_>) -> Result<Vec<u8>, Error> {
     let original_bytes = item.original.as_bytes();
     let mime_bytes = item.mime_type.as_str().as_bytes();
-    let mut value = Vec::new();
+    // The fixed-size fields (length prefixes, status code, tag bytes, and the SHA-1 or length
+    // payloads) total at most 40 bytes.
+    let mut value = Vec::with_capacity(original_bytes.len() + mime_bytes.len() + 40);
 
     let url_len = original_bytes.len();
     value.extend_from_slice(
@@ -184,7 +192,7 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
         .iter()
         .position(|&byte| byte == 0)
         .ok_or(Error::DecodeMissingKeyNul)?;
-    let surl = String::from_utf8(raw_key[..nul_pos].to_vec())?;
+    let surt = String::from_utf8(raw_key[..nul_pos].to_vec())?;
     let timestamp_bytes: [u8; 8] = raw_key[nul_pos + 1..]
         .try_into()
         .map_err(|_| Error::DecodeKeyTimestampWrongLength)?;
@@ -192,13 +200,18 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
 
     let mut pos = 0usize;
 
-    macro_rules! read_u16_as_usize {
-        () => {{
-            let bytes: [u8; 2] = raw_value[pos..pos + 2]
+    // Every read below bounds-checks with `get` and returns a decode error on truncation, so
+    // corrupt values surface as `Err` rather than panicking.
+    macro_rules! read_array {
+        ($n:expr, $error:expr) => {{
+            let end = pos + $n;
+            let bytes: [u8; $n] = raw_value
+                .get(pos..end)
+                .ok_or($error)?
                 .try_into()
-                .map_err(|_| Error::DecodeTruncatedU16)?;
-            pos += 2;
-            u16::from_le_bytes(bytes) as usize
+                .map_err(|_| $error)?;
+            pos = end;
+            bytes
         }};
     }
     macro_rules! read_bytes {
@@ -210,48 +223,53 @@ fn decode_item(raw_key: &[u8], raw_value: &[u8]) -> Result<StoredItem, Error> {
         }};
     }
 
-    let original_len = read_u16_as_usize!();
+    let original_len = usize::from(u16::from_le_bytes(read_array!(
+        2,
+        Error::DecodeTruncatedU16
+    )));
     let original = String::from_utf8(read_bytes!(original_len).to_vec())?;
 
-    let mime_len = read_u16_as_usize!();
+    let mime_len = usize::from(u16::from_le_bytes(read_array!(
+        2,
+        Error::DecodeTruncatedU16
+    )));
     let mime_type = String::from_utf8(read_bytes!(mime_len).to_vec())?;
 
-    let status_code = {
-        let bytes: [u8; 2] = read_bytes!(2)
-            .try_into()
-            .map_err(|_| Error::DecodeTruncatedStatusCode)?;
-        u16::from_be_bytes(bytes)
-    };
+    let status_code = u16::from_be_bytes(read_array!(2, Error::DecodeTruncatedStatusCode));
 
     let digest_tag = *raw_value.get(pos).ok_or(Error::DecodeMissingDigestTag)?;
     pos += 1;
-    let (digest, digest_str) = if digest_tag == 1 {
-        let sha1_bytes: [u8; 20] = read_bytes!(20)
-            .try_into()
-            .map_err(|_| Error::DecodeTruncatedSha1)?;
-        let sha1 = Sha1Digest(sha1_bytes);
-        let digest_string = sha1.to_string();
-        (Some(sha1), digest_string)
-    } else {
-        let invalid_len = read_u16_as_usize!();
-        let digest_string = String::from_utf8(read_bytes!(invalid_len).to_vec())?;
-        (None, digest_string)
+    let (digest, digest_str) = match digest_tag {
+        1 => {
+            let sha1 = Sha1Digest(read_array!(20, Error::DecodeTruncatedSha1));
+            let digest_string = sha1.to_string();
+            (Some(sha1), digest_string)
+        }
+        0 => {
+            let invalid_len = usize::from(u16::from_le_bytes(read_array!(
+                2,
+                Error::DecodeTruncatedU16
+            )));
+            let digest_string = String::from_utf8(read_bytes!(invalid_len).to_vec())?;
+            (None, digest_string)
+        }
+        tag => return Err(Error::DecodeUnknownDigestTag(tag)),
     };
 
     let has_length = *raw_value.get(pos).ok_or(Error::DecodeMissingLengthTag)?;
     pos += 1;
-    let length = if has_length == 1 {
-        let bytes: [u8; 8] = read_bytes!(8)
-            .try_into()
-            .map_err(|_| Error::DecodeTruncatedLength)?;
-        Some(i64::from_le_bytes(bytes))
-    } else {
-        None
+    let length = match has_length {
+        1 => Some(i64::from_le_bytes(read_array!(
+            8,
+            Error::DecodeTruncatedLength
+        ))),
+        0 => None,
+        tag => return Err(Error::DecodeUnknownLengthTag(tag)),
     };
     let _ = pos;
 
     Ok(StoredItem {
-        surl,
+        surt,
         timestamp_secs,
         original,
         mime_type,
@@ -351,34 +369,46 @@ impl CdxIndex {
         })
     }
 
+    /// Fetch a column family handle. All column families are created by
+    /// [`open`](Self::open), so the handles always exist.
+    fn cf(&self, name: &str) -> &rocksdb::ColumnFamily {
+        self.db
+            .cf_handle(name)
+            .expect("column family created at open")
+    }
+
     /// Insert CDX items in a single atomic write batch.
     ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
+    /// Re-inserting an item with the same SURT and timestamp overwrites the stored value
+    /// (last write wins). A digest-index entry from an earlier insert with a different digest is
+    /// not removed, but such stale entries are skipped by
+    /// [`iter_by_digest`](Self::iter_by_digest).
     pub fn insert_batch<'a>(
         &self,
         items: impl IntoIterator<Item = &'a Item<'a>>,
     ) -> Result<(), Error> {
-        let cf_items = self.db.cf_handle(CF_ITEMS).expect("CF_ITEMS always exists");
-        let cf_digest = self
-            .db
-            .cf_handle(CF_DIGEST)
-            .expect("CF_DIGEST always exists");
+        let cf_items = self.cf(CF_ITEMS);
+        let cf_digest = self.cf(CF_DIGEST);
 
         let mut batch = WriteBatch::default();
 
         for item in items {
             let timestamp_secs: i64 = i64::from(item.timestamp);
-            let surl = item.key.as_str();
-            let key = item_key(surl, timestamp_secs);
+            let surt = item.key.as_str();
+
+            // A NUL byte in the SURT would make the key ambiguous, since NUL terminates the SURT
+            // portion of the encoded key.
+            if surt.bytes().any(|byte| byte == 0) {
+                return Err(Error::EncodeSurtNul);
+            }
+
+            let key = item_key(surt, timestamp_secs);
             let value = encode_item_value(item)?;
 
             batch.put_cf(cf_items, &key, &value);
 
             if let Digest::Valid(sha1) = &item.digest {
-                batch.put_cf(cf_digest, digest_key(sha1, surl, timestamp_secs), []);
+                batch.put_cf(cf_digest, digest_key(sha1, surt, timestamp_secs), []);
             }
         }
 
@@ -386,23 +416,27 @@ impl CdxIndex {
         Ok(())
     }
 
+    /// Look up a single item by its exact SURT and capture timestamp.
+    pub fn get(&self, surt: &str, timestamp_secs: i64) -> Result<Option<StoredItem>, Error> {
+        let key = item_key(surt, timestamp_secs);
+        self.db
+            .get_cf(self.cf(CF_ITEMS), &key)?
+            .map(|raw_value| decode_item(&key, &raw_value))
+            .transpose()
+    }
+
     /// Insert a single CDX item.
     pub fn insert(&self, item: &Item<'_>) -> Result<(), Error> {
         self.insert_batch(std::iter::once(item))
     }
 
-    /// Iterate all items whose SURL starts with `prefix`, in SURL+timestamp order. Does not
+    /// Iterate all items whose SURT starts with `prefix`, in SURT+timestamp order. Does not
     /// populate status; call [`get_status`](Self::get_status) separately when needed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the items column family handle is unavailable, which cannot happen when the
-    /// database was opened successfully via [`open`](Self::open).
-    pub fn iter_by_surl_prefix<'a>(
+    pub fn iter_by_surt_prefix<'a>(
         &'a self,
         prefix: &str,
     ) -> impl Iterator<Item = Result<StoredItem, Error>> + 'a {
-        let cf = self.db.cf_handle(CF_ITEMS).expect("CF_ITEMS always exists");
+        let cf = self.cf(CF_ITEMS);
         let prefix_bytes = prefix.as_bytes().to_vec();
 
         let mut read_opts = ReadOptions::default();
@@ -425,19 +459,14 @@ impl CdxIndex {
 
     /// Iterate all items with the given valid digest.
     ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
+    /// Digest-index entries whose item has since been re-inserted with a different digest are
+    /// stale and are skipped rather than returned under the wrong digest.
     pub fn iter_by_digest(
         &self,
         digest: Sha1Digest,
     ) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {
-        let cf_digest = self
-            .db
-            .cf_handle(CF_DIGEST)
-            .expect("CF_DIGEST always exists");
-        let cf_items = self.db.cf_handle(CF_ITEMS).expect("CF_ITEMS always exists");
+        let cf_digest = self.cf(CF_DIGEST);
+        let cf_items = self.cf(CF_ITEMS);
 
         let digest_prefix = digest.0;
         let mut read_opts = ReadOptions::default();
@@ -451,31 +480,31 @@ impl CdxIndex {
                 read_opts,
                 IteratorMode::From(&digest_prefix, Direction::Forward),
             )
-            .map(move |result| {
-                let (digest_key_bytes, _) = result.map_err(Error::RocksDb)?;
-                // Digest key layout: 20 bytes digest || surl || NUL || 8 bytes timestamp. Strip the
-                // 20-byte digest prefix to recover the items CF key.
-                let items_key = digest_key_bytes
-                    .get(20..)
-                    .ok_or(Error::DecodeDigestKeyTooShort)?;
-                let raw_value = self
-                    .db
-                    .get_cf(cf_items, items_key)?
-                    .ok_or(Error::DecodeIndexReferenceMissing)?;
-                decode_item(items_key, &raw_value)
+            .filter_map(move |result| {
+                let decoded = result.map_err(Error::RocksDb).and_then(|(key_bytes, _)| {
+                    // Digest key layout: 20 bytes digest || surt || NUL || 8 bytes timestamp.
+                    // Strip the 20-byte digest prefix to recover the items CF key.
+                    let items_key = key_bytes.get(20..).ok_or(Error::DecodeDigestKeyTooShort)?;
+                    let raw_value = self
+                        .db
+                        .get_cf(cf_items, items_key)?
+                        .ok_or(Error::DecodeIndexReferenceMissing)?;
+                    decode_item(items_key, &raw_value)
+                });
+
+                match decoded {
+                    // A stale index entry: the item was re-inserted with a different digest.
+                    Ok(item) if item.digest != Some(digest) => None,
+                    other => Some(other),
+                }
             })
     }
 
-    /// Iterate all items in the index in SURL+timestamp order.
+    /// Iterate all items in the index in SURT+timestamp order.
     ///
     /// Does not populate status; call [`get_status`](Self::get_status) separately when needed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the items column family handle is unavailable, which cannot happen when the
-    /// database was opened successfully via [`open`](Self::open).
     pub fn iter_all(&self) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {
-        let cf = self.db.cf_handle(CF_ITEMS).expect("CF_ITEMS always exists");
+        let cf = self.cf(CF_ITEMS);
         self.db.iterator_cf(cf, IteratorMode::Start).map(|result| {
             result
                 .map_err(Error::RocksDb)
@@ -486,38 +515,25 @@ impl CdxIndex {
     /// Get the effective status of an item, lazily resolving expired `InProgress` timeouts back to
     /// `Available`.
     ///
-    /// # Panics
-    ///
-    /// Panics if the status column family handle is unavailable, which cannot happen when the
-    /// database was opened successfully via [`open`](Self::open).
-    pub fn get_status(&self, surl: &str, timestamp_secs: i64) -> Result<ItemStatus, Error> {
-        let cf = self
-            .db
-            .cf_handle(CF_STATUS)
-            .expect("CF_STATUS always exists");
-        let key = item_key(surl, timestamp_secs);
+    /// Items with no stored status (including items that were never inserted) report
+    /// [`ItemStatus::Available`].
+    pub fn get_status(&self, surt: &str, timestamp_secs: i64) -> Result<ItemStatus, Error> {
+        let cf = self.cf(CF_STATUS);
+        let key = item_key(surt, timestamp_secs);
         self.db
             .get_cf(cf, &key)?
             .map_or(Ok(ItemStatus::Available), |raw| decode_status(&raw))
     }
 
     /// Set the status of an item.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the status column family handle is unavailable, which cannot happen when the
-    /// database was opened successfully via [`open`](Self::open).
     pub fn set_status(
         &self,
-        surl: &str,
+        surt: &str,
         timestamp_secs: i64,
         status: &ItemStatus,
     ) -> Result<(), Error> {
-        let cf = self
-            .db
-            .cf_handle(CF_STATUS)
-            .expect("CF_STATUS always exists");
-        let key = item_key(surl, timestamp_secs);
+        let cf = self.cf(CF_STATUS);
+        let key = item_key(surt, timestamp_secs);
         match status {
             ItemStatus::Available => self.db.delete_cf(cf, &key)?,
             other => self.db.put_cf(cf, &key, encode_status(other))?,
@@ -526,27 +542,327 @@ impl CdxIndex {
     }
 
     /// Mark an item as in-progress with a timeout `duration` from now.
-    pub fn claim(&self, surl: &str, timestamp_secs: i64, duration: Duration) -> Result<(), Error> {
+    ///
+    /// This is a blind write, not an atomic check-and-set: it overwrites any existing status, and
+    /// checking [`get_status`](Self::get_status) first does not close the race window. Concurrent
+    /// claimers must coordinate externally (e.g. behind a mutex).
+    pub fn claim(&self, surt: &str, timestamp_secs: i64, duration: Duration) -> Result<(), Error> {
         let timeout = Utc::now() + duration;
-        self.set_status(surl, timestamp_secs, &ItemStatus::InProgress { timeout })
+        self.set_status(surt, timestamp_secs, &ItemStatus::InProgress { timeout })
     }
 
     /// Mark an item as done.
-    pub fn mark_done(&self, surl: &str, timestamp_secs: i64) -> Result<(), Error> {
-        self.set_status(surl, timestamp_secs, &ItemStatus::Done)
+    pub fn mark_done(&self, surt: &str, timestamp_secs: i64) -> Result<(), Error> {
+        self.set_status(surt, timestamp_secs, &ItemStatus::Done)
     }
 
     /// Approximate number of items in the index (uses `RocksDB`'s estimate).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the items column family handle is unavailable, which cannot happen when the
-    /// database was opened successfully via [`open`](Self::open).
     pub fn item_count_approx(&self) -> Result<u64, Error> {
-        let cf = self.db.cf_handle(CF_ITEMS).expect("CF_ITEMS always exists");
+        let cf = self.cf(CF_ITEMS);
         Ok(self
             .db
             .property_int_value_cf(cf, "rocksdb.estimate-num-keys")?
             .unwrap_or(0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use archivindex_wbm::{
+        cdx::{mime_type::MimeType, status_code::StatusCode},
+        surt::Surt,
+    };
+    use std::borrow::Cow;
+
+    fn item(
+        surt: &'static str,
+        timestamp: &str,
+        original: &'static str,
+        digest: Digest<'static>,
+        length: Option<i64>,
+    ) -> Item<'static> {
+        Item {
+            key: Surt::parse_str(surt).expect("valid SURT"),
+            timestamp: timestamp.parse().expect("valid timestamp"),
+            original: Cow::Borrowed(original),
+            mime_type: MimeType::parse_str("application/json").expect("valid MIME type"),
+            status_code: StatusCode::Ok,
+            digest,
+            length,
+        }
+    }
+
+    fn open_index() -> (tempfile::TempDir, CdxIndex) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let index = CdxIndex::open(dir.path()).expect("open index");
+        (dir, index)
+    }
+
+    #[test]
+    fn insert_and_iter_all_round_trips_all_fields() {
+        let (_dir, index) = open_index();
+        let valid = Sha1Digest([7; 20]);
+
+        index
+            .insert_batch([
+                &item(
+                    "com,example)/b",
+                    "20210315000000",
+                    "https://example.com/b",
+                    Digest::Valid(valid),
+                    Some(1234),
+                ),
+                &item(
+                    "com,example)/a",
+                    "20200101120000",
+                    "https://example.com/a",
+                    Digest::Invalid(Cow::Borrowed("not-base32")),
+                    None,
+                ),
+            ])
+            .expect("insert");
+
+        let items: Vec<StoredItem> = index
+            .iter_all()
+            .collect::<Result<_, _>>()
+            .expect("iterate all");
+
+        assert_eq!(items.len(), 2);
+
+        // Iteration is in SURT+timestamp order, so `a` comes first.
+        assert_eq!(items[0].surt, "com,example)/a");
+        assert_eq!(items[0].original, "https://example.com/a");
+        assert_eq!(items[0].mime_type, "application/json");
+        assert_eq!(items[0].status_code, 200);
+        assert_eq!(items[0].digest, None);
+        assert_eq!(items[0].digest_str, "not-base32");
+        assert_eq!(items[0].length, None);
+
+        assert_eq!(items[1].surt, "com,example)/b");
+        assert_eq!(items[1].digest, Some(valid));
+        assert_eq!(items[1].digest_str, valid.to_string());
+        assert_eq!(items[1].length, Some(1234));
+
+        assert_eq!(
+            index
+                .get("com,example)/b", items[1].timestamp_secs)
+                .expect("get")
+                .expect("present")
+                .original,
+            "https://example.com/b"
+        );
+        assert_eq!(index.get("com,example)/c", 0).expect("get"), None);
+    }
+
+    #[test]
+    fn decode_item_errors_on_every_truncation() {
+        let full = encode_item_value(&item(
+            "com,example)/a",
+            "20200101120000",
+            "https://example.com/a",
+            Digest::Valid(Sha1Digest([7; 20])),
+            Some(1234),
+        ))
+        .expect("encode");
+        let key = item_key("com,example)/a", 0);
+
+        for len in 0..full.len() {
+            assert!(
+                decode_item(&key, &full[..len]).is_err(),
+                "truncation to {len} bytes must error"
+            );
+        }
+        assert!(decode_item(&key, &full).is_ok());
+    }
+
+    #[test]
+    fn decode_item_errors_on_unknown_tag_bytes() {
+        let full = encode_item_value(&item(
+            "com,example)/a",
+            "20200101120000",
+            "https://example.com/a",
+            Digest::Valid(Sha1Digest([7; 20])),
+            None,
+        ))
+        .expect("encode");
+        let key = item_key("com,example)/a", 0);
+
+        // The digest tag is the byte after the two length-prefixed strings and the status code.
+        let digest_tag_pos = 2 + "https://example.com/a".len() + 2 + "application/json".len() + 2;
+
+        let mut corrupt = full.clone();
+        corrupt[digest_tag_pos] = 7;
+        assert!(matches!(
+            decode_item(&key, &corrupt),
+            Err(Error::DecodeUnknownDigestTag(7))
+        ));
+
+        let mut corrupt = full;
+        let length_tag_pos = digest_tag_pos + 1 + 20;
+        corrupt[length_tag_pos] = 9;
+        assert!(matches!(
+            decode_item(&key, &corrupt),
+            Err(Error::DecodeUnknownLengthTag(9))
+        ));
+    }
+
+    #[test]
+    fn prefix_upper_bound_handles_rollover() {
+        assert_eq!(prefix_upper_bound(b"a"), Some(b"b".to_vec()));
+        assert_eq!(prefix_upper_bound(b"a\xff"), Some(b"b\x00".to_vec()));
+        assert_eq!(prefix_upper_bound(b"\xff\xff"), None);
+    }
+
+    #[test]
+    fn iter_by_surt_prefix_excludes_adjacent_prefixes() {
+        let (_dir, index) = open_index();
+
+        index
+            .insert_batch([
+                &item(
+                    "com,a)/x",
+                    "20200101120000",
+                    "https://a.com/x",
+                    Digest::Valid(Sha1Digest([1; 20])),
+                    None,
+                ),
+                &item(
+                    "com,b)/y",
+                    "20200101120000",
+                    "https://b.com/y",
+                    Digest::Valid(Sha1Digest([2; 20])),
+                    None,
+                ),
+            ])
+            .expect("insert");
+
+        let items: Vec<StoredItem> = index
+            .iter_by_surt_prefix("com,a")
+            .collect::<Result<_, _>>()
+            .expect("iterate prefix");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].surt, "com,a)/x");
+    }
+
+    #[test]
+    fn status_lifecycle() {
+        let (_dir, index) = open_index();
+        let surt = "com,example)/a";
+
+        assert_eq!(
+            index.get_status(surt, 0).expect("status"),
+            ItemStatus::Available
+        );
+
+        index
+            .claim(surt, 0, Duration::seconds(3600))
+            .expect("claim");
+        assert!(matches!(
+            index.get_status(surt, 0).expect("status"),
+            ItemStatus::InProgress { .. }
+        ));
+
+        // An expired in-progress claim lazily reverts to available.
+        index
+            .set_status(
+                surt,
+                0,
+                &ItemStatus::InProgress {
+                    timeout: Utc::now() - Duration::seconds(10),
+                },
+            )
+            .expect("set status");
+        assert_eq!(
+            index.get_status(surt, 0).expect("status"),
+            ItemStatus::Available
+        );
+
+        index.mark_done(surt, 0).expect("mark done");
+        assert_eq!(index.get_status(surt, 0).expect("status"), ItemStatus::Done);
+
+        index
+            .set_status(surt, 0, &ItemStatus::Available)
+            .expect("set status");
+        assert_eq!(
+            index.get_status(surt, 0).expect("status"),
+            ItemStatus::Available
+        );
+    }
+
+    #[test]
+    fn iter_by_digest_matches_and_skips_stale_entries() {
+        let (_dir, index) = open_index();
+        let first = Sha1Digest([1; 20]);
+        let second = Sha1Digest([2; 20]);
+
+        index
+            .insert_batch([
+                &item(
+                    "com,example)/a",
+                    "20200101120000",
+                    "https://example.com/a",
+                    Digest::Valid(first),
+                    None,
+                ),
+                &item(
+                    "com,example)/b",
+                    "20200101120000",
+                    "https://example.com/b",
+                    Digest::Valid(first),
+                    None,
+                ),
+                &item(
+                    "com,example)/c",
+                    "20200101120000",
+                    "https://example.com/c",
+                    Digest::Valid(second),
+                    None,
+                ),
+            ])
+            .expect("insert");
+
+        let surts = |digest| -> Vec<String> {
+            index
+                .iter_by_digest(digest)
+                .map(|result| result.map(|item| item.surt))
+                .collect::<Result<_, _>>()
+                .expect("iterate digest")
+        };
+
+        assert_eq!(surts(first), vec!["com,example)/a", "com,example)/b"]);
+        assert_eq!(surts(second), vec!["com,example)/c"]);
+
+        // Re-inserting `a` with a different digest leaves a stale index entry under `first`,
+        // which iteration skips.
+        index
+            .insert(&item(
+                "com,example)/a",
+                "20200101120000",
+                "https://example.com/a",
+                Digest::Valid(second),
+                None,
+            ))
+            .expect("re-insert");
+
+        assert_eq!(surts(first), vec!["com,example)/b"]);
+        assert_eq!(surts(second), vec!["com,example)/a", "com,example)/c"]);
+    }
+
+    #[test]
+    fn insert_rejects_nul_in_surt() {
+        // `Surt::parse_str` validates the domain part but not the path, so a NUL can reach the
+        // key encoder, where it would make the key ambiguous.
+        let (_dir, index) = open_index();
+        let entry = item(
+            "com,example)/a\u{0}b",
+            "20200101120000",
+            "https://example.com/a",
+            Digest::Valid(Sha1Digest([1; 20])),
+            None,
+        );
+
+        assert!(matches!(index.insert(&entry), Err(Error::EncodeSurtNul)));
     }
 }
