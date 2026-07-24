@@ -17,16 +17,27 @@ pub mod file;
 pub mod legacy;
 pub mod verification;
 
+/// The outcome of a [`Store::save`] call.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SaveSummary {
-    Success { actual_digest: Option<Sha1Digest> },
+    /// The download was written to the store.
+    Success,
+    /// The store already contains this digest; nothing was written.
     AlreadyPresent,
+    /// Verification failed: the bytes do not hash to the requested digest, so nothing was
+    /// written.
+    DigestMismatch { actual_digest: Sha1Digest },
 }
 
+/// The outcome of a [`Store::copy`] call.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CopySummary {
+    /// Number of downloads written to the target store.
     pub copied: usize,
+    /// Number of downloads the target store already contained.
     pub skipped: usize,
+    /// Number of downloads that failed digest verification and were not copied.
+    pub mismatched: usize,
 }
 
 /// A store for downloaded archive data, indexed by digest.
@@ -44,6 +55,10 @@ pub trait Store {
     fn iter(&self) -> Self::Iterator<'_>;
 
     /// Add a download to the store, optionally verifying the digest.
+    ///
+    /// With `verify` set, bytes that do not hash to `digest` are not persisted and are reported
+    /// as [`SaveSummary::DigestMismatch`]. The write itself is atomic (a unique temporary file
+    /// renamed into place), so a crash cannot leave a partial download under a valid digest name.
     fn save(
         &self,
         digest: Sha1Digest,
@@ -104,11 +119,14 @@ pub trait Store {
             let save_result = target.save(digest, &bytes, verify)?;
 
             match save_result {
-                SaveSummary::Success { .. } => {
+                SaveSummary::Success => {
                     copy_summary.copied += 1;
                 }
                 SaveSummary::AlreadyPresent => {
                     copy_summary.skipped += 1;
+                }
+                SaveSummary::DigestMismatch { .. } => {
+                    copy_summary.mismatched += 1;
                 }
             }
         }
@@ -163,6 +181,55 @@ mod tests {
             read_bytes.as_ref().map(AsRef::as_ref),
             Some(expected_bytes.as_slice())
         );
+
+        Ok(())
+    }
+
+    fn check_store<S: crate::Store<Error = std::io::Error>>(
+        store: &S,
+        digest: archivindex_wbm::digest::Sha1Digest,
+        absent: archivindex_wbm::digest::Sha1Digest,
+        bytes: &[u8],
+    ) -> Result<(), std::io::Error> {
+        assert_eq!(store.get(digest)?, None);
+
+        // Mismatched bytes with verification are rejected and nothing is persisted.
+        let mismatch = store.save(digest, b"other content", true)?;
+        assert!(matches!(
+            mismatch,
+            crate::SaveSummary::DigestMismatch { .. }
+        ));
+        assert_eq!(store.get(digest)?, None);
+
+        assert_eq!(
+            store.save(digest, bytes, true)?,
+            crate::SaveSummary::Success
+        );
+        assert_eq!(store.get(digest)?.as_deref(), Some(bytes));
+
+        assert_eq!(
+            store.save(digest, bytes, true)?,
+            crate::SaveSummary::AlreadyPresent
+        );
+        assert_eq!(store.get(absent)?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_get_and_mismatch_behavior() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = b"example content\n";
+        let digest = archivindex_wbm::digest::Sha1Digest::compute(bytes);
+        let absent = archivindex_wbm::digest::Sha1Digest([9; 20]);
+
+        let plain_dir = tempfile::TempDir::new()?;
+        let plain = Store::<crate::file::entry::Buffered>::new(&plain_dir, vec![2, 2])?;
+        let compressed_dir = tempfile::TempDir::new()?;
+        let compressed =
+            Store::<Compressed>::new(&compressed_dir, vec![2, 2], Compressed::default())?;
+
+        check_store(&plain, digest, absent, bytes)?;
+        check_store(&compressed, digest, absent, bytes)?;
 
         Ok(())
     }

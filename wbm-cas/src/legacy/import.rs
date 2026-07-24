@@ -8,11 +8,15 @@ use std::path::{Path, PathBuf};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("File I/O error")]
-    FileIo(PathBuf, std::io::Error),
+    #[error("File I/O error at {}", path.display())]
+    FileIo {
+        path: PathBuf,
+        #[source]
+        error: std::io::Error,
+    },
     #[error("Other I/O error")]
     OtherIo(#[from] std::io::Error),
-    #[error("Invalid digest")]
+    #[error("Invalid digest: expected {expected}, found {found}")]
     InvalidDigest {
         expected: Sha1Digest,
         found: Sha1Digest,
@@ -126,11 +130,13 @@ impl Iterator for Importer {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Running(stack) => {
+            // Iterative rather than recursive, so a deep tree of empty directories cannot
+            // overflow the stack.
+            Self::Running(stack) => loop {
                 let mut current = stack.pop()?;
 
                 match current.next() {
-                    None => self.next(),
+                    None => {}
                     Some(Ok(next)) => {
                         let path = next.path();
 
@@ -138,19 +144,16 @@ impl Iterator for Importer {
 
                         if path.is_dir() {
                             match std::fs::read_dir(path) {
-                                Ok(next_dir) => {
-                                    stack.push(next_dir);
-                                    self.next()
-                                }
-                                Err(error) => Some(Err(Error::from(error))),
+                                Ok(next_dir) => stack.push(next_dir),
+                                Err(error) => return Some(Err(Error::from(error))),
                             }
                         } else {
-                            Some(Ok(File::new(path)))
+                            return Some(Ok(File::new(path)));
                         }
                     }
-                    Some(Err(error)) => Some(Err(Error::from(error))),
+                    Some(Err(error)) => return Some(Err(Error::from(error))),
                 }
-            }
+            },
             Self::Failed(error) => error.take().map(|error| Err(Error::from(error))),
         }
     }
@@ -172,8 +175,10 @@ impl Iterator for VerifyingImporter {
                     compression_type,
                     digest,
                 } => {
-                    let mut file = std::fs::File::open(&path)
-                        .map_err(|error| Error::FileIo(path.clone(), error))?;
+                    let mut file = std::fs::File::open(&path).map_err(|error| Error::FileIo {
+                        path: path.clone(),
+                        error,
+                    })?;
 
                     let computed = match compression_type {
                         None => digest_bytes(&mut file, &mut self.hasher)?,
