@@ -4,7 +4,6 @@
 //! resolution of synthesized redirect snapshots.
 use archivindex_wbm::{digest::Sha1Digest, item::UrlParts, timestamp::Timestamp};
 use bytes::Bytes;
-use futures::future::{BoxFuture, FutureExt};
 use http::{StatusCode, header::LOCATION};
 use reqwest::Response;
 use std::time::Duration;
@@ -13,6 +12,7 @@ const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(45);
 const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_mins(1);
 const DEFAULT_MAX_RETRIES: usize = 7;
 const DEFAULT_RETRY_BASE_DURATION_MS: u64 = 60_000;
+const DEFAULT_MAX_RETRY_DELAY: Duration = Duration::from_mins(10);
 const DEFAULT_MAX_REDIRECT_DEPTH: usize = 10;
 const TEMPORARILY_OFFLINE_REDIRECT_URL: &str = "https://web.archive.org/sry";
 
@@ -26,6 +26,8 @@ pub struct Configuration {
     pub request_timeout: Duration,
     pub max_retries: usize,
     pub retry_base_duration_ms: u64,
+    /// Upper bound on a single retry delay (the exponential backoff is capped here).
+    pub max_retry_delay: Duration,
     pub max_redirect_depth: usize,
 }
 
@@ -33,11 +35,12 @@ impl Default for Configuration {
     fn default() -> Self {
         Self {
             original: true,
-            secure: false,
+            secure: true,
             tcp_keepalive: DEFAULT_TCP_KEEPALIVE_DURATION,
             request_timeout: DEFAULT_REQUEST_TIMEOUT_DURATION,
             max_retries: DEFAULT_MAX_RETRIES,
             retry_base_duration_ms: DEFAULT_RETRY_BASE_DURATION_MS,
+            max_retry_delay: DEFAULT_MAX_RETRY_DELAY,
             max_redirect_depth: DEFAULT_MAX_REDIRECT_DEPTH,
         }
     }
@@ -78,6 +81,8 @@ impl Error {
     }
 }
 
+/// A successful download: the snapshot bytes and the redirect targets that were followed to reach
+/// them, in the order they were followed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Download<'a> {
     pub bytes: Bytes,
@@ -198,95 +203,78 @@ impl Client {
     ) -> Result<Result<Download<'a>, FailedDownload>, Error> {
         let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(2)
             .factor(self.configuration.retry_base_duration_ms / 2)
+            .max_delay(self.configuration.max_retry_delay)
             .map(tokio_retry::strategy::jitter)
             .take(self.configuration.max_retries);
 
-        let mut result = tokio_retry::RetryIf::start(
+        tokio_retry::RetryIf::start(
             strategy,
-            || self.download_once(url.into(), timestamp, original, 0),
+            || self.download_once(url, timestamp, original),
             Error::can_retry,
         )
-        .await?;
-
-        if let Ok(ref mut download) = result {
-            // TODO: Confirm that this is the most likely thing users will expect.
-            download.redirects.reverse();
-        }
-
-        Ok(result)
+        .await
     }
 
-    fn download_once<'a>(
-        &'a self,
-        url: std::borrow::Cow<'a, str>,
+    async fn download_once(
+        &self,
+        url: &str,
         timestamp: Timestamp,
         original: bool,
-        depth: usize,
-    ) -> BoxFuture<'a, Result<Result<Download<'a>, FailedDownload>, Error>> {
-        async move {
-            if depth > self.configuration.max_redirect_depth {
-                Err(Error::TooManyRedirects(
+    ) -> Result<Result<Download<'static>, FailedDownload>, Error> {
+        let mut redirects: Vec<UrlParts<'static>> = vec![];
+        let mut request_url: std::borrow::Cow<'_, str> = url.into();
+        let mut request_timestamp = timestamp;
+
+        loop {
+            if redirects.len() > self.configuration.max_redirect_depth {
+                return Err(Error::TooManyRedirects(
                     self.configuration.max_redirect_depth,
+                ));
+            }
+
+            let response = self
+                .underlying
+                .get(Self::wayback_url(
+                    &request_url,
+                    request_timestamp,
+                    original,
+                    self.configuration.secure,
                 ))
-            } else {
-                let response = self
-                    .underlying
-                    .get(Self::wayback_url(
-                        &url,
-                        timestamp,
-                        original,
-                        self.configuration.secure,
-                    ))
-                    .send()
-                    .await?;
+                .send()
+                .await?;
 
-                match response.status() {
-                    StatusCode::OK => Ok(Ok(Download {
+            match response.status() {
+                StatusCode::OK => {
+                    return Ok(Ok(Download {
                         bytes: response.bytes().await?,
-                        redirects: vec![],
-                    })),
-                    StatusCode::NOT_FOUND => Ok(Err(FailedDownload::NotFound)),
-                    StatusCode::FORBIDDEN => Ok(Err(FailedDownload::Forbidden)),
-                    StatusCode::FOUND => match redirect_location(&response) {
-                        Some(location) => {
-                            let url_parts = location.parse::<UrlParts<'_>>().map_err(|_| {
-                                Error::UnexpectedRedirect(Some(location.to_string()))
-                            })?;
-
-                            let redirect_timestamp = url_parts.timestamp;
-
-                            let mut result = self
-                                .download_once(
-                                    url_parts.url.clone(),
-                                    redirect_timestamp,
-                                    original,
-                                    depth + 1,
-                                )
-                                .await?;
-
-                            if let Ok(ref mut download) = result {
-                                // Check for redirect loops by seeing if this URL and timestamp are
-                                // already in the chain.
-                                if download.redirects.iter().any(|redirect_url_parts| {
-                                    redirect_url_parts.url == url_parts.url
-                                        && redirect_url_parts.timestamp == redirect_timestamp
-                                }) {
-                                    return Err(Error::RedirectLoop);
-                                }
-
-                                // We will reverse these later.
-                                download.redirects.push(url_parts);
-                            }
-
-                            Ok(result)
-                        }
-                        None => Err(Error::UnexpectedRedirect(None)),
-                    },
-                    other => Err(Error::UnexpectedStatus(other)),
+                        redirects,
+                    }));
                 }
+                StatusCode::NOT_FOUND => return Ok(Err(FailedDownload::NotFound)),
+                StatusCode::FORBIDDEN => return Ok(Err(FailedDownload::Forbidden)),
+                StatusCode::FOUND => match redirect_location(&response) {
+                    Some(location) => {
+                        let url_parts = location
+                            .parse::<UrlParts<'static>>()
+                            .map_err(|_| Error::UnexpectedRedirect(Some(location.to_string())))?;
+
+                        // A target that was already followed (or the original request) means the
+                        // chain cycles, so fail fast instead of exhausting the depth limit.
+                        if (url_parts.url == url && url_parts.timestamp == timestamp)
+                            || redirects.contains(&url_parts)
+                        {
+                            return Err(Error::RedirectLoop);
+                        }
+
+                        request_url = url_parts.url.to_string().into();
+                        request_timestamp = url_parts.timestamp;
+                        redirects.push(url_parts);
+                    }
+                    None => return Err(Error::UnexpectedRedirect(None)),
+                },
+                other => return Err(Error::UnexpectedStatus(other)),
             }
         }
-        .boxed()
     }
 
     /// Shared first hop of redirect resolution: `HEAD` the snapshot, parse the `Found` location,

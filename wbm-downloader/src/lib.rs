@@ -85,10 +85,11 @@ impl From<&downloader::Error> for DownloadErrorType {
     }
 }
 
+/// A handle over a pool of download workers: the shared work queue, the worker tasks, and the
+/// result channel (taken once via [`take_receiver`](Manager::take_receiver)).
 pub struct Manager {
-    pub todo_queue: Arc<Mutex<Vec<ItemInfo<'static>>>>,
-    pub tasks: Vec<JoinHandle<Result<usize, Error>>>,
-    pub receiver: Option<Receiver<DownloadResult>>,
+    tasks: Vec<JoinHandle<Result<usize, Error>>>,
+    receiver: Option<Receiver<DownloadResult>>,
 }
 
 /// Write a downloaded snapshot to `dir/name` without blocking the async reactor.
@@ -252,7 +253,6 @@ impl Manager {
         }
 
         Self {
-            todo_queue,
             tasks,
             receiver: Some(receiver),
         }
