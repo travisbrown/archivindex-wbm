@@ -196,8 +196,12 @@ impl GzipParams {
         match self.compressor {
             // The Go-flate port only implements levels 4..=9.
             Compressor::GoFlate => self.level >= 4 && self.level <= 9,
-            // zlib and zlib-ng accept levels 0..=9.
+            // zlib and zlib-ng accept levels 0..=9, but only when the `zlib` feature provides
+            // their reproduction paths.
+            #[cfg(feature = "zlib")]
             Compressor::Zlib | Compressor::ZlibNg => self.level <= 9,
+            #[cfg(not(feature = "zlib"))]
+            Compressor::Zlib | Compressor::ZlibNg => false,
         }
     }
 
@@ -266,10 +270,8 @@ pub fn decompress(bytes: &[u8]) -> Option<String> {
     String::from_utf8(text).ok()
 }
 
-/// The 10-byte gzip header Go's `compress/gzip` writes: magic `1f 8b`, deflate, no flags, mtime 0,
-/// `OS = 255`, and an `XFL` derived from the level (2 for best, 4 for fastest, else 0).
-/// Builds the 10-byte gzip header: magic, deflate compression method, flags, `mtime`, XFL, and OS
-/// byte. Shared by the Go and zlib reproduction paths.
+/// Builds the 10-byte gzip header: magic `1f 8b`, deflate compression method, no flags, `mtime`,
+/// XFL, and OS byte. Shared by the Go and zlib reproduction paths.
 const fn gzip_header(mtime: u32, os: u8, xfl: u8) -> [u8; 10] {
     let m = mtime.to_le_bytes();
     [0x1f, 0x8b, 0x08, 0x00, m[0], m[1], m[2], m[3], xfl, os]
@@ -418,8 +420,10 @@ mod tests {
             os: OsByte::Unix,
             extra_flushes: 0,
         };
-        assert!(zlib(0).is_reproducible());
-        assert!(zlib(9).is_reproducible());
+        // Without the `zlib` feature there is no reproduction path, so nothing zlib-compressed is
+        // reproducible; reporting `true` would let `reproduce` panic on untrusted metadata.
+        assert_eq!(zlib(0).is_reproducible(), cfg!(feature = "zlib"));
+        assert_eq!(zlib(9).is_reproducible(), cfg!(feature = "zlib"));
         assert!(!zlib(10).is_reproducible());
     }
 
