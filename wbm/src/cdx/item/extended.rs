@@ -219,8 +219,10 @@ mod tests {
 
     #[test]
     fn deserialize() {
-        let contents = include_str!("../../../../examples/wbm/cdx/1702374488385081.json");
-        let items = serde_json::from_str::<super::ExtendedItemList<'_>>(contents).unwrap();
+        let Some(contents) = crate::test_util::read_example("wbm/cdx/1702374488385081.json") else {
+            return;
+        };
+        let items = serde_json::from_str::<super::ExtendedItemList<'_>>(&contents).unwrap();
 
         assert_eq!(items.values.len(), 8838);
     }

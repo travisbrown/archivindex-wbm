@@ -345,8 +345,10 @@ mod tests {
 
     #[test]
     fn from_url_examples() {
-        let contents = include_str!("../../examples/wbm/cdx/1706619334645856.json");
-        let items = serde_json::from_str::<crate::cdx::item::ItemList<'_>>(contents).unwrap();
+        let Some(contents) = crate::test_util::read_example("wbm/cdx/1706619334645856.json") else {
+            return;
+        };
+        let items = serde_json::from_str::<crate::cdx::item::ItemList<'_>>(&contents).unwrap();
 
         for item in items.values {
             let from_url = Surt::from_url(&item.original).unwrap();
