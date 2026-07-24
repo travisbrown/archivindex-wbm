@@ -16,8 +16,6 @@ use std::str::FromStr;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
     #[error("Invalid SHA-1 digest string length: {0}")]
     InvalidLength(String),
     #[error("Invalid SHA-1 digest string input: {0}")]
@@ -150,7 +148,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for Digest<'a> {
 
 impl Serialize for Digest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        serializer.collect_str(self)
     }
 }
 
@@ -275,7 +273,7 @@ impl<'de> Deserialize<'de> for Sha1Digest {
 
 impl Serialize for Sha1Digest {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        serializer.collect_str(self)
     }
 }
 
@@ -291,29 +289,6 @@ impl rusqlite::types::FromSql for Sha1Digest {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         let bytes = value.as_blob()?;
         Self::try_from(bytes).map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))
-    }
-}
-
-pub mod sha1_base32 {
-    use super::Sha1Digest;
-    use serde::{
-        de::{Deserialize, Deserializer},
-        ser::Serializer,
-    };
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Sha1Digest, D::Error> {
-        let value: &str = Deserialize::deserialize(deserializer)?;
-
-        value.parse::<Sha1Digest>().map_err(|_| {
-            serde::de::Error::invalid_value(
-                serde::de::Unexpected::Str(value),
-                &"Base64 SHA-1 digest",
-            )
-        })
-    }
-
-    pub fn serialize<S: Serializer>(value: &Sha1Digest, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&value.to_string())
     }
 }
 
@@ -518,5 +493,16 @@ mod tests {
             .unwrap();
 
         prop_assert_eq!(retrieved, digest);
+    }
+
+    #[test]
+    fn deserialize_from_non_borrowing_deserializer() {
+        // `serde_json::from_value` cannot borrow strings, so this exercises the owned path.
+        let sha1: super::Sha1Digest = "3GLCSCLXQ4NPRKRPEZCI55PGUG472WGE".parse().unwrap();
+        let value = serde_json::to_value(sha1).unwrap();
+        assert_eq!(
+            serde_json::from_value::<super::Sha1Digest>(value).unwrap(),
+            sha1
+        );
     }
 }
