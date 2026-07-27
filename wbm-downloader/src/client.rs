@@ -6,7 +6,11 @@ use archivindex_wbm::{digest::Sha1Digest, item::UrlParts, timestamp::Timestamp};
 use bytes::Bytes;
 use http::{StatusCode, header::LOCATION};
 use reqwest::Response;
+use std::borrow::Cow;
 use std::time::Duration;
+
+/// The public Wayback Machine origin, used unless [`Configuration::base_url`] says otherwise.
+pub const DEFAULT_BASE_URL: &str = "https://web.archive.org";
 
 const DEFAULT_TCP_KEEPALIVE_DURATION: Duration = Duration::from_secs(45);
 const DEFAULT_REQUEST_TIMEOUT_DURATION: Duration = Duration::from_mins(1);
@@ -14,14 +18,17 @@ const DEFAULT_MAX_RETRIES: usize = 7;
 const DEFAULT_RETRY_BASE_DURATION_MS: u64 = 60_000;
 const DEFAULT_MAX_RETRY_DELAY: Duration = Duration::from_mins(10);
 const DEFAULT_MAX_REDIRECT_DEPTH: usize = 10;
-const TEMPORARILY_OFFLINE_REDIRECT_URL: &str = "https://web.archive.org/sry";
+/// Path the Wayback Machine redirects to while a snapshot is temporarily unavailable.
+const TEMPORARILY_OFFLINE_PATH: &str = "/sry";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Configuration {
+    /// Origin that snapshot requests are sent to, including the scheme and excluding any trailing
+    /// slash (e.g. `https://web.archive.org`). Point this at a mirror or a test server to avoid
+    /// the public Wayback Machine. Trailing slashes are stripped by [`Client::new`].
+    pub base_url: Cow<'static, str>,
     /// Download "original" snapshots (not rewritten with WBM links) by default
     pub original: bool,
-    /// Use HTTPS for all requests
-    pub secure: bool,
     pub tcp_keepalive: Duration,
     pub request_timeout: Duration,
     pub max_retries: usize,
@@ -34,8 +41,8 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            base_url: Cow::Borrowed(DEFAULT_BASE_URL),
             original: true,
-            secure: true,
             tcp_keepalive: DEFAULT_TCP_KEEPALIVE_DURATION,
             request_timeout: DEFAULT_REQUEST_TIMEOUT_DURATION,
             max_retries: DEFAULT_MAX_RETRIES,
@@ -63,9 +70,15 @@ pub enum Error {
 }
 
 impl Error {
-    fn can_retry(&self) -> bool {
+    /// Whether retrying the request could plausibly succeed.
+    ///
+    /// `base_url` is needed to recognize the Wayback Machine's "temporarily offline" redirect,
+    /// which is transient, unlike any other unexpected redirect target.
+    fn can_retry(&self, base_url: &str) -> bool {
         match self {
-            Self::UnexpectedRedirect(Some(url)) if url == TEMPORARILY_OFFLINE_REDIRECT_URL => true,
+            Self::UnexpectedRedirect(Some(url)) => {
+                url.strip_prefix(base_url) == Some(TEMPORARILY_OFFLINE_PATH)
+            }
             Self::UnexpectedStatus(StatusCode::TOO_MANY_REQUESTS) => true,
             Self::UnexpectedStatus(status_code) if status_code.is_server_error() => true,
             Self::Client(error)
@@ -161,7 +174,17 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(configuration: Configuration) -> Result<Self, reqwest::Error> {
+    /// Builds a client for the given configuration.
+    ///
+    /// Any trailing slashes on [`Configuration::base_url`] are stripped here, so that request URLs
+    /// can be built by plain concatenation.
+    pub fn new(mut configuration: Configuration) -> Result<Self, reqwest::Error> {
+        let trimmed = configuration.base_url.trim_end_matches('/');
+
+        if trimmed.len() != configuration.base_url.len() {
+            configuration.base_url = Cow::Owned(trimmed.to_string());
+        }
+
         Ok(Self {
             underlying: reqwest::Client::builder()
                 .timeout(configuration.request_timeout)
@@ -176,10 +199,16 @@ impl Client {
         Self::new(Configuration::default())
     }
 
-    fn wayback_url(url: &str, timestamp: Timestamp, original: bool, secure: bool) -> String {
+    /// The configuration this client was built with, with `base_url` normalized.
+    #[must_use]
+    pub const fn configuration(&self) -> &Configuration {
+        &self.configuration
+    }
+
+    fn wayback_url(&self, url: &str, timestamp: Timestamp, original: bool) -> String {
         format!(
-            "http{}://web.archive.org/web/{}{}/{}",
-            if secure { "s" } else { "" },
+            "{}/web/{}{}/{}",
+            self.configuration.base_url,
             timestamp,
             if original { "id_" } else { "if_" },
             url
@@ -187,12 +216,7 @@ impl Client {
     }
 
     fn configured_wayback_url(&self, url: &str, timestamp: Timestamp) -> String {
-        Self::wayback_url(
-            url,
-            timestamp,
-            self.configuration.original,
-            self.configuration.secure,
-        )
+        self.wayback_url(url, timestamp, self.configuration.original)
     }
 
     pub async fn download<'a>(
@@ -210,7 +234,7 @@ impl Client {
         tokio_retry::RetryIf::start(
             strategy,
             || self.download_once(url, timestamp, original),
-            Error::can_retry,
+            |error: &Error| error.can_retry(&self.configuration.base_url),
         )
         .await
     }
@@ -234,12 +258,7 @@ impl Client {
 
             let response = self
                 .underlying
-                .get(Self::wayback_url(
-                    &request_url,
-                    request_timestamp,
-                    original,
-                    self.configuration.secure,
-                ))
+                .get(self.wayback_url(&request_url, request_timestamp, original))
                 .send()
                 .await?;
 

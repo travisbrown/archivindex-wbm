@@ -66,5 +66,6 @@ tokio-retry = "0.3"
 tokio-stream = "0.1"
 toml = "1"
 url = { version = "2", features = ["serde"] }
+wiremock = "0.6"
 rocksdb = { version = "0.24", features = ["zstd"] }
 zstd = "0.13"

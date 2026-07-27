@@ -226,7 +226,7 @@ async fn main() -> Result<(), Error> {
             let mut manager = archivindex_wbm_downloader::Manager::new(
                 &output,
                 &invalid_db,
-                client_configuration,
+                &client_configuration,
                 n,
                 4096,
                 items,

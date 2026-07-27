@@ -145,7 +145,7 @@ impl Manager {
     pub fn new<P: AsRef<Path>, D: AsRef<Path>>(
         output_path: P,
         invalid_log_path: D,
-        client_configuration: client::Configuration,
+        client_configuration: &client::Configuration,
         worker_count: usize,
         buffer: usize,
         mut todo: Vec<ItemInfo<'static>>,
@@ -166,6 +166,8 @@ impl Manager {
                 let todo_queue = todo_queue.clone();
                 let invalid_log_path = invalid_log_path.clone();
                 let sender = sender.clone();
+                // `Configuration` owns its `base_url`, so each worker needs its own copy.
+                let client_configuration = client_configuration.clone();
 
                 async move {
                     std::fs::create_dir_all(&output_path)?;
