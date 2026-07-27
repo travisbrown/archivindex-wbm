@@ -72,10 +72,20 @@ impl<'a> Surt<'a> {
                 }
                 len += 1;
             } else if ch == ',' {
+                // An empty domain part (e.g. `com,)` or `,com)`) would render as an invalid
+                // canonical URL, so it is rejected here to preserve the type's invariants.
+                if len == 0 {
+                    return Err(Error::InvalidSurt(input.to_string()));
+                }
+
                 domain_name_part_lens.push(len);
 
                 len = 0;
             } else if ch == ')' {
+                if len == 0 {
+                    return Err(Error::InvalidSurt(input.to_string()));
+                }
+
                 domain_name_part_lens.push(len);
 
                 return Ok(Self {
@@ -107,7 +117,10 @@ impl Surt<'static> {
                 let mut domain_name_part_lens = Vec::with_capacity(2);
 
                 for domain_name_part in domain_name.split('.').rev() {
-                    if domain_name_part != "www" {
+                    // A fully-qualified host like `example.com.` splits into an empty final part;
+                    // the Wayback Machine's canonicalization strips such trailing dots, so empty
+                    // parts are skipped here rather than producing keys like `,com,example)/`.
+                    if domain_name_part != "www" && !domain_name_part.is_empty() {
                         source.push_str(domain_name_part);
                         source.push(',');
 
@@ -432,6 +445,25 @@ mod tests {
             let result = Surt::parse_str(input);
             assert!(matches!(result, Err(Error::InvalidSurt(_))), "{input}");
         }
+    }
+
+    #[test]
+    fn parse_str_empty_domain_part() {
+        // Empty domain parts would render as invalid canonical URLs (e.g. `https://.com/x`).
+        for input in ["com,)/x", ",com)/x", ")/x", "com,,example)/x"] {
+            let result = Surt::parse_str(input);
+            assert!(matches!(result, Err(Error::InvalidSurt(_))), "{input}");
+        }
+    }
+
+    #[test]
+    fn from_url_with_trailing_dot_host() {
+        // The Wayback Machine's canonicalization strips trailing dots from fully-qualified
+        // hosts, so the key must match the one produced for the dotless form.
+        let surt = Surt::from_url("https://example.com./x").unwrap();
+        let expected = "com,example)/x".parse().unwrap();
+
+        assert_eq!(surt, expected);
     }
 
     #[test]
