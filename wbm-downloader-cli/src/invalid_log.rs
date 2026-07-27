@@ -68,8 +68,7 @@ pub fn export_invalid_digests(db: &Path) -> Result<(), Error> {
 
     // `write_record` never emits a header row.
     let mut writer = csv::Writer::from_writer(std::io::stdout());
-    for result in database.invalid_digests(None)? {
-        let (_observed, entry) = result?;
+    for (_observed, entry) in database.invalid_digests(None)? {
         writer.write_record([
             entry.item_info.url_parts.url.to_string(),
             entry.item_info.url_parts.timestamp.to_string(),

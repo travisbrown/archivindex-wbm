@@ -67,8 +67,6 @@ async fn test_downloader_withheld_url_logging() {
 
     let withheld_urls = invalid_log_database
         .withheld_urls(None)
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
         .expect("Unexpected database error");
 
     assert_eq!(
@@ -107,8 +105,6 @@ async fn test_downloader_invalid_digest_logging() {
 
     let invalid_digests = invalid_log_database
         .invalid_digests(None)
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
         .expect("Unexpected database error");
 
     assert_eq!(

@@ -16,4 +16,3 @@ bounded-static = { workspace = true }
 chrono = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }

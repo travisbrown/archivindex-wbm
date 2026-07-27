@@ -163,6 +163,14 @@ fn invalid_digest_row(
     Ok((timestamp.into(), entry))
 }
 
+/// Maps one `withheld_url` row to its observation time and URL.
+fn withheld_url_row(row: &rusqlite::Row<'_>) -> Result<(DateTime<Utc>, String), rusqlite::Error> {
+    let timestamp: types::TimestampSecond = row.get(0)?;
+    let url: String = row.get(1)?;
+
+    Ok((timestamp.into(), url))
+}
+
 /// A SQLite database for logging Wayback Machine download failures and withheld URLs.
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -287,12 +295,11 @@ impl Database {
         Ok(result == 1)
     }
 
-    /// Iterates over all invalid digest entries in the database.
+    /// Reads all invalid digest entries from the database.
     ///
-    /// Returns an iterator that yields tuples of `(timestamp, entry)` where the timestamp indicates
-    /// when the invalid digest was observed. Results are ordered by observation timestamp in
-    /// ascending order. All rows are read (and the connection lock released) before this method
-    /// returns; the iterator itself cannot fail.
+    /// Returns tuples of `(timestamp, entry)` where the timestamp indicates when the invalid
+    /// digest was observed, ordered by observation timestamp in ascending order. All rows are
+    /// read (and the connection lock released) before this method returns.
     ///
     /// # Arguments
     ///
@@ -303,32 +310,25 @@ impl Database {
     pub fn invalid_digests(
         &self,
         from: Option<DateTime<Utc>>,
-    ) -> Result<InvalidDigestIterator, rusqlite::Error> {
+    ) -> Result<Vec<(DateTime<Utc>, Entry<'static>)>, rusqlite::Error> {
         let connection = self.lock();
 
-        let entries = if let Some(ts) = from {
+        if let Some(ts) = from {
             let mut statement = connection.prepare_cached(SELECT_INVALID_DIGESTS_FROM)?;
             statement
                 .query_map([ts.timestamp()], invalid_digest_row)?
-                .collect::<Result<Vec<_>, _>>()?
+                .collect()
         } else {
             let mut statement = connection.prepare_cached(SELECT_ALL_INVALID_DIGESTS)?;
-            statement
-                .query_map([], invalid_digest_row)?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-
-        Ok(InvalidDigestIterator {
-            entries: entries.into_iter(),
-        })
+            statement.query_map([], invalid_digest_row)?.collect()
+        }
     }
 
-    /// Iterates over all withheld URL entries in the database.
+    /// Reads all withheld URL entries from the database.
     ///
-    /// Returns an iterator that yields tuples of `(timestamp, url)` where the timestamp indicates
-    /// when the withheld status was observed. Results are ordered by observation timestamp in
-    /// ascending order. All rows are read (and the connection lock released) before this method
-    /// returns; the iterator itself cannot fail.
+    /// Returns tuples of `(timestamp, url)` where the timestamp indicates when the withheld
+    /// status was observed, ordered by observation timestamp in ascending order. All rows are
+    /// read (and the connection lock released) before this method returns.
     ///
     /// # Arguments
     ///
@@ -339,34 +339,18 @@ impl Database {
     pub fn withheld_urls(
         &self,
         from: Option<DateTime<Utc>>,
-    ) -> Result<WithheldUrlIterator, rusqlite::Error> {
+    ) -> Result<Vec<(DateTime<Utc>, String)>, rusqlite::Error> {
         let connection = self.lock();
 
-        let entries = if let Some(ts) = from {
+        if let Some(ts) = from {
             let mut statement = connection.prepare_cached(SELECT_WITHHELD_URLS_FROM)?;
             statement
-                .query_map([ts.timestamp()], |row| {
-                    let timestamp: types::TimestampSecond = row.get(0)?;
-                    let url: String = row.get(1)?;
-
-                    Ok((timestamp.into(), url))
-                })?
-                .collect::<Result<Vec<_>, _>>()?
+                .query_map([ts.timestamp()], withheld_url_row)?
+                .collect()
         } else {
             let mut statement = connection.prepare_cached(SELECT_ALL_WITHHELD_URLS)?;
-            statement
-                .query_map([], |row| {
-                    let timestamp: types::TimestampSecond = row.get(0)?;
-                    let url: String = row.get(1)?;
-
-                    Ok((timestamp.into(), url))
-                })?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-
-        Ok(WithheldUrlIterator {
-            entries: entries.into_iter(),
-        })
+            statement.query_map([], withheld_url_row)?.collect()
+        }
     }
 
     /// Merges entries from another database into this database.
@@ -394,10 +378,10 @@ impl Database {
             return Ok(());
         }
 
-        // Materialize the source rows before taking this database's lock, so that two databases
+        // Read the source rows before taking this database's lock, so that two databases
         // concurrently merging from each other cannot deadlock on lock order.
-        let invalid_digests: Vec<_> = other.invalid_digests(None)?.collect::<Result<_, _>>()?;
-        let withheld_urls: Vec<_> = other.withheld_urls(None)?.collect::<Result<_, _>>()?;
+        let invalid_digests = other.invalid_digests(None)?;
+        let withheld_urls = other.withheld_urls(None)?;
 
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
@@ -434,12 +418,14 @@ impl Database {
     pub fn export(&self) -> Result<Export, rusqlite::Error> {
         let invalid_digests = self
             .invalid_digests(None)?
-            .map(|result| result.map(|(observed, entry)| InvalidDigestRecord { observed, entry }))
-            .collect::<Result<Vec<_>, _>>()?;
+            .into_iter()
+            .map(|(observed, entry)| InvalidDigestRecord { observed, entry })
+            .collect();
         let withheld_urls = self
             .withheld_urls(None)?
-            .map(|result| result.map(|(observed, url)| WithheldRecord { observed, url }))
-            .collect::<Result<Vec<_>, _>>()?;
+            .into_iter()
+            .map(|(observed, url)| WithheldRecord { observed, url })
+            .collect();
 
         Ok(Export {
             invalid_digests,
@@ -479,38 +465,6 @@ impl Database {
         transaction.commit()?;
 
         Ok(())
-    }
-}
-
-/// Iterator over invalid digest entries in the database.
-///
-/// Yields tuples of `(DateTime<Utc>, Entry<'static>)` where the timestamp indicates when the
-/// invalid digest was observed.
-pub struct InvalidDigestIterator {
-    entries: std::vec::IntoIter<(DateTime<Utc>, Entry<'static>)>,
-}
-
-impl Iterator for InvalidDigestIterator {
-    type Item = Result<(DateTime<Utc>, Entry<'static>), rusqlite::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.entries.next().map(Ok)
-    }
-}
-
-/// Iterator over withheld URL entries in the database.
-///
-/// Yields tuples of `(DateTime<Utc>, String)` where the timestamp indicates when the withheld
-/// status was observed.
-pub struct WithheldUrlIterator {
-    entries: std::vec::IntoIter<(DateTime<Utc>, String)>,
-}
-
-impl Iterator for WithheldUrlIterator {
-    type Item = Result<(DateTime<Utc>, String), rusqlite::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.entries.next().map(Ok)
     }
 }
 
@@ -593,9 +547,7 @@ mod tests {
         database.insert_invalid_digest(&example_entry_01(), timestamp_03)?;
 
         // Test iterating over all entries.
-        let all_entries: Vec<_> = database
-            .invalid_digests(None)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let all_entries = database.invalid_digests(None)?;
 
         // Only two unique entries (`entry_01` is inserted twice but is deduplicated).
         assert_eq!(all_entries.len(), 2);
@@ -605,9 +557,7 @@ mod tests {
 
         // Test iterating from a specific timestamp.
         let from_timestamp = base_time + chrono::Duration::seconds(5);
-        let filtered_entries: Vec<_> = database
-            .invalid_digests(Some(from_timestamp))?
-            .collect::<Result<Vec<_>, _>>()?;
+        let filtered_entries = database.invalid_digests(Some(from_timestamp))?;
 
         assert_eq!(filtered_entries.len(), 1);
         assert_eq!(filtered_entries[0].1, example_entry_02());
@@ -619,9 +569,7 @@ mod tests {
     fn test_invalid_digests_empty() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        let entries: Vec<_> = database
-            .invalid_digests(None)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let entries = database.invalid_digests(None)?;
 
         assert_eq!(entries.len(), 0);
 
@@ -647,9 +595,7 @@ mod tests {
         database.insert_withheld(url_01, timestamp_03)?;
 
         // Test iterating over all entries.
-        let all_entries: Vec<_> = database
-            .withheld_urls(None)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let all_entries = database.withheld_urls(None)?;
 
         assert_eq!(all_entries.len(), 3);
         assert_eq!(all_entries[0].1, url_01);
@@ -662,9 +608,7 @@ mod tests {
 
         // Test iterating from a specific timestamp (excludes the first observation).
         let from_timestamp = base_time + chrono::Duration::seconds(5);
-        let filtered_entries: Vec<_> = database
-            .withheld_urls(Some(from_timestamp))?
-            .collect::<Result<Vec<_>, _>>()?;
+        let filtered_entries = database.withheld_urls(Some(from_timestamp))?;
 
         assert_eq!(filtered_entries.len(), 2);
         assert_eq!(filtered_entries[0].1, url_02);
@@ -677,9 +621,7 @@ mod tests {
     fn test_withheld_urls_empty() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        let entries: Vec<_> = database
-            .withheld_urls(None)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let entries = database.withheld_urls(None)?;
 
         assert_eq!(entries.len(), 0);
 
@@ -714,7 +656,7 @@ mod tests {
 
         db1.merge(&db2)?;
 
-        let invalid_digests: Vec<_> = db1.invalid_digests(None)?.collect::<Result<Vec<_>, _>>()?;
+        let invalid_digests = db1.invalid_digests(None)?;
 
         assert_eq!(invalid_digests.len(), 2);
 
@@ -732,7 +674,7 @@ mod tests {
             .find(|(_, e)| e == &example_entry_02());
         assert!(entry_02_result.is_some());
 
-        let withheld_urls: Vec<_> = db1.withheld_urls(None)?.collect::<Result<Vec<_>, _>>()?;
+        let withheld_urls = db1.withheld_urls(None)?;
         assert_eq!(withheld_urls.len(), 3);
 
         // First URL should have the older timestamp from `db2`.
@@ -766,7 +708,7 @@ mod tests {
         db1.merge(&db2)?;
 
         // Check that `db1` kept the older timestamp.
-        let invalid_digests: Vec<_> = db1.invalid_digests(None)?.collect::<Result<Vec<_>, _>>()?;
+        let invalid_digests = db1.invalid_digests(None)?;
 
         assert_eq!(invalid_digests.len(), 1);
         let (ts, _) = &invalid_digests[0];
@@ -808,7 +750,7 @@ mod tests {
         // or duplicate rows.
         database.merge(&database.clone())?;
 
-        assert_eq!(database.invalid_digests(None)?.count(), 1);
+        assert_eq!(database.invalid_digests(None)?.len(), 1);
 
         Ok(())
     }
@@ -831,9 +773,7 @@ mod tests {
 
         database.insert_invalid_digest(&entry, Utc::now())?;
 
-        let read = database
-            .invalid_digests(None)?
-            .collect::<Result<Vec<_>, _>>()?;
+        let read = database.invalid_digests(None)?;
         assert_eq!(read.len(), 1);
         assert_eq!(read[0].1, entry);
 
@@ -853,14 +793,14 @@ mod tests {
         let imported = Database::in_memory()?;
         imported.insert_invalid_digest(&example_entry_01(), newer)?;
         imported.import(&export)?;
-        let (timestamp, _) = imported.invalid_digests(None)?.next().unwrap()?;
+        let (timestamp, _) = &imported.invalid_digests(None)?[0];
         assert_eq!(timestamp.timestamp(), newer.timestamp());
 
         // `merge` keeps the earliest observation timestamp.
         let merged = Database::in_memory()?;
         merged.insert_invalid_digest(&example_entry_01(), newer)?;
         merged.merge(&source)?;
-        let (timestamp, _) = merged.invalid_digests(None)?.next().unwrap()?;
+        let (timestamp, _) = &merged.invalid_digests(None)?[0];
         assert_eq!(timestamp.timestamp(), older.timestamp());
 
         Ok(())
@@ -873,11 +813,11 @@ mod tests {
 
         database.insert_invalid_digest(&example_entry_01(), timestamp)?;
 
-        assert_eq!(database.invalid_digests(Some(timestamp))?.count(), 1);
+        assert_eq!(database.invalid_digests(Some(timestamp))?.len(), 1);
         assert_eq!(
             database
                 .invalid_digests(Some(timestamp + chrono::Duration::seconds(1)))?
-                .count(),
+                .len(),
             0
         );
 

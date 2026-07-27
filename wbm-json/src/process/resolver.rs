@@ -106,9 +106,7 @@ impl Resolver {
     pub fn read_invalid_digests(&mut self, database: &Database) -> Result<usize, Error> {
         let mut count = 0;
 
-        for result in database.invalid_digests(None)? {
-            let (_, invalid_digest_entry) = result?;
-
+        for (_, invalid_digest_entry) in database.invalid_digests(None)? {
             if self
                 .todo_digests
                 .contains(&invalid_digest_entry.actual_digest)
