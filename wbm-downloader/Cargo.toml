@@ -1,0 +1,32 @@
+[package]
+name = "archivindex-wbm-downloader"
+description = "Async HTTP downloader for Wayback Machine snapshots"
+keywords = ["wayback-machine", "web-archive", "downloader"]
+categories = ["web-programming"]
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+
+[dependencies]
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
+archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" }
+bounded-static = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+http = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-retry = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# The `time` feature provides `tokio::time::timeout`, used to bound the deadlock regression test.
+tokio = { workspace = true, features = ["time"] }
+wiremock = { workspace = true }

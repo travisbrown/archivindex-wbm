@@ -1,0 +1,35 @@
+[package]
+name = "archivindex-wbm"
+description = "Core Wayback Machine data types for parsing and modeling archived web captures"
+keywords = ["wayback-machine", "web-archive", "cdx", "surt"]
+categories = ["parser-implementations", "web-programming"]
+authors = { workspace = true }
+repository = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+version = { workspace = true }
+
+[features]
+default = ["sqlite", "validation"]
+sqlite = ["dep:rusqlite"]
+validation = []
+
+[dependencies]
+bounded-static = { workspace = true }
+chrono = { workspace = true }
+data-encoding = { workspace = true }
+digest-io = { workspace = true }
+http = { workspace = true }
+regex = { workspace = true }
+rusqlite = { workspace = true, optional = true }
+serde = { workspace = true }
+sha1 = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+test-strategy = { workspace = true }

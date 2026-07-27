@@ -1,0 +1,6 @@
+Cargo.lock
+target/
+tmp/
+minimal/__pycache__/
+.RData
+.Rhistory

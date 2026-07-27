@@ -1,0 +1,21 @@
+[package]
+name = "archivindex-wbm-cdx-index"
+description = "RocksDB-backed index of Wayback Machine CDX items and capture metadata"
+keywords = ["wayback-machine", "web-archive", "cdx", "rocksdb"]
+categories = ["database"]
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+
+[dependencies]
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
+chrono = { workspace = true }
+rocksdb = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
