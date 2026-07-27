@@ -176,8 +176,7 @@ fn expected_digests(invalid_db: &Path) -> Result<HashMap<Sha1Digest, String>, ru
     let database = Database::open(invalid_db)?;
     let mut expected = HashMap::new();
 
-    for result in database.invalid_digests(None)? {
-        let (_, entry) = result?;
+    for (_, entry) in database.invalid_digests(None)? {
         expected.insert(
             entry.actual_digest,
             entry.item_info.expected_digest.to_string(),
