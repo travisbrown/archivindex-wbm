@@ -1,0 +1,12 @@
+# Context for Twitter tweet snapshots.
+closing_whitespace = "\r\r\n"
+
+# Infer the canonical tweet URL, trying the Twitter API v2 "data" shape first and falling back to
+# the older flat shape.
+url_query = """
+has(content.data)
+  ? 'https://twitter.com/'
+    + content.includes.users.filter(u, u.id == content.data.author_id)[0].username
+    + '/status/' + content.data.id
+  : 'https://twitter.com/' + content.user.screen_name + '/status/' + content.id_str
+"""

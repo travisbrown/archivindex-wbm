@@ -1,0 +1,35 @@
+[package]
+name = "archivindex-wbm-json-cli"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[[bin]]
+name = "archivindex-wbm-json"
+path = "src/main.rs"
+# Avoid a rustdoc output-filename collision with the `archivindex-wbm-json` library crate.
+doc = false
+
+[dependencies]
+archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-cas = { path = "../wbm-cas/" }
+archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
+archivindex-wbm-json = { path = "../wbm-json/" }
+archivindex-wbm-json-gzip = { path = "../wbm-json-gzip/" }
+archivindex-wbm-json-processing = { path = "../wbm-json-processing/" }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+flate2 = { workspace = true }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

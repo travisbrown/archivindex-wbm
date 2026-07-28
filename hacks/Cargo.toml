@@ -1,0 +1,24 @@
+[package]
+name = "archivindex-hacks"
+workspace = ".."
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-json = { path = "../wbm-json/" }
+bounded-static = { workspace = true }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+globwalk = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+toml = { workspace = true }
+walkdir = "2"
+zstd = { workspace = true }

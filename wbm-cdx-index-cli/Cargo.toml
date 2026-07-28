@@ -1,0 +1,29 @@
+[package]
+name = "archivindex-wbm-cdx-index-cli"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[[bin]]
+name = "archivindex-wbm-cdx-index"
+path = "src/main.rs"
+# Avoid a rustdoc output-filename collision with the `archivindex-wbm-cdx-index` library crate.
+doc = false
+
+[dependencies]
+archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-cdx-index = { path = "../wbm-cdx-index/" }
+archivindex-wbm-json = { path = "../wbm-json/" }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+indicatif = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
