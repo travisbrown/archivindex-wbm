@@ -7,14 +7,15 @@
 //! separately by [`enhance`](super::enhance).
 
 use super::skip::{SkipReason, Skipped, read_verified};
-use crate::io::write::SnapshotWriter;
-use archivindex_wbm::digest::Sha1Digest;
+use crate::io::write::{Finish, SnapshotWriter};
+use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::FormatInfo;
 use bounded_static::IntoBoundedStatic;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Errors that can occur during the pack operation.
@@ -46,15 +47,8 @@ pub struct Summary {
 
 /// Load digest-named data files and write them as compact snapshots, without CDX metadata.
 ///
-/// Each data file (named by the SHA-1 digest of its raw bytes) is read and verified against its
-/// name. `detect_format` is called with the raw bytes; `Some` selects a non-default format (its
-/// [`type`](FormatInfo::name) must have a codec registered on `context`, and its
-/// [`metadata`](FormatInfo::metadata) is attached to the snapshot), while `None` selects the
-/// default UTF-8 format. The snapshot carries only its digest, the expected digest recorded in the
-/// invalid-digest log (when present), its format (when non-default), and its content; snapshots are
-/// written in digest-sorted order. The per-file reading, hashing, and decoding runs on the Rayon
-/// pool a bounded chunk at a time; only the digest-ordered writes are sequential, and the summary
-/// is identical to a serial run's.
+/// See [`pack_into`], which this wraps with the loading of the invalid-digest log and a durable
+/// Zstandard-compressed output.
 ///
 /// # Arguments
 ///
@@ -80,22 +74,64 @@ pub fn pack<D, F>(
 ) -> Result<Summary, Error>
 where
     D: AsRef<Path>,
-    // `Sync` lets the detector be shared with the Rayon workers of the parallel per-file phase.
     F: Fn(&[u8]) -> Option<FormatInfo> + Sync,
 {
-    let mut data = super::data::Data::default();
-    data.load_data_directories(data_directories)?;
-
     let expected_digests = invalid_db
         .map(super::expected_digests)
         .transpose()?
         .unwrap_or_default();
+    let writer = SnapshotWriter::create(output, compression_level, Context::clone(context))?;
 
-    let mut writer = SnapshotWriter::create(output, compression_level, Context::clone(context))?;
+    pack_into(data_directories, &expected_digests, writer, detect_format)
+}
+
+/// Load digest-named data files and write them as compact snapshots to a caller-supplied writer.
+///
+/// The generic core of [`pack`]. Each data file (named by the SHA-1 digest of its raw bytes) is
+/// read and verified against its name. `detect_format` is called with the raw bytes; `Some` selects
+/// a non-default format (its [`type`](FormatInfo::name) must have a codec registered on the
+/// writer's [`Context`], and its [`metadata`](FormatInfo::metadata) is attached to the snapshot),
+/// while `None` selects the default UTF-8 format. The snapshot carries only its digest, the
+/// expected digest recorded in `expected_digests` (when present; see [`pack`]'s `invalid_db`), its
+/// format (when non-default), and its content; snapshots are written in digest-sorted order. The
+/// per-file reading, hashing, and decoding runs on the Rayon pool a bounded chunk at a time; only
+/// the digest-ordered writes are sequential, and the summary is identical to a serial run's.
+///
+/// Once processing begins, the writer is finished (see [`Finish`]) even if processing fails.
+/// Successful finalization publishes readable partial output. A directory-scan failure drops the
+/// writer without finishing it.
+///
+/// # Errors
+///
+/// Returns [`Error::Data`] if data directory scanning fails or [`Error::Io`] if the output cannot
+/// be written or finished; [`Error::InvalidDigestDb`] is never returned here (the log is loaded by
+/// [`pack`]).
+pub fn pack_into<D, F, W, S>(
+    data_directories: &[D],
+    expected_digests: &HashMap<Sha1Digest, Digest<'static>, S>,
+    mut writer: SnapshotWriter<W>,
+    detect_format: F,
+) -> Result<Summary, Error>
+where
+    D: AsRef<Path>,
+    // `Sync` lets the detector be shared with the Rayon workers of the parallel per-file phase.
+    F: Fn(&[u8]) -> Option<FormatInfo> + Sync,
+    W: Finish,
+    // Accepting any hash builder (not just the default `RandomState`) keeps the map's construction
+    // the caller's choice.
+    S: std::hash::BuildHasher + Sync,
+{
+    let mut data = super::data::Data::default();
+    data.load_data_directories(data_directories)?;
+
+    // The parallel per-file phase below needs the context by shared reference while the writer is
+    // mutably borrowed by the sequential write phase, so it is cloned out of the writer once.
+    let context = Context::clone(writer.context());
+
     let mut summary = Summary::default();
 
-    // A write failure has to break out of the loop rather than return, so that the Zstandard frame
-    // below is still terminated.
+    // A write failure has to break out of the loop rather than return, so that the writer below is
+    // still finished (e.g. terminating a Zstandard frame).
     let mut write_error = None;
 
     // The per-file read/hash/decode work is independent, so it runs on the Rayon pool a chunk at a
@@ -111,7 +147,7 @@ where
             // `into_static` copies the snapshot out of the locally read bytes so it can outlive
             // this closure.
             let mut snapshot =
-                super::skip::build_snapshot(context, format, &bytes, path)?.into_static();
+                super::skip::build_snapshot(&context, format, &bytes, path)?.into_static();
 
             let has_expected_digest = if let Some(expected) = expected_digests.get(&digest) {
                 snapshot.expected_digest = Some(Cow::Owned(expected.to_string()));
@@ -156,9 +192,8 @@ where
 
     summary.skipped_count = summary.skipped.count_u64();
 
-    // Terminate the Zstandard frame, including when the loop above failed. A dropped encoder leaves
-    // its frame unterminated and its buffered data unwritten, so the partial output would not be
-    // readable at all.
+    // Finish the writer, including when the loop above failed: an unfinished writer (e.g. a dropped
+    // Zstandard encoder) can leave the partial output unreadable.
     let finish_error = writer.finish().err();
 
     super::prefer_loop_error(summary, write_error, finish_error)

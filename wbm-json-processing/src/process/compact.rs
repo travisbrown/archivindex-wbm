@@ -5,7 +5,7 @@
 //! expected digest), and writes it into the matching Zstandard-compressed partition. Snapshots are
 //! emitted in digest-sorted order.
 
-use crate::io::write::SnapshotWriter;
+use crate::io::write::{Finish, SnapshotWriter};
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_invalid_log::Database;
 use archivindex_wbm_json::context::Context;
@@ -82,8 +82,17 @@ pub struct CompactConfig<'a, P> {
     pub cdx_recursive: bool,
 }
 
-/// The writer type backing a single partition's output file.
-type PartitionWriter = SnapshotWriter<crate::io::write::DurableEncoder>;
+/// Options shared by [`compact`] and [`compact_into`], independent of how the partition outputs are
+/// written.
+#[derive(Clone, Copy, Debug)]
+pub struct CompactOptions<'a> {
+    /// Path to the `SQLite` database of known invalid digests.
+    pub invalid_db: &'a Path,
+    /// Omit snapshots with no CDX resolution from the output.
+    pub skip_unresolved: bool,
+    /// Whether the CDX directories are searched recursively.
+    pub cdx_recursive: bool,
+}
 
 /// The outcome of the parallel per-file phase of [`compact`], consumed by the sequential write
 /// phase in original digest order.
@@ -135,47 +144,10 @@ fn apply_resolution(
     }
 }
 
-/// Create one writer per partition, returning the partition keys and their writers as parallel
-/// vectors.
-///
-/// Each writer owns a clone of its partition's context, which it uses to create and serialize
-/// snapshots.
-fn create_writers<P>(
-    partitions: Vec<Partition<'_, P>>,
-    compression_level: u16,
-) -> Result<(Vec<P>, Vec<PartitionWriter>), std::io::Error> {
-    let mut keys = Vec::with_capacity(partitions.len());
-    let mut writers = Vec::with_capacity(partitions.len());
-
-    for partition in partitions {
-        writers.push(SnapshotWriter::create(
-            partition.output,
-            compression_level,
-            Context::clone(partition.context),
-        )?);
-        keys.push(partition.key);
-    }
-
-    Ok((keys, writers))
-}
-
 /// Load data files, resolve CDX metadata, and write enriched snapshots to one or more
 /// Zstandard-compressed JSONL partitions.
 ///
-/// Each data file (named by the SHA-1 digest of its raw bytes) is read, and `discriminator` is
-/// called with those raw bytes and the file's CDX [`Resolution`] (if any) to choose a partition `P`
-/// and the [`FormatInfo`] of the bytes. The matching partition's [`Context`] decodes the bytes
-/// under that format's [`type`](FormatInfo::name) into an unprocessed snapshot (see
-/// [`Context::unprocessed_snapshot`]); the discriminator's [`metadata`](FormatInfo::metadata) is
-/// attached to the result, which is then enriched with the resolution's `timestamp`, `url`, and
-/// (when applicable) `expected_digest`, and written to that partition's output. (The format's
-/// closing whitespace is computed from the content, so the discriminator need not supply it.)
-/// Snapshots are written in digest-sorted order. The per-file reading, hashing, and decoding runs
-/// on the Rayon pool a bounded chunk at a time; only the digest-ordered writes are sequential, and
-/// the summary is identical to a serial run's.
-///
-/// A file whose discriminated partition is not present in `partitions` is skipped (recorded in
-/// [`Skipped::no_partition`]).
+/// See [`compact_into`], which this wraps with a durable Zstandard-compressed output per partition.
 ///
 /// # Arguments
 ///
@@ -198,11 +170,81 @@ pub fn compact<P, D, X, F>(
     discriminator: F,
 ) -> Result<Summary, Error>
 where
+    P: PartialEq + Sync,
+    D: AsRef<Path>,
+    X: AsRef<Path>,
+    F: Fn(&[u8], Option<&Resolution>) -> (P, FormatInfo) + Sync,
+{
+    let options = CompactOptions {
+        invalid_db: config.invalid_db,
+        skip_unresolved: config.skip_unresolved,
+        cdx_recursive: config.cdx_recursive,
+    };
+
+    // One writer per partition; each owns a clone of its partition's context, which it uses to
+    // create and serialize snapshots.
+    let partitions = config
+        .partitions
+        .into_iter()
+        .map(|partition| {
+            SnapshotWriter::create(
+                partition.output,
+                config.compression_level,
+                Context::clone(partition.context),
+            )
+            .map(|writer| (partition.key, writer))
+        })
+        .collect::<Result<Vec<_>, std::io::Error>>()?;
+
+    compact_into(
+        data_directories,
+        cdx_directories,
+        partitions,
+        options,
+        discriminator,
+    )
+}
+
+/// Load data files, resolve CDX metadata, and write enriched snapshots to one or more
+/// caller-supplied partition writers.
+///
+/// The generic core of [`compact`]. Each data file (named by the SHA-1 digest of its raw bytes) is
+/// read, and `discriminator` is called with those raw bytes and the file's CDX [`Resolution`] (if
+/// any) to choose a partition `P` and the [`FormatInfo`] of the bytes. The matching partition
+/// writer's [`Context`] decodes the bytes under that format's [`type`](FormatInfo::name) into an
+/// unprocessed snapshot (see [`Context::unprocessed_snapshot`]); the discriminator's
+/// [`metadata`](FormatInfo::metadata) is attached to the result, which is then enriched with the
+/// resolution's `timestamp`, `url`, and (when applicable) `expected_digest`, and written to that
+/// partition's writer. (The format's closing whitespace is computed from the content, so the
+/// discriminator need not supply it.) Snapshots are written in digest-sorted order. The per-file
+/// reading, hashing, and decoding runs on the Rayon pool a bounded chunk at a time; only the
+/// digest-ordered writes are sequential, and the summary is identical to a serial run's.
+///
+/// A file whose selected partition is absent from `partitions` is recorded in
+/// [`Skipped::no_partition`]. Once processing begins, every writer is finished (see [`Finish`])
+/// even if processing fails. Successful finalization publishes readable partial output; failures
+/// while loading data or resolving metadata drop the writers without finishing them.
+///
+/// # Errors
+///
+/// Returns [`Error::Data`] if data directory scanning fails, [`Error::Resolver`] if CDX resolution
+/// or invalid digest loading fails, or [`Error::Io`] if a partition cannot be written or finished.
+/// A data file that cannot be read is recorded in [`Skipped::read_error`] rather than failing the
+/// operation.
+pub fn compact_into<P, D, X, W, F>(
+    data_directories: &[D],
+    cdx_directories: &[X],
+    partitions: Vec<(P, SnapshotWriter<W>)>,
+    options: CompactOptions<'_>,
+    discriminator: F,
+) -> Result<Summary, Error>
+where
     // `Sync` lets the partition keys and the discriminator be shared with the Rayon workers of the
     // parallel per-file phase.
     P: PartialEq + Sync,
     D: AsRef<Path>,
     X: AsRef<Path>,
+    W: Finish,
     F: Fn(&[u8], Option<&Resolution>) -> (P, FormatInfo) + Sync,
 {
     // Load data directories.
@@ -211,14 +253,13 @@ where
 
     // Create resolver from data, load invalid digests, and resolve CDX.
     let mut resolver = data.resolver();
-    let database = Database::open(config.invalid_db).map_err(super::resolver::Error::from)?;
+    let database = Database::open(options.invalid_db).map_err(super::resolver::Error::from)?;
     resolver.read_invalid_digests(&database)?;
-    resolver.resolve(cdx_directories, config.cdx_recursive)?;
+    resolver.resolve(cdx_directories, options.cdx_recursive)?;
 
-    // One writer per partition, keyed by the partition key in a parallel `keys` vector. The
-    // parallel phase below must not touch the writers, so each partition's context is cloned once
-    // for it here.
-    let (keys, mut writers) = create_writers(config.partitions, config.compression_level)?;
+    // The writers, keyed by the partition key in a parallel `keys` vector. The parallel phase below
+    // must not touch the writers, so each partition's context is cloned once for it here.
+    let (keys, mut writers): (Vec<P>, Vec<SnapshotWriter<W>>) = partitions.into_iter().unzip();
     let contexts: Vec<Context> = writers
         .iter()
         .map(|writer| Context::clone(writer.context()))
@@ -226,8 +267,8 @@ where
 
     let mut summary = Summary::default();
 
-    // A write failure has to break out of the loop rather than return, so that the Zstandard frames
-    // below are still terminated.
+    // A write failure has to break out of the loop rather than return, so that the writers below
+    // are still finished (e.g. terminating their Zstandard frames).
     let mut write_error = None;
 
     // The per-file read/hash/discriminate/decode work is independent, so it runs on the Rayon pool
@@ -294,7 +335,7 @@ where
                     // iterates a `BTreeMap`, so the digests are strictly ascending (and each
                     // partition sees an ascending subsequence of them) and never repeat. Every
                     // snapshot passed below is actually written.
-                    if (!config.skip_unresolved || is_resolved)
+                    if (!options.skip_unresolved || is_resolved)
                         && let Err(error) = writers[index].write_snapshot(&snapshot)
                     {
                         write_error = Some(error);
@@ -307,10 +348,10 @@ where
 
     summary.skipped_count = summary.skipped.count_u64();
 
-    // Terminate every Zstandard frame, including when the loop above failed. A dropped encoder
-    // leaves its frame unterminated and its buffered data unwritten, so the partial output would
-    // not be readable at all. Note that the outputs are still incomplete after a failure, and
-    // `SnapshotWriter::create` refuses to overwrite them on a rerun.
+    // Finish every writer, including when the loop above failed: an unfinished writer (e.g. a
+    // dropped Zstandard encoder) can leave the partial output unreadable. Note that the outputs are
+    // still incomplete after a failure, and `SnapshotWriter::create` refuses to overwrite them on a
+    // rerun.
     let mut finish_error = None;
     for writer in writers {
         if let Err(error) = writer.finish() {

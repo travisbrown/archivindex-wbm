@@ -69,7 +69,8 @@ impl Summary {
 /// Check a compact snapshot file against the given context.
 ///
 /// Reads the Zstandard-compressed JSONL file at `input` and accumulates a [`Summary`] of schema
-/// errors, digest mismatches, missing or inconsistent metadata, and ordering problems.
+/// errors, digest mismatches, missing or inconsistent metadata, and ordering problems. See
+/// [`check_lines`] for checking an already-decompressed source.
 ///
 /// # Errors
 ///
@@ -77,8 +78,21 @@ impl Summary {
 /// recorded in the summary rather than returned as errors.
 pub fn check(input: &Path, context: &Context) -> Result<Summary, Error> {
     let file = std::fs::File::open(input)?;
-    let reader = std::io::BufReader::new(zstd::Decoder::new(file)?);
 
+    check_lines(std::io::BufReader::new(zstd::Decoder::new(file)?), context).map_err(Error::from)
+}
+
+/// Check compact snapshot JSONL lines against the given context.
+///
+/// The generic core of [`check`]: reads (uncompressed) JSONL lines from `reader` and accumulates a
+/// [`Summary`] of schema errors, digest mismatches, missing or inconsistent metadata, and ordering
+/// problems.
+///
+/// # Errors
+///
+/// Returns an error if the reader fails; individual line problems are recorded in the summary
+/// rather than returned as errors.
+pub fn check_lines<R: BufRead>(reader: R, context: &Context) -> Result<Summary, std::io::Error> {
     let mut summary = Summary::default();
     let mut hasher = Sha1::default();
     let mut last_digest: Option<Sha1Digest> = None;
@@ -144,4 +158,31 @@ pub fn check(input: &Path, context: &Context) -> Result<Summary, Error> {
     }
 
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_lines;
+    use archivindex_wbm_json::context::Context;
+    use archivindex_wbm_json::format::Format;
+
+    /// Lines are checked from any in-memory source: a valid line verifies, an unparseable line is
+    /// recorded as a schema error, and the summary reflects both.
+    #[test]
+    fn check_lines_reports_schema_errors_from_memory() {
+        let context = Context::from_static(&['\n']).expect("valid closing whitespace");
+        let line = context
+            .unprocessed_snapshot(&Format::Utf8, b"{\"id\":1}\n")
+            .expect("snapshot from bytes")
+            .display(&context)
+            .to_string();
+        let input = format!("{line}\nnot a snapshot\n");
+
+        let summary = check_lines(input.as_bytes(), &context).expect("check succeeds");
+
+        assert_eq!(summary.line_count, 2);
+        assert_eq!(summary.valid_digest_count, 1);
+        assert_eq!(summary.schema_errors, vec![2]);
+        assert!(!summary.is_successful());
+    }
 }

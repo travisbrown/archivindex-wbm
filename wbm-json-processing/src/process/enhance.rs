@@ -18,7 +18,7 @@
 //! When the content digest itself resolves, any expected digest the snapshot carried is dropped
 //! from the output, since it is no longer needed for lookups.
 
-use crate::io::write::SnapshotWriter;
+use crate::io::write::{Finish, SnapshotWriter};
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::UrlParts;
 use archivindex_wbm_json::context::Context;
@@ -68,15 +68,8 @@ pub struct Summary {
 
 /// Read a compact snapshot file and write a copy enriched with CDX metadata.
 ///
-/// Snapshots are buffered in batches of `batch_size` and `lookup` is called once per batch with the
-/// content digests of the snapshots that are still missing a timestamp. A snapshot whose content
-/// digest yields no captures is retried under its expected digest (the digest the CDX index
-/// declared), taken from the snapshot itself when it carries a valid one and from the invalid
-/// digest log otherwise; captures under the content digest are preferred whenever they exist. The
-/// earliest capture supplies the snapshot's timestamp and URL. A snapshot whose content digest
-/// resolves directly loses any expected digest it carried, since the field is no longer needed for
-/// lookups. Snapshots that already have a timestamp, and snapshots with no matching capture, are
-/// passed through unchanged.
+/// See [`enhance_into`], which this wraps with the loading of the invalid-digest log, Zstandard
+/// decompression of the input, and a durable Zstandard-compressed output.
 ///
 /// # Arguments
 ///
@@ -103,7 +96,7 @@ pub fn enhance<L, E>(
     compression_level: u16,
     batch_size: NonZeroUsize,
     context: &Context,
-    mut lookup: L,
+    lookup: L,
 ) -> Result<Summary, Error<E>>
 where
     L: FnMut(&[Sha1Digest]) -> Result<Vec<Option<Vec<UrlParts<'static>>>>, E>,
@@ -111,15 +104,56 @@ where
 {
     let expected_digests = super::expected_digests(invalid_db)?;
     let reader = crate::io::read::SnapshotReader::open(input)?;
-    let mut writer = SnapshotWriter::create(output, compression_level, Context::clone(context))?;
+    let writer = SnapshotWriter::create(output, compression_level, Context::clone(context))?;
+
+    enhance_into(reader, &expected_digests, writer, batch_size, lookup)
+}
+
+/// Read parsed snapshots and write a copy enriched with CDX metadata to a caller-supplied writer.
+///
+/// The generic core of [`enhance`]. Snapshots are buffered in batches of `batch_size` and `lookup`
+/// is called once per batch with the content digests of the snapshots that are still missing a
+/// timestamp. A snapshot whose content digest yields no captures is retried under its expected
+/// digest (the digest the CDX index declared), taken from the snapshot itself when it carries a
+/// valid one and from `expected_digests` otherwise (see [`enhance`]'s `invalid_db`); captures under
+/// the content digest are preferred whenever they exist. The earliest capture supplies the
+/// snapshot's timestamp and URL. A snapshot whose content digest resolves directly loses any
+/// expected digest it carried, since the field is no longer needed for lookups. Snapshots that
+/// already have a timestamp, and snapshots with no matching capture, are passed through unchanged.
+///
+/// The operation attempts to finish the writer (see [`Finish`]) even after a processing failure.
+/// Successful finalization publishes readable partial output. The writer's [`Context`] supplies
+/// the closing whitespace and URL inference used during serialization.
+///
+/// # Errors
+///
+/// Returns [`Error::Read`] if the input yields a parse error, [`Error::Io`] if the output cannot be
+/// written or finished, or [`Error::Lookup`] if the capture lookup fails;
+/// [`Error::InvalidDigestDb`] is never returned here (the log is loaded by [`enhance`]).
+pub fn enhance_into<I, L, E, W, S>(
+    input: I,
+    expected_digests: &HashMap<Sha1Digest, Digest<'static>, S>,
+    mut writer: SnapshotWriter<W>,
+    batch_size: NonZeroUsize,
+    mut lookup: L,
+) -> Result<Summary, Error<E>>
+where
+    I: IntoIterator<Item = Result<ExactSnapshot<'static>, archivindex_wbm_json::Error>>,
+    L: FnMut(&[Sha1Digest]) -> Result<Vec<Option<Vec<UrlParts<'static>>>>, E>,
+    E: std::error::Error + 'static,
+    W: Finish,
+    // Accepting any hash builder (not just the default `RandomState`) keeps the map's construction
+    // the caller's choice.
+    S: std::hash::BuildHasher,
+{
     let mut summary = Summary::default();
     let mut batch = Vec::with_capacity(batch_size.get());
 
-    // A failure has to leave the loop rather than return, so that the Zstandard frame below is
-    // still terminated.
+    // A failure has to leave the loop rather than return, so that the writer below is still
+    // finished (e.g. terminating a Zstandard frame).
     let mut enhance_error = None;
 
-    for result in reader {
+    for result in input {
         match result {
             Ok(snapshot) => batch.push(snapshot),
             Err(error) => {
@@ -133,7 +167,7 @@ where
         if batch.len() == batch_size.get()
             && let Err(error) = flush_batch(
                 &mut batch,
-                &expected_digests,
+                expected_digests,
                 &mut lookup,
                 &mut writer,
                 &mut summary,
@@ -147,7 +181,7 @@ where
     if enhance_error.is_none()
         && let Err(error) = flush_batch(
             &mut batch,
-            &expected_digests,
+            expected_digests,
             &mut lookup,
             &mut writer,
             &mut summary,
@@ -156,9 +190,8 @@ where
         enhance_error = Some(error);
     }
 
-    // Terminate the Zstandard frame, including when the work above failed. A dropped encoder leaves
-    // its frame unterminated and its buffered data unwritten, so the partial output would not be
-    // readable at all.
+    // Finish the writer, including when the work above failed: an unfinished writer (e.g. a dropped
+    // Zstandard encoder) can leave the partial output unreadable.
     let finish_error = writer.finish().err();
 
     super::prefer_loop_error(summary, enhance_error, finish_error)
@@ -168,9 +201,9 @@ where
 /// snapshot's content digest and falling back to its expected digest), apply the earliest capture
 /// to each (dropping the expected digest where the content digest resolved directly), and write the
 /// whole batch (including passthroughs) in input order.
-fn flush_batch<W, L, E>(
+fn flush_batch<W, L, E, S>(
     batch: &mut Vec<ExactSnapshot<'static>>,
-    expected_digests: &HashMap<Sha1Digest, Digest<'static>>,
+    expected_digests: &HashMap<Sha1Digest, Digest<'static>, S>,
     lookup: &mut L,
     writer: &mut SnapshotWriter<W>,
     summary: &mut Summary,
@@ -179,6 +212,7 @@ where
     W: std::io::Write,
     L: FnMut(&[Sha1Digest]) -> Result<Vec<Option<Vec<UrlParts<'static>>>>, E>,
     E: std::error::Error + 'static,
+    S: std::hash::BuildHasher,
 {
     // For each snapshot needing a lookup: its batch index, and the expected digest to retry with
     // when the content digest yields no captures.
@@ -285,10 +319,42 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, NonZeroUsize, enhance};
+    use super::{Context, HashMap, NonZeroUsize, SnapshotWriter, enhance, enhance_into};
     use archivindex_wbm::item::UrlParts;
     use archivindex_wbm_json::format::Format;
+    use bounded_static::IntoBoundedStatic;
     use std::convert::Infallible;
+
+    /// The generic core runs entirely in memory: the input snapshot passes through to the buffer,
+    /// and its digest is recorded as unmatched.
+    #[test]
+    fn enhance_into_passes_through_in_memory() {
+        let context = Context::from_static(&['\n']).expect("valid closing whitespace");
+        let snapshot = context
+            .unprocessed_snapshot(&Format::Utf8, b"{\"id\":1}\n")
+            .expect("snapshot from bytes")
+            .into_static();
+        let digest = snapshot.digest;
+
+        let mut buffer = Vec::new();
+        let writer = SnapshotWriter::new(&mut buffer, Context::clone(&context));
+        let batch_size = NonZeroUsize::new(8).expect("non-zero batch size");
+
+        let summary = enhance_into(vec![Ok(snapshot)], &HashMap::new(), writer, batch_size, {
+            |digests: &[_]| Ok::<_, Infallible>(vec![None::<Vec<UrlParts<'static>>>; digests.len()])
+        })
+        .expect("enhance succeeds");
+
+        assert_eq!(summary.read_count, 1);
+        assert_eq!(summary.written_count, 1);
+        assert_eq!(summary.unmatched, vec![digest]);
+
+        let written = crate::io::read::SnapshotReader::new(buffer.as_slice())
+            .collect::<Result<Vec<_>, _>>()
+            .expect("parse output");
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0].digest, digest);
+    }
 
     /// A consecutive duplicate input line is dropped by the writer, and the summary accounts for
     /// every input line as either written or dropped, so nothing is lost without a trace.

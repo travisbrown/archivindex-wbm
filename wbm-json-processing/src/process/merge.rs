@@ -6,10 +6,11 @@
 //! ordering violations are reported as errors. The remaining fields and content digests are not
 //! validated.
 
+use crate::io::write::Finish;
 use archivindex_wbm::digest::Sha1Digest;
 use std::cmp::Ordering;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::iter::Peekable;
 use std::path::Path;
 
@@ -111,7 +112,7 @@ impl SourceLine {
     }
 }
 
-/// Summary of a [`merge_zst`] operation.
+/// Summary of a [`merge_into`] (or [`merge_zst`]) operation.
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 pub struct Summary {
     /// How many output lines came from each side.
@@ -206,9 +207,8 @@ fn extract_digest(line: &str) -> Option<Sha1Digest> {
 
 /// Merge two digest-sorted Zstandard-compressed JSONL files into a third.
 ///
-/// Each digest is written exactly once. Where both inputs carry the same digest with identical
-/// lines the digest is recorded in [`Summary::both`]; where the lines differ the shorter one is
-/// written and the pair is also recorded in [`Summary::collisions`].
+/// See [`merge_into`], which this wraps with Zstandard decompression of the inputs and a durable
+/// Zstandard-compressed output.
 ///
 /// # Errors
 ///
@@ -225,19 +225,43 @@ pub fn merge_zst<F: AsRef<Path>, S: AsRef<Path>, O: AsRef<Path>>(
     let reader_first = BufReader::new(zstd::Decoder::new(File::open(first)?)?);
     let reader_second = BufReader::new(zstd::Decoder::new(File::open(second)?)?);
 
-    // `DurableEncoder` reserves the output with `create_new` (as in `SnapshotWriter::create`), so
-    // an accidental rerun cannot clobber an existing merge output, and only renames the data to
-    // the final name once it is complete (or terminated after a failure below) and synced.
-    let mut writer = crate::io::write::DurableEncoder::create(output, compression_level)?;
+    // `DurableEncoder` writes to a temporary file and publishes without overwrite after finishing
+    // and syncing it. The merge loop also attempts to finish partial output after a failure.
+    let writer = crate::io::write::DurableEncoder::create(output, compression_level)?;
 
+    merge_into(reader_first.lines(), reader_second.lines(), writer)
+}
+
+/// Merge two digest-sorted JSONL line streams into an output writer.
+///
+/// The generic core of [`merge_zst`]. Each digest is written exactly once. Where both inputs carry
+/// the same digest with identical lines the digest is recorded in [`Summary::both`]; where the
+/// lines differ the shorter one is written and the pair is also recorded in
+/// [`Summary::collisions`].
+///
+/// # Errors
+///
+/// Returns [`Error::Io`] if the output cannot be written or finished, or one of the per-line errors
+/// if an input is unreadable, unsorted, or lacks a valid digest prefix. The operation attempts to
+/// finish the writer even after a merge failure (see [`Finish`]); successful finalization publishes
+/// readable partial output.
+pub fn merge_into<
+    F: Iterator<Item = Result<String, std::io::Error>>,
+    S: Iterator<Item = Result<String, std::io::Error>>,
+    W: Finish,
+>(
+    first: F,
+    second: S,
+    mut writer: W,
+) -> Result<Summary, Error> {
     let mut summary = Summary::default();
 
-    // A failure has to leave the loop rather than return, so that the Zstandard frame below is
-    // still terminated: a dropped encoder leaves the frame unterminated and its buffered data
-    // unwritten, making the partial output unreadable.
+    // A failure has to leave the loop rather than return, so that the writer below is still
+    // finished: an unfinished writer (e.g. a dropped Zstandard encoder, whose frame would be left
+    // unterminated and its buffered data unwritten) can make the partial output unreadable.
     let mut merge_error = None;
 
-    for result in merge(reader_first.lines(), reader_second.lines()) {
+    for result in merge(first, second) {
         let (digest, source_line) = match result {
             Ok(value) => value,
             Err(error) => {
@@ -492,6 +516,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     /// Helper: build an infallible line iterator from digest strings and dummy content.
     fn lines_from_digests<'a>(
@@ -856,6 +881,33 @@ mod tests {
         // The partial output is complete up to the failure and readable in place.
         assert_eq!(read_zst_lines(&output), vec![snapshot_line(M, 1)]);
         assert!(!dir.path().join("out.jsonl.zst.tmp").exists());
+    }
+
+    /// The generic core writes to an in-memory buffer, whose contents survive the writer.
+    #[test]
+    fn merge_into_writes_to_memory() {
+        let a_digests = ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2"];
+        let b_digests = ["ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ72"];
+
+        let mut buffer = Vec::new();
+        let summary = merge_into(
+            lines_from_digests(&a_digests),
+            lines_from_digests(&b_digests),
+            &mut buffer,
+        )
+        .expect("merge succeeds");
+
+        assert_eq!(
+            summary.counts,
+            SourceCounts {
+                first: 1,
+                second: 1,
+                both: 0
+            }
+        );
+        let output = String::from_utf8(buffer).expect("output is UTF-8");
+        assert_eq!(output.lines().count(), 2);
+        assert!(output.starts_with("{\"digest\":\"AAAA"));
     }
 
     #[test]

@@ -90,10 +90,68 @@ pub fn open_zstd<P: AsRef<Path> + Send + 'static>(
     path: P,
     parallelism: usize,
 ) -> BoxStream<'static, StreamItem> {
-    build_stream(
+    open_with(
         move || File::open(path).and_then(zstd::Decoder::new),
         parallelism,
     )
+}
+
+/// Open a JSONL snapshot source and stream parsed snapshots.
+///
+/// The generic core of [`open_zstd`]. `make_reader` runs inside [`tokio::task::spawn_blocking`], so
+/// it may perform synchronous I/O; the (uncompressed) lines it yields are read on that blocking
+/// thread, with results delivered through a bounded channel for backpressure.
+///
+/// When `parallelism` is greater than 1, parsing is dispatched to tokio blocking tasks and executed
+/// concurrently via [`futures::StreamExt::buffered`]. Output order is preserved.
+///
+/// # Arguments
+///
+/// * `make_reader` - Opens the JSONL source; an error is yielded as the stream's only item
+/// * `parallelism` - Number of concurrent parse tasks (1 = sequential)
+///
+/// # Panics
+///
+/// Panics if called outside a Tokio runtime.
+pub fn open_with<R, F>(make_reader: F, parallelism: usize) -> BoxStream<'static, StreamItem>
+where
+    F: FnOnce() -> Result<R, std::io::Error> + Send + 'static,
+    R: Read + 'static,
+{
+    let lines = read_lines(make_reader);
+
+    if parallelism <= 1 {
+        lines
+            .map(|line_result| line_result.and_then(|line| parse_line(&line)))
+            .boxed()
+    } else {
+        // One blocking task per line would cost more in task and channel overhead than parsing the
+        // line, so each task parses a chunk of lines; `buffered` reassembles the chunks in their
+        // original order, and flattening them preserves the per-line order and error positions.
+        lines
+            .chunks(PARSE_CHUNK_SIZE)
+            .map(|chunk| {
+                tokio::task::spawn_blocking(move || {
+                    chunk
+                        .into_iter()
+                        .map(|line_result| line_result.and_then(|line| parse_line(&line)))
+                        .collect::<Vec<StreamItem>>()
+                })
+            })
+            .buffered(parallelism)
+            // Unwrap the JoinError, which occurs only on runtime shutdown or a panic.
+            .map(|join_result| match join_result {
+                Ok(parse_results) => parse_results,
+                Err(join_error) => {
+                    vec![Err(Error::from(std::io::Error::other(
+                        join_error.to_string(),
+                    )))]
+                }
+            })
+            .map(futures::stream::iter)
+            .flatten()
+            .boxed()
+    }
 }
 
 /// Validate a Zstandard-compressed JSONL file, returning validation results.
@@ -121,8 +179,49 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
     parallelism: usize,
     context: Context,
 ) -> Result<StreamValidation, Error> {
+    validate_with(
+        move || File::open(path).and_then(zstd::Decoder::new),
+        parallelism,
+        context,
+    )
+    .await
+}
+
+/// Validate a JSONL snapshot source, returning validation results.
+///
+/// The generic core of [`validate_zstd`]: `make_reader` runs inside
+/// [`tokio::task::spawn_blocking`], so it may perform synchronous I/O, and must yield uncompressed
+/// JSONL lines. Each line is parsed and its SHA-1 digest is verified under `context`. When
+/// `parallelism` is greater than 1, parsing and hashing are dispatched to tokio blocking tasks
+/// concurrently. The ordering check is always performed sequentially after results are collected.
+///
+/// # Arguments
+///
+/// * `make_reader` - Opens the JSONL source; an error fails the validation
+/// * `parallelism` - Number of concurrent parse and validate tasks (1 = sequential)
+/// * `context` - Supplies default closing whitespace and codecs for digest verification.
+///   [`Context::infer`] can determine whitespace defaults for UTF-8 snapshots; other formats need
+///   registered codecs.
+///
+/// # Errors
+///
+/// Returns an error if the source cannot be opened or read; individual line problems are recorded
+/// in the [`StreamValidation`] rather than returned as errors.
+///
+/// # Panics
+///
+/// Panics if called outside a Tokio runtime.
+pub async fn validate_with<R, F>(
+    make_reader: F,
+    parallelism: usize,
+    context: Context,
+) -> Result<StreamValidation, Error>
+where
+    F: FnOnce() -> Result<R, std::io::Error> + Send + 'static,
+    R: Read + 'static,
+{
     let context = Arc::new(context);
-    let lines = read_lines(move || File::open(path).and_then(zstd::Decoder::new));
+    let lines = read_lines(make_reader);
 
     let validated: BoxStream<'static, Result<LineValidation, Error>> = if parallelism <= 1 {
         lines
@@ -282,52 +381,6 @@ where
     ReceiverStream::new(rx)
 }
 
-/// Shared implementation for building a parsed snapshot stream.
-///
-/// Reads lines via `make_reader` on a blocking thread and parses them into snapshots. When
-/// `parallelism > 1`, parsing is dispatched to tokio blocking tasks and executed concurrently via
-/// [`futures::StreamExt::buffered`]. Output order is preserved.
-fn build_stream<R, F>(make_reader: F, parallelism: usize) -> BoxStream<'static, StreamItem>
-where
-    F: FnOnce() -> Result<R, std::io::Error> + Send + 'static,
-    R: Read + 'static,
-{
-    let lines = read_lines(make_reader);
-
-    if parallelism <= 1 {
-        lines
-            .map(|line_result| line_result.and_then(|line| parse_line(&line)))
-            .boxed()
-    } else {
-        // One blocking task per line would cost more in task and channel overhead than parsing the
-        // line, so each task parses a chunk of lines; `buffered` reassembles the chunks in their
-        // original order, and flattening them preserves the per-line order and error positions.
-        lines
-            .chunks(PARSE_CHUNK_SIZE)
-            .map(|chunk| {
-                tokio::task::spawn_blocking(move || {
-                    chunk
-                        .into_iter()
-                        .map(|line_result| line_result.and_then(|line| parse_line(&line)))
-                        .collect::<Vec<StreamItem>>()
-                })
-            })
-            .buffered(parallelism)
-            // Unwrap the JoinError, which occurs only on runtime shutdown or a panic.
-            .map(|join_result| match join_result {
-                Ok(parse_results) => parse_results,
-                Err(join_error) => {
-                    vec![Err(Error::from(std::io::Error::other(
-                        join_error.to_string(),
-                    )))]
-                }
-            })
-            .map(futures::stream::iter)
-            .flatten()
-            .boxed()
-    }
-}
-
 /// Create a stream of parsed snapshots from a synchronous reader.
 ///
 /// The reader is consumed on a blocking thread (via [`tokio::task::spawn_blocking`]), and parsed
@@ -354,7 +407,7 @@ pub fn from_reader<R>(reader: R, parallelism: usize) -> BoxStream<'static, Strea
 where
     R: Read + Send + 'static,
 {
-    build_stream(move || Ok(reader), parallelism)
+    open_with(move || Ok(reader), parallelism)
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@
 //! written on blocking threads with backpressure via bounded channels, mirroring the read-side
 //! architecture in [`super`].
 
+use crate::io::write::{Finish, SnapshotWriter};
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
@@ -235,35 +236,35 @@ struct AsyncSnapshotSink {
 }
 
 impl AsyncSnapshotSink {
-    /// Spawn a blocking writer thread for the given output path.
+    /// Spawn a blocking writer thread for a writer produced by `make_writer`.
     ///
-    /// Waits for the writer to successfully create the output file before returning. Returns an
-    /// error immediately if file creation fails. The `context` determines the closing whitespace
-    /// and URL inference used when writing.
-    async fn create(
-        path: PathBuf,
-        compression_level: u16,
-        context: Context,
-    ) -> Result<Self, Error> {
+    /// `make_writer` runs on the blocking thread (so it may open files); its outcome is awaited
+    /// before returning, and a creation failure is returned immediately. The writer's [`Context`]
+    /// determines the closing whitespace and URL inference used when writing, and the writer is
+    /// finished (see [`Finish`]) on the blocking thread once the sink's channel closes.
+    async fn create<W, F>(make_writer: F) -> Result<Self, Error>
+    where
+        W: Finish + 'static,
+        F: FnOnce() -> Result<SnapshotWriter<W>, std::io::Error> + Send + 'static,
+    {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<WriteCommand>(super::CHANNEL_BUFFER);
         let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Result<(), std::io::Error>>();
 
         let handle = tokio::task::spawn_blocking(move || {
-            let mut writer =
-                match crate::io::write::SnapshotWriter::create(&path, compression_level, context) {
-                    Ok(writer) => {
-                        let _ = init_tx.send(Ok(()));
-                        writer
-                    }
-                    Err(error) => {
-                        let _ = init_tx.send(Err(error));
-                        return Ok(());
-                    }
-                };
+            let mut writer = match make_writer() {
+                Ok(writer) => {
+                    let _ = init_tx.send(Ok(()));
+                    writer
+                }
+                Err(error) => {
+                    let _ = init_tx.send(Err(error));
+                    return Ok(());
+                }
+            };
 
-            // A write failure has to leave the loop rather than return, so that the Zstandard
-            // frame below is still terminated and the partial output stays readable, mirroring the
-            // synchronous batch operations in `crate::process`.
+            // A write failure has to leave the loop rather than return, so that the writer below is
+            // still finished (e.g. terminating its Zstandard frame) and the partial output stays
+            // readable, mirroring the synchronous batch operations in `crate::process`.
             //
             // Every digest sent to a single sink is strictly greater than the previous one (the
             // input streams and the new entries are order-enforced, and equal digests are resolved
@@ -290,8 +291,8 @@ impl AsyncSnapshotSink {
                 }
             }
 
-            // Terminate the Zstandard frame even after a write error; the write error is the more
-            // informative one and is reported in preference to the termination error.
+            // Finish the writer even after a write error; the write error is the more informative
+            // one and is reported in preference to the finish error.
             let finish_error = writer.finish().err();
 
             crate::process::prefer_loop_error((), write_error, finish_error)
@@ -380,17 +381,18 @@ where
     );
 
     let first_output = config.first_output.clone();
-    let first_sink = AsyncSnapshotSink::create(
-        config.first_output,
-        config.compression_level,
-        config.first_context,
-    )
+    let compression_level = config.compression_level;
+    let first_sink = AsyncSnapshotSink::create({
+        let path = config.first_output;
+        let context = config.first_context;
+        move || SnapshotWriter::create(&path, compression_level, context)
+    })
     .await?;
-    let second_sink = match AsyncSnapshotSink::create(
-        config.second_output,
-        config.compression_level,
-        config.second_context,
-    )
+    let second_sink = match AsyncSnapshotSink::create({
+        let path = config.second_output;
+        let context = config.second_context;
+        move || SnapshotWriter::create(&path, compression_level, context)
+    })
     .await
     {
         Ok(sink) => sink,
