@@ -31,6 +31,7 @@ fn compact_populates_gzip_format() {
         level: 5,
         mtime: 1_660_840_129,
         os: OsByte::Unix,
+        flushes: Vec::new(),
         extra_flushes: 0,
     };
     let archive = params.reproduce(text.as_bytes());

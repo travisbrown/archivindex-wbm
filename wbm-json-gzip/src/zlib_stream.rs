@@ -2,13 +2,17 @@
 //! libraries.
 //!
 //! Archives in this family were produced by a streaming gzip wrapper (e.g. a web server gzipping an
-//! HTTP response): `deflate(content)` → `Z_SYNC_FLUSH` → `Z_FINISH`, with an `OS = 3` (Unix) header
-//! carrying a per-capture mtime. Reproducing them byte-for-byte requires the original C deflate
-//! implementation (`miniz_oxide` and pure-Rust ports diverge) so we link both stock zlib
-//! ([`libz_sys`]) and zlib-ng ([`libz_ng_sys`]) and drive `deflate` directly.
+//! HTTP response): `deflate(chunk)` → `Z_SYNC_FLUSH` for each written chunk, then `Z_FINISH`, with
+//! an `OS = 3` (Unix) or `255` (unknown) header and a recorded mtime. A producer that wrote
+//! everything at once leaves a single sync marker at the content's end; one that flushed
+//! mid-response leaves interior markers at the content offsets recorded in `GzipParams::flushes`.
+//! Reproducing either byte-for-byte requires the original C deflate implementation (`miniz_oxide`
+//! and pure-Rust ports diverge) so we link both stock zlib ([`libz_sys`]) and zlib-ng
+//! ([`libz_ng_sys`]) and drive `deflate` directly.
 //!
 //! Every observed archive uses the C defaults `memLevel = 8`, `windowBits = 15`, and the default
-//! strategy; only the library, level, mtime, and a rare trailing empty flush vary.
+//! strategy; only the library, level, mtime, flush boundaries, and a rare trailing empty flush
+//! vary.
 //!
 //! The casts between the FFI integer types (`usize` / `u32` / `c_int` / `z_size`) are inherent to
 //! the zlib C API, whose single-shot counters (`avail_in` / `avail_out`) are 32-bit. Each raw
@@ -36,15 +40,31 @@ const WINDOW_BITS: c_int = 15;
 /// framing worst case that the doubling does not already absorb (tiny or incompressible content).
 const OUT_SLACK: usize = 1024;
 
-/// The maximum encoded size of one empty `Z_SYNC_FLUSH` marker (per the zlib documentation).
+/// The maximum encoded size of one `Z_SYNC_FLUSH` marker (per the zlib documentation).
 const FLUSH_MARKER_LEN: usize = 6;
 
-/// The longest `content` the single-shot deflate calls accept: both `avail_in` (`content.len()`)
-/// and `avail_out` (`2 * content.len() + OUT_SLACK + 255 * FLUSH_MARKER_LEN`) must fit zlib's
-/// 32-bit counters, or the `usize -> u32` casts would wrap and silently deflate only part of the
-/// content. `GzipParams::supports_content_len` screens callers against this limit up front.
+/// The longest `content` the deflate calls accept with no mid-stream flushes: both `avail_in` (a
+/// chunk's length) and `avail_out` (`2 * content.len() + OUT_SLACK` plus the worst-case marker
+/// budget of the content-end flush and 255 trailing empties) must fit zlib's 32-bit counters, or
+/// the `usize -> u32` casts would wrap and silently deflate only part of the content. Each
+/// mid-stream flush shrinks the limit by a few bytes; [`fits`] performs the full check, which
+/// `GzipParams::supports_content_len` applies up front.
 pub const MAX_CONTENT_LEN: usize =
-    (u32::MAX as usize - OUT_SLACK - FLUSH_MARKER_LEN * u8::MAX as usize) / 2;
+    (u32::MAX as usize - OUT_SLACK - FLUSH_MARKER_LEN * (u8::MAX as usize + 1)) / 2;
+
+/// Whether `content_len` bytes of content with `mid_flushes` interior sync markers fit the 32-bit
+/// deflate counters, with the worst-case trailing markers (the content-end flush plus 255 empties)
+/// reserved. With no mid-stream flushes this is exactly `content_len <= MAX_CONTENT_LEN`.
+pub fn fits(content_len: usize, mid_flushes: usize) -> bool {
+    content_len
+        .checked_mul(2)
+        .and_then(|doubled| {
+            mid_flushes
+                .checked_mul(FLUSH_MARKER_LEN)
+                .and_then(|markers| doubled.checked_add(markers))
+        })
+        .is_some_and(|needed| needed <= 2 * MAX_CONTENT_LEN)
+}
 
 unsafe extern "C" {
     fn malloc(size: usize) -> *mut c_void;
@@ -72,25 +92,30 @@ unsafe extern "C" fn zfree(_opaque: *mut c_void, address: *mut c_void) {
     unsafe { free(address) }
 }
 
-/// Generate a raw-deflate function for one C library: deflate all of `content`, emit one
-/// `Z_SYNC_FLUSH`, then `extra_flushes` additional empty sync flushes, then `Z_FINISH`.
+/// Generate a raw-deflate function for one C library: deflate each chunk of `chunks` followed by
+/// one `Z_SYNC_FLUSH`, then `extra_flushes` additional empty sync flushes, then `Z_FINISH`.
 ///
 /// The two libraries share an identical `z_stream` layout and call sequence; only the stream type,
 /// the init expression, and the `deflate` / `deflateEnd` symbols differ.
 macro_rules! raw_deflate_fn {
     ($name:ident, $stream:ty, $init:expr, $deflate:path, $deflate_end:path) => {
-        /// Raw-deflate `content` at `level` with `extra_flushes` trailing empty sync flushes.
+        /// Raw-deflate `chunks` at `level`, each chunk ending in a sync flush, with `extra_flushes`
+        /// trailing empty sync flushes.
         ///
         /// # Panics
         ///
-        /// Panics if `content` is longer than [`MAX_CONTENT_LEN`] (see there).
-        fn $name(content: &[u8], level: c_int, extra_flushes: u8) -> Vec<u8> {
+        /// Panics if the total content length and flush count exceed what [`fits`] accepts, or if a
+        /// chunk other than the first is empty (an empty sync flush directly after another is a
+        /// zlib no-op; `reproduce` never produces such chunks from screened parameters).
+        fn $name(chunks: &[&[u8]], level: c_int, extra_flushes: u8) -> Vec<u8> {
+            let content_len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
             // Guard the 32-bit `avail_in` / `avail_out` counters: casting a longer length below
             // would wrap modulo `2 ^ 32` and silently compress only part of the content.
             assert!(
-                content.len() <= MAX_CONTENT_LEN,
-                "content length {} exceeds the zlib reproduction limit {MAX_CONTENT_LEN}",
-                content.len()
+                fits(content_len, chunks.len() - 1),
+                "content length {content_len} with {} mid-stream flushes exceeds the zlib \
+                 reproduction limit",
+                chunks.len() - 1
             );
             // SAFETY: the stream's allocator callbacks are set before `assume_init` (the remaining
             // fields are valid when zeroed, i.e. as null raw pointers and zero integers); `deflate`
@@ -104,23 +129,26 @@ macro_rules! raw_deflate_fn {
                 assert_eq!(($init)(&mut stream, level), Z_OK, "deflateInit");
 
                 // Sized for the worst case: incompressible content plus the fixed gzip framing
-                // slack, plus the trailing empty sync-flush markers, which can dominate for tiny
-                // content.
+                // slack, plus one marker per sync flush (each chunk's, and the trailing empties),
+                // which can dominate for tiny content.
                 let mut out = vec![
                     0u8;
-                    content.len() * 2
+                    content_len * 2
                         + OUT_SLACK
-                        + FLUSH_MARKER_LEN * usize::from(extra_flushes)
+                        + FLUSH_MARKER_LEN
+                            * (chunks.len() + usize::from(extra_flushes))
                 ];
-                stream.next_in = content.as_ptr().cast_mut();
-                stream.avail_in = content.len() as u32;
                 stream.next_out = out.as_mut_ptr();
                 stream.avail_out = out.len() as u32;
-                assert_eq!(
-                    $deflate(&mut stream, Z_SYNC_FLUSH),
-                    Z_OK,
-                    "deflate(Z_SYNC_FLUSH)"
-                );
+                for chunk in chunks {
+                    stream.next_in = chunk.as_ptr().cast_mut();
+                    stream.avail_in = chunk.len() as u32;
+                    assert_eq!(
+                        $deflate(&mut stream, Z_SYNC_FLUSH),
+                        Z_OK,
+                        "deflate(Z_SYNC_FLUSH)"
+                    );
+                }
 
                 for _ in 0..extra_flushes {
                     // A `SYNC` flush directly following another is a no-op (`Z_BUF_ERROR`); an
@@ -189,20 +217,32 @@ raw_deflate_fn!(
 /// byte-for-byte.
 ///
 /// `params.compressor` selects the C library; `params.mtime` and `params.os` are copied into the
-/// gzip header; and `params.extra_flushes` is the number of trailing empty `Z_SYNC_FLUSH` markers
-/// between the content block and the final block.
+/// gzip header; `params.flushes` are the content offsets of mid-stream `Z_SYNC_FLUSH` markers; and
+/// `params.extra_flushes` is the number of trailing empty `Z_SYNC_FLUSH` markers between the
+/// content's final marker and the final block.
 ///
 /// # Panics
 ///
-/// Panics if `params.level` is not a level the selected library accepts (`0..=9`), if `content` is
-/// longer than [`MAX_CONTENT_LEN`], or if `params.compressor` is [`Compressor`](super::Compressor)
-/// `::GoFlate` (its archives are reproduced by the `go_flate` port; `GzipParams::reproduce` never
-/// routes them here).
-pub fn reproduce(params: super::GzipParams, content: &[u8]) -> Vec<u8> {
+/// Panics if `params.level` is not a level the selected library accepts (`0..=9`), if
+/// `params.flushes` offsets are not ascending and inside the content, if the content and flush
+/// counts exceed what [`fits`] accepts, or if `params.compressor` is
+/// <code>[Compressor](super::Compressor)::GoFlate</code> (its archives are reproduced by the
+/// `go_flate` port; `GzipParams::reproduce` never routes them here).
+pub fn reproduce(params: &super::GzipParams, content: &[u8]) -> Vec<u8> {
     let level = c_int::from(params.level);
+    // Split the content at the mid-stream flush offsets; every chunk (including the last) ends in a
+    // sync marker, matching the source stream's write-then-flush boundaries.
+    let mut chunks = Vec::with_capacity(params.flushes.len() + 1);
+    let mut start = 0;
+    for &offset in &params.flushes {
+        let offset = usize::try_from(offset).expect("flush offset fits in usize");
+        chunks.push(&content[start..offset]);
+        start = offset;
+    }
+    chunks.push(&content[start..]);
     let body = match params.compressor {
-        super::Compressor::Zlib => zlib_raw(content, level, params.extra_flushes),
-        super::Compressor::ZlibNg => zlibng_raw(content, level, params.extra_flushes),
+        super::Compressor::Zlib => zlib_raw(&chunks, level, params.extra_flushes),
+        super::Compressor::ZlibNg => zlibng_raw(&chunks, level, params.extra_flushes),
         super::Compressor::GoFlate => {
             unreachable!("`GzipParams::reproduce` routes Go archives to `go_flate`, never here")
         }

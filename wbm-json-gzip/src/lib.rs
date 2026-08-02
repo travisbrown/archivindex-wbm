@@ -12,8 +12,10 @@
 //! - **Go**: Go's `compress/flate` at levels 4–9, with `OS = 255` and mtime 0. Reproduced by
 //!   the `go_flate` port, since no C or Rust deflate library matches Go's output.
 //! - **zlib** / **zlib-ng**: a streaming gzip wrapper (`deflate`, `Z_SYNC_FLUSH`, and `Z_FINISH`),
-//!   as emitted by, for example, a web server gzipping an HTTP response. Reproduced via FFI to the
-//!   vendored C libraries (see `zlib_stream`), since `miniz_oxide` and pure-Rust ports diverge.
+//!   as emitted by, for example, a web server gzipping an HTTP response (possibly flushing
+//!   mid-response, which leaves interior sync markers at content offsets recorded in
+//!   [`GzipParams::flushes`]). Reproduced via FFI to the vendored C libraries (see `zlib_stream`),
+//!   since `miniz_oxide` and pure-Rust ports diverge.
 //!
 //! # Usage
 //!
@@ -137,9 +139,10 @@ impl<'de> serde::Deserialize<'de> for OsByte {
 ///
 /// These are the format-specific metadata fields stored inside a snapshot's `format` object (under
 /// the `gzip` [`type`](archivindex_wbm_json::format::FormatInfo::name)). For example:
-/// `{"compressor":"zlib","level":5,"mtime":1660840129,"os":3}`. The `mtime` (0), `os` (255), and
-/// `extra_flushes` (0) defaults are omitted from serialization.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+/// `{"compressor":"zlib","level":5,"mtime":1660840129,"os":3}`, or with a mid-stream flush,
+/// `{"compressor":"zlib-ng","flushes":[104508],"level":8,"os":3}`. The `mtime` (0), `os` (255),
+/// `flushes` (empty), and `extra_flushes` (0) defaults are omitted from serialization.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GzipParams {
     /// The deflate implementation.
     pub compressor: Compressor,
@@ -151,6 +154,11 @@ pub struct GzipParams {
     /// The gzip header OS byte (unknown for [`Compressor::GoFlate`]; unknown or Unix for zlib).
     #[serde(default, skip_serializing_if = "crate::is_default")]
     pub os: OsByte,
+    /// Content byte offsets of mid-stream `Z_SYNC_FLUSH` markers, for archives whose producer
+    /// flushed between writes (ascending, each strictly between 0 and the content length; empty for
+    /// [`Compressor::GoFlate`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flushes: Vec<u32>,
     /// Trailing empty `Z_SYNC_FLUSH` markers before the final block (0 for
     /// [`Compressor::GoFlate`]).
     #[serde(default, skip_serializing_if = "crate::is_default")]
@@ -175,35 +183,50 @@ impl GzipParams {
         // 1. Go's `compress/flate` (a single self-contained stream). Its header is fixed (`OS =
         //    255`, mtime 0), so the byte-exact match confirms the family.
         // 2. Streamed zlib / zlib-ng, reusing the archive's own header (`os`, `mtime`) and its
-        //    sync-marker-derived flush count; find the library and level that reproduce it exactly.
+        //    sync-marker-derived flush layout; find the library and level that reproduce it
+        //    exactly.
         find_go_level(content, archive)
             .map(|level| Self {
                 compressor: Compressor::GoFlate,
                 level,
                 mtime: 0,
                 os: OsByte::Unknown,
+                flushes: Vec::new(),
                 extra_flushes: 0,
             })
             .or_else(|| infer_zlib(content, archive))
     }
 
     /// Whether [`reproduce`](Self::reproduce) can honour these parameters: the `level` is in the
-    /// supported range for the `compressor`, and the `compressor` has a path for `extra_flushes`.
+    /// supported range for the `compressor`, and the `compressor` has a path for the flush fields.
     ///
     /// [`infer`](Self::infer) only ever produces reproducible parameters; this guards against
     /// values taken from untrusted metadata (e.g. a snapshot's `format` object), where an
-    /// out-of-range `level` would panic and a stray `extra_flushes` would otherwise be dropped,
-    /// yielding an archive that silently differs from the original.
+    /// out-of-range `level` would panic and stray `flushes` or `extra_flushes` would otherwise be
+    /// dropped, yielding an archive that silently differs from the original.
     #[must_use]
-    pub const fn is_reproducible(&self) -> bool {
+    // Only const without the `zlib` feature, whose arm needs (non-const) slice iterators.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn is_reproducible(&self) -> bool {
         match self.compressor {
             // The Go-flate port only implements levels 4..=9, and writes a single self-contained
-            // stream, so it has nowhere to place trailing sync markers.
-            Compressor::GoFlate => self.level >= 4 && self.level <= 9 && self.extra_flushes == 0,
+            // stream, so it has nowhere to place sync markers of either kind.
+            Compressor::GoFlate => {
+                self.level >= 4
+                    && self.level <= 9
+                    && self.extra_flushes == 0
+                    && self.flushes.is_empty()
+            }
             // zlib and zlib-ng accept levels 0..=9, but only when the `zlib` feature provides their
-            // reproduction paths.
+            // reproduction paths. Mid-stream flush offsets must be positive and strictly ascending;
+            // their upper bound (the content length) is checked by `supports_content_len`, which
+            // knows the length.
             #[cfg(feature = "zlib")]
-            Compressor::Zlib | Compressor::ZlibNg => self.level <= 9,
+            Compressor::Zlib | Compressor::ZlibNg => {
+                self.level <= 9
+                    && self.flushes.first() != Some(&0)
+                    && self.flushes.windows(2).all(|pair| pair[0] < pair[1])
+            }
             #[cfg(not(feature = "zlib"))]
             Compressor::Zlib | Compressor::ZlibNg => false,
         }
@@ -212,13 +235,22 @@ impl GzipParams {
     /// Whether [`reproduce`](Self::reproduce) supports content of `len` bytes for these parameters.
     ///
     /// The Go port handles any length, while the zlib streaming path is bounded by the C API's
-    /// 32-bit counters (about 2 GiB of content); [`codec`] screens with this so oversized content
-    /// falls back to the unreproduced bytes (a digest mismatch) instead of panicking.
-    const fn supports_content_len(self, len: usize) -> bool {
+    /// 32-bit counters (about 2 GiB of content, less for each mid-stream flush marker) and
+    /// requires the `flushes` offsets to fall inside the content; [`codec`] screens with this so
+    /// unsupported content falls back to the unreproduced bytes (a digest mismatch) instead of
+    /// panicking.
+    // Only const without the `zlib` feature, whose arm needs (non-const) slice iterators.
+    #[allow(clippy::missing_const_for_fn)]
+    fn supports_content_len(&self, len: usize) -> bool {
         match self.compressor {
             Compressor::GoFlate => true,
             #[cfg(feature = "zlib")]
-            Compressor::Zlib | Compressor::ZlibNg => len <= zlib_stream::MAX_CONTENT_LEN,
+            Compressor::Zlib | Compressor::ZlibNg => {
+                self.flushes
+                    .last()
+                    .is_none_or(|&last| usize::try_from(last).is_ok_and(|offset| offset < len))
+                    && zlib_stream::fits(len, self.flushes.len())
+            }
             // Without the `zlib` feature there is no zlib reproduction path at any length.
             #[cfg(not(feature = "zlib"))]
             Compressor::Zlib | Compressor::ZlibNg => {
@@ -232,19 +264,21 @@ impl GzipParams {
     ///
     /// # Panics
     ///
-    /// Panics when the `level` is outside the range the `compressor` supports, or when a
-    /// [`Compressor::Zlib`] / [`Compressor::ZlibNg`] `content` is too long for zlib's 32-bit
-    /// counters (about 2 GiB). [`codec`] screens both conditions and falls back instead.
+    /// Panics when the `level` is outside the range the `compressor` supports, when the `flushes`
+    /// offsets are not ascending or lie outside the content, or when a [`Compressor::Zlib`] /
+    /// [`Compressor::ZlibNg`] `content` is too long for zlib's 32-bit counters (about 2 GiB).
+    /// Also panics for zlib or zlib-ng when the `zlib` feature is disabled.
+    /// [`codec`] screens these conditions and falls back to the uncompressed content bytes.
     ///
-    /// A [`Compressor::GoFlate`] `extra_flushes` does not panic but is ignored, so callers holding
-    /// untrusted parameters must screen with [`is_reproducible`](Self::is_reproducible) rather than
-    /// treat a returned archive as faithful.
+    /// For [`Compressor::GoFlate`], flush fields are ignored by this method; use
+    /// [`is_reproducible`](Self::is_reproducible) to reject them. Go output always uses mtime 0 and
+    /// OS 255, regardless of the supplied header fields.
     #[must_use]
     pub fn reproduce(&self, content: &[u8]) -> Vec<u8> {
         match self.compressor {
             Compressor::GoFlate => reproduce_go(content, self.level),
             #[cfg(feature = "zlib")]
-            Compressor::Zlib | Compressor::ZlibNg => zlib_stream::reproduce(*self, content),
+            Compressor::Zlib | Compressor::ZlibNg => zlib_stream::reproduce(self, content),
             #[cfg(not(feature = "zlib"))]
             Compressor::Zlib | Compressor::ZlibNg => {
                 panic!("reproducing zlib or zlib-ng archives requires the `zlib` feature")
@@ -292,11 +326,12 @@ impl GzipParams {
 /// archive can otherwise expand to many GiB).
 pub const MAX_DECOMPRESSED_LEN: usize = 256 << 20;
 
-// `GzipParams::infer` feeds `decompress` output straight back into the zlib reproduction
-// functions, so the decompression cap staying below their 32-bit-counter limit makes inference
-// panic-free by construction.
+// `GzipParams::infer` feeds `decompress` output straight back into the zlib reproduction functions
+// with fewer mid-stream flushes than content bytes (each flush must advance the content), so `2 *
+// len + FLUSH_MARKER_LEN * flushes < 8 * len <= 2 * MAX_CONTENT_LEN` keeps their 32-bit output
+// counter in range and makes inference panic-free by construction.
 #[cfg(feature = "zlib")]
-const _: () = assert!(MAX_DECOMPRESSED_LEN <= zlib_stream::MAX_CONTENT_LEN);
+const _: () = assert!(4 * MAX_DECOMPRESSED_LEN <= zlib_stream::MAX_CONTENT_LEN);
 
 /// Decompresses a gzip archive into its UTF-8 text, or `None` if `bytes` are not a valid gzip
 /// archive of UTF-8 content or the content exceeds [`MAX_DECOMPRESSED_LEN`].
@@ -403,7 +438,7 @@ fn infer_zlib(content: &[u8], archive: &[u8]) -> Option<GzipParams> {
     let mtime = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let xfl = header[8];
     let os = OsByte::from_u8(header[9])?;
-    let extra_flushes = u8::try_from(sync_marker_count(archive).saturating_sub(1)).ok()?;
+    let (flushes, extra_flushes) = flush_layout(archive, content.len())?;
 
     [Compressor::Zlib, Compressor::ZlibNg]
         .into_iter()
@@ -416,6 +451,7 @@ fn infer_zlib(content: &[u8], archive: &[u8]) -> Option<GzipParams> {
                         level,
                         mtime,
                         os,
+                        flushes: flushes.clone(),
                         extra_flushes,
                     };
                     (params.reproduce(content) == archive).then_some(params)
@@ -430,23 +466,76 @@ const fn infer_zlib(_content: &[u8], _archive: &[u8]) -> Option<GzipParams> {
     None
 }
 
-/// Counts `00 00 ff ff` sync-flush markers in the deflate body of `archive` (between the header and
-/// the footer).
+/// Recovers the sync-flush layout of `archive`'s deflate body: the content offsets of mid-stream
+/// `00 00 ff ff` markers ([`GzipParams::flushes`]) and the count of trailing empty markers beyond
+/// the content-end one ([`GzipParams::extra_flushes`]), for content of `content_len` bytes.
 ///
-/// This is a heuristic: compressed output can coincidentally contain the marker bytes (roughly one
-/// occurrence per 4 GiB of body, since the pattern is four bytes). When that happens the
-/// `extra_flushes` derived by [`infer_zlib`] is too high, reproduction fails to match the archive,
-/// and [`GzipParams::infer`] returns `None` for an otherwise reproducible archive (a graceful false
-/// negative, not corruption).
+/// One incremental raw-inflate pass over the body reads the content offset reached at each marker;
+/// offsets short of `content_len` are mid-stream flush boundaries, and offsets at `content_len` are
+/// the content-end marker plus any trailing empty flushes. `None` means the body does not inflate
+/// cleanly or the markers describe a layout the parameters cannot represent (an empty mid-stream
+/// flush, or one at offset 0).
+///
+/// Marker detection is a heuristic: compressed output can coincidentally contain the marker bytes
+/// (roughly one occurrence per 4 GiB of body, since the pattern is four bytes). Inference always
+/// checks the reproduced bytes, so a mistaken boundary means reproduction fails to match the
+/// archive and [`GzipParams::infer`] returns `None` for an otherwise reproducible archive: a
+/// graceful false negative, not corruption.
 #[cfg(feature = "zlib")]
-fn sync_marker_count(archive: &[u8]) -> usize {
-    archive
-        .get(HEADER_LEN..archive.len().saturating_sub(FOOTER_LEN))
-        .map_or(0, |body| {
-            body.windows(4)
-                .filter(|window| *window == [0x00, 0x00, 0xff, 0xff])
-                .count()
-        })
+fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8)> {
+    let body = archive.get(HEADER_LEN..archive.len().checked_sub(FOOTER_LEN)?)?;
+
+    let mut inflater = flate2::Decompress::new(false);
+    // The inflated bytes themselves are discarded; only the running `total_out` count matters.
+    let mut scratch = vec![0u8; 64 * 1024];
+    let mut offsets = Vec::new();
+    let mut consumed = 0;
+    for marker_end in body
+        .windows(4)
+        .enumerate()
+        .filter(|(_, window)| *window == [0x00, 0x00, 0xff, 0xff])
+        .map(|(position, _)| position + 4)
+    {
+        // `total_in` counts exactly the bytes consumed from `body`, since every call feeds from
+        // `body[consumed..]`.
+        while consumed < marker_end {
+            let produced = inflater.total_out();
+            inflater
+                .decompress(
+                    &body[consumed..marker_end],
+                    &mut scratch,
+                    flate2::FlushDecompress::None,
+                )
+                .ok()?;
+            let now = usize::try_from(inflater.total_in()).ok()?;
+            if now == consumed && inflater.total_out() == produced {
+                // No progress: the stream ended or stalled before this marker, so it cannot be a
+                // real flush boundary.
+                return None;
+            }
+            consumed = now;
+        }
+        offsets.push(usize::try_from(inflater.total_out()).ok()?);
+    }
+
+    // `total_out` is monotonic, so once an offset reaches `content_len` every later one has too;
+    // the first such marker is the content-end flush and the rest are trailing empties.
+    let mut flushes = Vec::new();
+    let mut trailing = 0usize;
+    for offset in offsets {
+        if offset == content_len {
+            trailing += 1;
+        } else {
+            let offset = u32::try_from(offset).ok()?;
+            // Offsets are non-decreasing, so a zero or a repeat means an empty mid-stream flush,
+            // which the parameters cannot represent.
+            if offset == 0 || flushes.last() == Some(&offset) {
+                return None;
+            }
+            flushes.push(offset);
+        }
+    }
+    Some((flushes, u8::try_from(trailing.saturating_sub(1)).ok()?))
 }
 
 /// Builds the gzip [`Codec`]: *decode* decompresses an archive to its text; *encode* reproduces the
@@ -495,13 +584,14 @@ mod tests {
     #[cfg(feature = "zlib")]
     use archivindex_wbm_json::exact::ExactSnapshot;
 
-    /// Parameters at `level` with the Go header fields: mtime 0, unknown OS, and no extra flushes.
+    /// Parameters at `level` with the Go header fields: mtime 0, unknown OS, and no flushes.
     const fn params(compressor: Compressor, level: u8) -> GzipParams {
         GzipParams {
             compressor,
             level,
             mtime: 0,
             os: OsByte::Unknown,
+            flushes: Vec::new(),
             extra_flushes: 0,
         }
     }
@@ -521,12 +611,12 @@ mod tests {
         assert!(!zlib(10).is_reproducible());
     }
 
-    /// The Go writer emits a self-contained stream, so `extra_flushes` has no reproduction path
-    /// there. Accepting one would drop the trailing markers and hand back an archive that differs
-    /// from the original while looking reproduced, so the parameters must fail to validate and the
-    /// codec must fall back to the unreproduced content.
+    /// The Go writer emits a self-contained stream, so neither `extra_flushes` nor `flushes` has a
+    /// reproduction path there. Accepting one would drop the markers and hand back an archive that
+    /// differs from the original while looking reproduced, so the parameters must fail to validate
+    /// and the codec must fall back to the unreproduced content.
     #[test]
-    fn go_flate_rejects_extra_flushes() {
+    fn go_flate_rejects_flushes() {
         let mut case = params(Compressor::GoFlate, 5);
         assert!(case.is_reproducible());
 
@@ -534,6 +624,47 @@ mod tests {
         assert!(!case.is_reproducible());
 
         let content = r#"{"x":1}"#;
+        assert_eq!(
+            codec().encode(content, &case.metadata()).as_ref(),
+            content.as_bytes(),
+        );
+
+        case.extra_flushes = 0;
+        case.flushes = vec![3];
+        assert!(!case.is_reproducible());
+        assert_eq!(
+            codec().encode(content, &case.metadata()).as_ref(),
+            content.as_bytes(),
+        );
+    }
+
+    /// Untrusted metadata may carry mid-stream flush offsets that are unordered, zero, or outside
+    /// the content; each must fail validation so the codec falls back to the unreproduced content
+    /// instead of panicking (or silently mis-splitting) inside the zlib reproduction path.
+    #[test]
+    fn rejects_invalid_mid_stream_flushes() {
+        let content = r#"{"x":1,"y":[1,2,3]}"#;
+        for flushes in [vec![0], vec![5, 5], vec![7, 3]] {
+            let case = GzipParams {
+                flushes: flushes.clone(),
+                ..params(Compressor::Zlib, 6)
+            };
+            assert!(!case.is_reproducible(), "accepted {flushes:?}");
+            assert_eq!(
+                codec().encode(content, &case.metadata()).as_ref(),
+                content.as_bytes(),
+                "reproduced under {flushes:?}"
+            );
+        }
+
+        // Ascending offsets that reach past the content's end fail the length screen instead.
+        let case = GzipParams {
+            flushes: vec![u32::try_from(content.len()).expect("short content")],
+            ..params(Compressor::Zlib, 6)
+        };
+        // Without the `zlib` feature nothing zlib-compressed is reproducible at all.
+        assert_eq!(case.is_reproducible(), cfg!(feature = "zlib"));
+        assert!(!case.supports_content_len(content.len()));
         assert_eq!(
             codec().encode(content, &case.metadata()).as_ref(),
             content.as_bytes(),
@@ -564,6 +695,7 @@ mod tests {
                 level: 1,
                 mtime: 0,
                 os: OsByte::Unknown,
+                flushes: Vec::new(),
                 extra_flushes: u8::MAX,
             };
             let encoded = codec().encode(content, &case.metadata());
@@ -664,6 +796,15 @@ mod tests {
         for compressor in [Compressor::Zlib, Compressor::ZlibNg] {
             assert!(params(compressor, 6).supports_content_len(limit));
             assert!(!params(compressor, 6).supports_content_len(limit + 1));
+
+            // Each mid-stream flush marker (up to 6 bytes of output) shrinks the content limit by 3
+            // bytes, since the output buffer doubles the content length.
+            let chunked = GzipParams {
+                flushes: vec![1],
+                ..params(compressor, 6)
+            };
+            assert!(chunked.supports_content_len(limit - 3));
+            assert!(!chunked.supports_content_len(limit - 2));
         }
         assert!(params(Compressor::GoFlate, 6).supports_content_len(usize::MAX));
         assert!(
@@ -768,7 +909,8 @@ mod tests {
         s
     }
 
-    /// The representative parameter sets, one per family (and a multi-flush variant).
+    /// The representative parameter sets, one per family (plus extra-flush and mid-stream-flush
+    /// variants).
     #[cfg(feature = "zlib")]
     fn cases() -> Vec<GzipParams> {
         vec![
@@ -779,6 +921,7 @@ mod tests {
                 level: 5,
                 mtime: 1_660_840_129,
                 os: OsByte::Unix,
+                flushes: Vec::new(),
                 extra_flushes: 0,
             },
             params(Compressor::Zlib, 6),
@@ -787,6 +930,7 @@ mod tests {
                 level: 5,
                 mtime: 1_660_840_129,
                 os: OsByte::Unix,
+                flushes: Vec::new(),
                 extra_flushes: 1,
             },
             GzipParams {
@@ -794,6 +938,17 @@ mod tests {
                 level: 7,
                 mtime: 1_675_849_400,
                 os: OsByte::Unix,
+                flushes: Vec::new(),
+                extra_flushes: 0,
+            },
+            // A producer that flushed twice mid-response before finishing, as observed in real
+            // Wayback Machine captures.
+            GzipParams {
+                compressor: Compressor::ZlibNg,
+                level: 8,
+                mtime: 0,
+                os: OsByte::Unix,
+                flushes: vec![100, 5000],
                 extra_flushes: 0,
             },
         ]
@@ -819,9 +974,18 @@ mod tests {
                 archive,
                 "re-reproduction differs for {case:?}"
             );
-            // Header fields are read from the archive, so they are recovered exactly.
+            // Header fields and the marker-derived flush layout are read from the archive, so they
+            // are recovered exactly.
             assert_eq!(inferred.mtime, case.mtime, "mtime differs for {case:?}");
             assert_eq!(inferred.os, case.os, "os differs for {case:?}");
+            assert_eq!(
+                inferred.flushes, case.flushes,
+                "flushes differ for {case:?}"
+            );
+            assert_eq!(
+                inferred.extra_flushes, case.extra_flushes,
+                "extra_flushes differ for {case:?}"
+            );
             families.insert(inferred.compressor);
         }
         assert!(
@@ -903,8 +1067,8 @@ mod tests {
         #[cfg(feature = "zlib")]
         for case in cases() {
             assert_eq!(
-                GzipParams::from_metadata(&case.metadata()),
-                Some(case),
+                GzipParams::from_metadata(&case.metadata()).as_ref(),
+                Some(&case),
                 "metadata round-trip for {case:?}"
             );
         }
