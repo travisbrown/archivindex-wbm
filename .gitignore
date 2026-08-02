@@ -4,3 +4,4 @@ tmp/
 minimal/__pycache__/
 .RData
 .Rhistory
+**/tests/data/.cache/

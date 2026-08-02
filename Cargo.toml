@@ -13,6 +13,7 @@ members = [
     "wbm-json-cli",
     "wbm-json-gzip",
     "wbm-json-processing",
+    "wbm-test-data",
 ]
 default-members = [
     "wbm",
@@ -26,6 +27,7 @@ default-members = [
     "wbm-json-cli",
     "wbm-json-gzip",
     "wbm-json-processing",
+    "wbm-test-data",
 ]
 
 [workspace.package]

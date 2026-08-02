@@ -1,0 +1,25 @@
+[package]
+name = "archivindex-wbm-test-data"
+description = "Download-once cache of real Wayback Machine snapshot data for tests"
+keywords = ["wayback-machine", "web-archive", "testing"]
+categories = ["development-tools::testing"]
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+
+[dependencies]
+archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
+archivindex-wbm-cas = { version = "0.1.0", path = "../wbm-cas/", default-features = false }
+archivindex-wbm-downloader = { version = "0.1.0", path = "../wbm-downloader/" }
+bytes = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true }
+wiremock = { workspace = true }
