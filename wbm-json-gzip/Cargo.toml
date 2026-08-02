@@ -28,4 +28,6 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 archivindex-wbm = { path = "../wbm/" }
+archivindex-wbm-test-data = { path = "../wbm-test-data/" }
 sha1 = { workspace = true }
+tokio = { workspace = true }
