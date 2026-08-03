@@ -6,6 +6,7 @@ categories = ["filesystem"]
 authors = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
+exclude = ["tests/"]
 edition = { workspace = true }
 rust-version = { workspace = true }
 license = { workspace = true }

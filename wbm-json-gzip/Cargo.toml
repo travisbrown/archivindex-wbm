@@ -11,6 +11,7 @@ rust-version = { workspace = true }
 license = "AGPL-3.0-only AND BSD-3-Clause"
 readme = { workspace = true }
 version = { workspace = true }
+exclude = ["tests/"]
 
 [features]
 default = ["zlib"]

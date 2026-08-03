@@ -10,6 +10,7 @@ rust-version = { workspace = true }
 license = { workspace = true }
 readme = { workspace = true }
 version = { workspace = true }
+exclude = ["tests/"]
 
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
