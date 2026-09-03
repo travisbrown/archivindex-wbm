@@ -11,24 +11,29 @@ fn main() -> Result<(), Error> {
     let requests = read_requests(std::io::stdin().lock())?;
     let config = Config {
         gzip_warc: options.gzip,
-        concurrency: options.concurrency,
         ..Config::default()
     };
-    let client = Client::with_endpoint(config, &options.endpoint)?;
+    let client =
+        Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
     let summary = client.archive_to_path(&requests, &options.output)?;
 
     for failure in &summary.failures {
         log::warn!("Failed to archive {}: {}", failure.url, failure.error);
     }
-    for capture in &summary.captures {
+    for capture in summary.seed_captures.iter().chain(&summary.extra_captures) {
         if capture.is_partial() {
             log::warn!("Archived only part of {}", capture.url);
         }
     }
+    if let Some(error) = &summary.fatal_error {
+        log::warn!("Stopped the CDX session early: {error}");
+    }
+
+    let captured = summary.seed_captures.len() + summary.extra_captures.len();
 
     log::info!(
-        "Archived {} of {} CDX queries to {}",
-        summary.captures.len(),
+        "Archived {} CDX responses for {} requests to {}",
+        captured,
         requests.len(),
         options.output.display()
     );
@@ -37,16 +42,17 @@ fn main() -> Result<(), Error> {
         Ok(())
     } else {
         Err(Error::IncompleteArchive {
-            captured: summary.captures.len(),
+            captured,
             requested: requests.len(),
         })
     }
 }
 
-/// Read CSV records with the fields `url`, `matchType`, `fastLatest`, and `limit`, in that order.
+/// Read CSV records with `url`, `matchType`, `fastLatest`, and optional `limit`, in that order.
 fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
     csv::ReaderBuilder::new()
         .has_headers(false)
+        .flexible(true)
         .trim(csv::Trim::All)
         .from_reader(reader)
         .deserialize()
@@ -66,7 +72,7 @@ enum Error {
     #[error(transparent)]
     Client(#[from] archivindex_wbm_cdx_client::Error),
     /// The WARC was published, but at least one requested response was not captured completely.
-    #[error("incomplete archive: captured {captured} of {requested} requested CDX queries")]
+    #[error("incomplete archive: captured {captured} CDX responses for {requested} requests")]
     IncompleteArchive {
         /// The number of successful captures.
         captured: usize,
@@ -93,19 +99,15 @@ struct Options {
     #[clap(long)]
     gzip: bool,
 
-    /// Number of CDX queries to run concurrently.
-    #[clap(
-        long,
-        default_value = "1",
-        value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
-    )]
-    concurrency: usize,
+    /// Follow CDX resumption keys until each query is exhausted.
+    #[clap(long)]
+    resume: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use archivindex_wbm_cdx_client::{MatchType, Request};
-    use cli_helpers::prelude::clap::CommandFactory as _;
+    use cli_helpers::prelude::clap::{CommandFactory as _, Parser as _};
 
     use super::Options;
 
@@ -115,9 +117,22 @@ mod tests {
     }
 
     #[test]
+    fn resumption_is_opt_in() {
+        let without = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
+            .expect("valid options");
+        let with = Options::try_parse_from(["cdx-client", "--output", "queries.warc", "--resume"])
+            .expect("valid options");
+
+        assert!(!without.resume);
+        assert!(with.resume);
+    }
+
+    #[test]
     fn reads_request_csv() {
         let input = "example.org,exact,true,-5\n\
-                     example.com/docs/,prefix,false,100\n";
+                     example.com/docs/,prefix,false,100\n\
+                     example.net,domain,false,\n\
+                     example.edu,host,true\n";
 
         let requests = super::read_requests(input.as_bytes()).expect("valid request CSV");
 
@@ -126,8 +141,17 @@ mod tests {
             [
                 Request::new("example.org", MatchType::Exact, true, -5),
                 Request::new("example.com/docs/", MatchType::Prefix, false, 100),
+                Request::new("example.net", MatchType::Domain, false, None),
+                Request::new("example.edu", MatchType::Host, true, None),
             ]
         );
+    }
+
+    #[test]
+    fn rejects_a_non_numeric_limit() {
+        let input = "example.org,exact,false,many\n";
+
+        assert!(super::read_requests(input.as_bytes()).is_err());
     }
 
     #[test]

@@ -153,13 +153,14 @@ cargo install --path wbm-downloader-cli  # Installs the `archivindex-wbm-downloa
 
 The CDX client reads CSV rows from standard input in `URL,matchType,fastLatest,limit` order, without
 a header. `matchType` accepts `exact`, `prefix`, `host`, or `domain`; a negative `limit` requests the
-last N results:
+last N results. The `limit` field is optional and may be omitted or left empty. Pass `--resume` to
+follow CDX resumption keys until every query is exhausted:
 
 ```bash
 printf '%s\n' \
   'example.org,exact,true,-5' \
-  'example.com/docs/,prefix,false,100' |
-  archivindex-wbm-cdx-client --output queries.warc
+  'example.com/docs/,prefix,false,' |
+  archivindex-wbm-cdx-client --resume --output queries.warc
 ```
 
 As an example, the `archivindex-wbm-json` tool can verify the digest and ordering of every snapshot
