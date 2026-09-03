@@ -1,21 +1,39 @@
 //! Command-line client for archiving Internet Archive CDX query responses in a WARC file.
 use std::io::Read;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use archivindex_wbm_cdx_client::{Client, Config, DEFAULT_ENDPOINT, Request};
+use archivindex_wbm_cdx_client::{
+    CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT, Request,
+};
 use cli_helpers::prelude::*;
+
+const DEFAULT_RETRY_ATTEMPTS: usize = 10;
 
 fn main() -> Result<(), Error> {
     let options = Options::parse();
     options.verbosity.init_logging()?;
     let requests = read_requests(std::io::stdin().lock())?;
-    let config = Config {
-        gzip_warc: options.gzip,
-        ..Config::default()
-    };
+    let config = archiver_config(&options);
     let client =
         Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
-    let summary = client.archive_to_path(&requests, &options.output)?;
+    let mut events = |event: CaptureEvent<'_>| {
+        match event {
+            CaptureEvent::Started { url, attempt } => {
+                log::info!("Requesting {url} (attempt {attempt})");
+            }
+            CaptureEvent::Retrying {
+                url,
+                attempt,
+                delay,
+            } => {
+                log::info!("Retrying {url} in {delay:?} (attempt {attempt})");
+            }
+            _ => {}
+        }
+        CaptureControl::Continue
+    };
+    let summary = client.archive_to_path_with_events(&requests, &options.output, &mut events)?;
 
     for failure in &summary.failures {
         log::warn!("Failed to archive {}: {}", failure.url, failure.error);
@@ -46,6 +64,18 @@ fn main() -> Result<(), Error> {
             requested: requests.len(),
         })
     }
+}
+
+fn archiver_config(options: &Options) -> Config {
+    let mut config = Config {
+        gzip_warc: options.gzip,
+        ..Config::default()
+    };
+    config.session.retry.attempts = options.retry_attempts;
+    if let Some(request_delay) = options.request_delay {
+        config.session.request_delay = request_delay;
+    }
+    config
 }
 
 /// Read CSV records with `url`, `matchType`, `fastLatest`, and optional `limit`, in that order.
@@ -102,10 +132,24 @@ struct Options {
     /// Follow CDX resumption keys until each query is exhausted.
     #[clap(long)]
     resume: bool,
+
+    /// Total attempts for transient failures, including the initial request.
+    #[clap(
+        long,
+        default_value_t = DEFAULT_RETRY_ATTEMPTS,
+        value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
+    )]
+    retry_attempts: usize,
+
+    /// Delay between successive requests in the session.
+    #[clap(long, value_name = "DURATION", value_parser = humantime::parse_duration)]
+    request_delay: Option<Duration>,
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use archivindex_wbm_cdx_client::{MatchType, Request};
     use cli_helpers::prelude::clap::{CommandFactory as _, Parser as _};
 
@@ -125,6 +169,44 @@ mod tests {
 
         assert!(!without.resume);
         assert!(with.resume);
+    }
+
+    #[test]
+    fn retries_transient_failures_by_default() {
+        let defaults = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
+            .expect("valid options");
+        let custom = Options::try_parse_from([
+            "cdx-client",
+            "--output",
+            "queries.warc",
+            "--retry-attempts",
+            "4",
+        ])
+        .expect("valid options");
+
+        assert_eq!(defaults.retry_attempts, super::DEFAULT_RETRY_ATTEMPTS);
+        assert_eq!(custom.retry_attempts, 4);
+    }
+
+    #[test]
+    fn accepts_an_optional_request_delay() {
+        let without = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
+            .expect("valid options");
+        let with = Options::try_parse_from([
+            "cdx-client",
+            "--output",
+            "queries.warc",
+            "--request-delay",
+            "250ms",
+        ])
+        .expect("valid options");
+
+        assert_eq!(without.request_delay, None);
+        assert_eq!(with.request_delay, Some(Duration::from_millis(250)));
+        assert_eq!(
+            super::archiver_config(&with).session.request_delay,
+            Duration::from_millis(250)
+        );
     }
 
     #[test]

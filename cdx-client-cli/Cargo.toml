@@ -25,4 +25,5 @@ bundled = ["archivindex-wbm-cdx-client/bundled"]
 archivindex-wbm-cdx-client = { path = "../cdx-client/" }
 cli-helpers = { workspace = true }
 csv = { workspace = true }
+humantime = { workspace = true }
 thiserror = { workspace = true }

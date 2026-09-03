@@ -10,7 +10,6 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEventSink};
 use archivindex_archiver::session::{
     Capture, Driver, Inspection, Request as SessionRequest, Session, SessionSummary,
 };
@@ -385,6 +384,8 @@ fn resume_key(payload: &[u8]) -> Result<Option<String>, String> {
 
 /// The WARC archiver configuration accepted by [`Client`].
 pub use archivindex_archiver::Config;
+/// Capture lifecycle types used by [`Client::archive_to_path_with_events`].
+pub use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEventSink};
 
 #[cfg(test)]
 mod tests {
@@ -503,6 +504,12 @@ mod tests {
         assert!(summary.is_complete());
         assert_eq!(summary.seed_captures.len(), 2);
         assert!(summary.extra_captures.is_empty());
+        assert_eq!(
+            warc.windows(b"WARC-Type: warcinfo".len())
+                .filter(|part| *part == b"WARC-Type: warcinfo")
+                .count(),
+            1
+        );
         assert_eq!(targets.len(), 2);
         assert!(targets[0].contains("url=example.org"));
         assert!(targets[0].contains("matchType=exact"));

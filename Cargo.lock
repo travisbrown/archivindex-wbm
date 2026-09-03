@@ -261,6 +261,7 @@ dependencies = [
  "archivindex-wbm-cdx-client",
  "cli-helpers",
  "csv",
+ "humantime",
  "thiserror 2.0.20",
 ]
 
