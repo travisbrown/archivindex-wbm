@@ -15,14 +15,6 @@ use std::path::{Path, PathBuf};
 
 use archivindex_wbm::digest::Sha1Digest;
 
-/// Errors scanning digest-named data directories.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// A directory could not be read.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
 /// The outcome of scanning data directories: every entry seen was either recorded under the digest
 /// naming it or skipped as a stray.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -49,11 +41,11 @@ impl Data {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Io`] if a directory cannot be read.
+    /// Returns an error if a directory cannot be read.
     pub fn load_data_directories<P: AsRef<Path>>(
         &mut self,
         directories: &[P],
-    ) -> Result<ScanCounts, Error> {
+    ) -> Result<ScanCounts, std::io::Error> {
         let mut counts = ScanCounts::default();
 
         for directory in directories {

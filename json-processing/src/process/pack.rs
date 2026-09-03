@@ -23,9 +23,6 @@ use crate::io::write::{Finish, SnapshotWriter};
 /// Errors that can occur during the pack operation.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A data directory could not be scanned.
-    #[error(transparent)]
-    Data(#[from] super::data::Error),
     /// The invalid-digest log could not be read.
     #[error(transparent)]
     InvalidDigestDb(#[from] rusqlite::Error),
@@ -64,8 +61,8 @@ pub struct Summary {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Data`] if data directory scanning fails, [`Error::InvalidDigestDb`] if the
-/// invalid-digest log cannot be read, or [`Error::Io`] if file I/O fails.
+/// Returns [`Error::Io`] if a data directory cannot be scanned or the output cannot be written, or
+/// [`Error::InvalidDigestDb`] if the invalid-digest log cannot be read.
 pub fn pack<D, F>(
     data_directories: &[D],
     invalid_db: Option<&Path>,
@@ -105,9 +102,8 @@ where
 ///
 /// # Errors
 ///
-/// Returns [`Error::Data`] if data directory scanning fails or [`Error::Io`] if the output cannot
-/// be written or finished; [`Error::InvalidDigestDb`] is never returned here (the log is loaded by
-/// [`pack`]).
+/// Returns [`Error::Io`] if a data directory cannot be scanned or the output cannot be written or
+/// finished; [`Error::InvalidDigestDb`] is never returned here (the log is loaded by [`pack`]).
 pub fn pack_into<D, F, W, S>(
     data_directories: &[D],
     expected_digests: &HashMap<Sha1Digest, Digest<'static>, S>,

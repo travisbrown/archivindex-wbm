@@ -23,9 +23,6 @@ use crate::io::write::{Finish, SnapshotWriter};
 /// Errors that can occur during the compact operation.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A data directory could not be scanned.
-    #[error(transparent)]
-    Data(#[from] super::data::Error),
     /// CDX resolution or invalid-digest loading failed.
     #[error(transparent)]
     Resolver(#[from] super::resolver::Error),
@@ -160,10 +157,10 @@ fn apply_resolution(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Data`] if data directory scanning fails, [`Error::Resolver`] if CDX resolution
-/// or invalid digest loading fails, or [`Error::Io`] if an output file cannot be created, written,
-/// or finished. A data file that cannot be read is recorded in [`Skipped::read_error`] rather than
-/// failing the operation.
+/// Returns [`Error::Io`] if a data directory cannot be scanned or an output file cannot be created,
+/// written, or finished, or [`Error::Resolver`] if CDX resolution or invalid digest loading fails.
+/// A data file that cannot be read is recorded in [`Skipped::read_error`] rather than failing the
+/// operation.
 pub fn compact<P, D, X, F>(
     data_directories: &[D],
     cdx_directories: &[X],
@@ -228,10 +225,9 @@ where
 ///
 /// # Errors
 ///
-/// Returns [`Error::Data`] if data directory scanning fails, [`Error::Resolver`] if CDX resolution
-/// or invalid digest loading fails, or [`Error::Io`] if a partition cannot be written or finished.
-/// A data file that cannot be read is recorded in [`Skipped::read_error`] rather than failing the
-/// operation.
+/// Returns [`Error::Io`] if a data directory cannot be scanned or a partition cannot be written or
+/// finished, or [`Error::Resolver`] if CDX resolution or invalid digest loading fails. A data file
+/// that cannot be read is recorded in [`Skipped::read_error`] rather than failing the operation.
 pub fn compact_into<P, D, X, W, F>(
     data_directories: &[D],
     cdx_directories: &[X],

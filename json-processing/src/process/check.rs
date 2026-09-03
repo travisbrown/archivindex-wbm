@@ -14,14 +14,6 @@ use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::validation::ValidationError;
 use sha1::Sha1;
 
-/// Errors that can occur during the check operation.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// The input could not be opened or read.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
 /// Summary of a check operation.
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 pub struct Summary {
@@ -75,12 +67,12 @@ impl Summary {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Io`] if the file cannot be opened or read; individual line problems are
-/// recorded in the summary rather than returned as errors.
-pub fn check(input: &Path, context: &Context) -> Result<Summary, Error> {
+/// Returns an error if the file cannot be opened or read; individual line problems are recorded in
+/// the summary rather than returned as errors.
+pub fn check(input: &Path, context: &Context) -> Result<Summary, std::io::Error> {
     let file = std::fs::File::open(input)?;
 
-    check_lines(std::io::BufReader::new(zstd::Decoder::new(file)?), context).map_err(Error::from)
+    check_lines(std::io::BufReader::new(zstd::Decoder::new(file)?), context)
 }
 
 /// Check compact snapshot JSONL lines against the given context.

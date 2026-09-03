@@ -583,8 +583,6 @@ enum Error {
     WbmJsonWrite(#[from] archivindex_wbm_json_processing::io::write::Error),
     #[error("metadata resolution error")]
     Resolver(#[from] archivindex_wbm_json_processing::process::resolver::Error),
-    #[error("data loading error")]
-    Data(#[from] archivindex_wbm_json_processing::process::data::Error),
     #[error("compact error")]
     Compact(#[from] archivindex_wbm_json_processing::process::compact::Error),
     #[error("merge error")]
