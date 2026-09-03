@@ -389,56 +389,52 @@ pub use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEve
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write as _};
-    use std::net::TcpListener;
-    use std::thread;
+    use std::thread::JoinHandle;
+
+    use archivindex_archiver::config::SessionConfig;
+    use archivindex_archiver::session::RetryConfig;
+    use archivindex_test_support::http;
 
     use super::*;
 
-    fn serve(bodies: &[&str]) -> std::io::Result<(String, thread::JoinHandle<Vec<String>>)> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        let endpoint = format!("http://{}/cdx/search/cdx", listener.local_addr()?);
-        let bodies = bodies
+    /// The CDX endpoint of a server listening on `port` of the loopback interface.
+    fn endpoint(port: u16) -> String {
+        format!("http://127.0.0.1:{port}/cdx/search/cdx")
+    }
+
+    /// Serve `bodies` as the payloads of successive query responses.
+    ///
+    /// Returns the endpoint to point a client at, and a handle that yields the request target of
+    /// every answered request once the server has finished.
+    fn serve(bodies: &[&str]) -> std::io::Result<(String, JoinHandle<Vec<String>>)> {
+        let replies = bodies
             .iter()
-            .map(|body| (*body).to_owned())
+            .map(|body| http::response("200 OK", &[("content-type", "text/plain")], body))
             .collect::<Vec<_>>();
-        let request_count = bodies.len();
-        let server = thread::spawn(move || {
-            listener
-                .incoming()
-                .take(request_count)
-                .zip(bodies)
-                .map(|(stream, body)| {
-                    let mut stream = stream.expect("accepted connection");
-                    let mut request = Vec::new();
-                    let mut buffer = [0_u8; 1024];
+        // The client queries sequentially, so connections never overlap and the index the server
+        // passes the script is the position of the request in the scripted series.
+        let (port, server) =
+            http::serve_concurrently_with(replies.len(), move |index, request| {
+                (replies[index].clone(), request.path().to_owned())
+            })?;
 
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        let count = stream.read(&mut buffer).expect("read request");
-                        assert!(count > 0, "request ended before its headers");
-                        request.extend_from_slice(&buffer[..count]);
-                    }
+        Ok((endpoint(port), server))
+    }
 
-                    let request = String::from_utf8(request).expect("UTF-8 request");
-                    let target = request
-                        .lines()
-                        .next()
-                        .and_then(|line| line.split_whitespace().nth(1))
-                        .expect("request target")
-                        .to_owned();
-                    write!(
-                        stream,
-                        "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .expect("write response");
-
-                    target
-                })
-                .collect()
-        });
-
-        Ok((endpoint, server))
+    /// A configuration that gives up on a query after one attempt.
+    ///
+    /// Disables the default policy's two retries so failure tests do not wait for backoff.
+    fn without_retries() -> Config {
+        Config {
+            session: SessionConfig {
+                retry: RetryConfig {
+                    attempts: 1,
+                    ..RetryConfig::default()
+                },
+                ..SessionConfig::default()
+            },
+            ..Config::default()
+        }
     }
 
     #[test]
@@ -570,11 +566,64 @@ mod tests {
     }
 
     #[test]
+    fn reports_a_failure_when_the_server_cannot_be_reached()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Nothing listens on this port, so connecting to it is refused.
+        let client = Client::with_endpoint(without_retries(), &endpoint(http::dead_port()?))?;
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("queries.warc");
+
+        let summary = client.archive_to_path(
+            &[Request::new("example.org", MatchType::Exact, false, None)],
+            &output,
+        )?;
+
+        assert!(!summary.is_complete());
+        assert_eq!(summary.failures.len(), 1);
+        assert!(summary.seed_captures.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn stops_when_the_server_repeats_a_resumption_key() -> Result<(), Box<dyn std::error::Error>> {
+        const ENCODED_KEY: &str = "org%2Carchive%29%2F+19980109140106%21";
+
+        let page = format!("page\n\n{ENCODED_KEY}\n");
+        // Exactly two responses are scripted: a client that kept paging would find the third
+        // connection refused, which would be reported as a second failure.
+        let (endpoint, server) = serve(&[&page, &page])?;
+        let client =
+            Client::with_endpoint(without_retries(), &endpoint)?.follow_resumption_keys(true);
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("queries.warc");
+
+        let summary = client.archive_to_path(
+            &[Request::new("archive.org", MatchType::Domain, false, None)],
+            &output,
+        )?;
+        let targets = server.join().expect("server thread");
+
+        assert!(!summary.is_complete());
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(summary.seed_captures.len(), 1);
+        assert!(summary.extra_captures.is_empty());
+        assert_eq!(targets.len(), 2);
+        assert!(targets[1].contains(&format!("resumeKey={ENCODED_KEY}")));
+        Ok(())
+    }
+
+    #[test]
     fn reads_plain_text_resumption_keys() {
         assert_eq!(
             resume_key(b"row\r\n\r\norg%2Carchive%29%2F+19980109140106%21\r\n"),
             Ok(Some("org,archive)/ 19980109140106!".to_owned()))
         );
         assert_eq!(resume_key(b"row\n"), Ok(None));
+    }
+
+    #[test]
+    fn rejects_a_resumption_response_that_is_not_utf_8() {
+        // A CDX server that answers a `showResumeKey` query with binary content.
+        assert!(resume_key(b"row\n\n\xff\n").is_err());
     }
 }

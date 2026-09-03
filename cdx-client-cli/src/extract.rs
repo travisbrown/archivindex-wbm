@@ -146,6 +146,7 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
+    use archivindex_test_support::{http, warc};
     use flate2::Compression;
     use flate2::write::GzEncoder;
 
@@ -160,23 +161,25 @@ mod tests {
         "org%2Cexample%29%2F+19991231235959%21\n",
     );
 
+    /// A WARC response record holding the HTTP response a CDX query would have produced.
     fn response_warc(status: &str, body: &str) -> Vec<u8> {
-        let http = format!(
-            "HTTP/1.1 {status}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{body}",
-            body.len()
-        );
-        format!(
-            "WARC/1.1\r\n\
-             WARC-Type: response\r\n\
-             WARC-Record-ID: <urn:uuid:d0e6a1a0-0000-4000-8000-000000000000>\r\n\
-             WARC-Date: 2026-09-03T12:00:00Z\r\n\
-             WARC-Target-URI: https://web.archive.org/cdx/search/cdx\r\n\
-             Content-Type: application/http; msgtype=response\r\n\
-             Content-Length: {}\r\n\r\n\
-             {http}\r\n\r\n",
-            http.len()
+        let http = http::response(status, &[("content-type", "text/plain")], body);
+        // Both helpers derive their own `Content-Length`, so only the payload is spelled out here.
+        let http = String::from_utf8(http).expect("the response is UTF-8");
+
+        warc::render(
+            &[
+                ("WARC-Type", "response"),
+                (
+                    "WARC-Record-ID",
+                    "<urn:uuid:d0e6a1a0-0000-4000-8000-000000000000>",
+                ),
+                ("WARC-Date", "2026-09-03T12:00:00Z"),
+                ("WARC-Target-URI", "https://web.archive.org/cdx/search/cdx"),
+                ("Content-Type", "application/http; msgtype=response"),
+            ],
+            &http,
         )
-        .into_bytes()
     }
 
     #[test]

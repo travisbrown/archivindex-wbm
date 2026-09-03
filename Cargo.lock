@@ -183,6 +183,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-test-support"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "archivindex-warc"
 version = "0.1.0"
 source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
@@ -265,6 +272,7 @@ name = "archivindex-wbm-cdx-client"
 version = "0.1.0"
 dependencies = [
  "archivindex-archiver",
+ "archivindex-test-support",
  "serde",
  "tempfile",
  "thiserror",
@@ -277,6 +285,7 @@ version = "0.1.0"
 dependencies = [
  "archivindex-cdx",
  "archivindex-cli-support",
+ "archivindex-test-support",
  "archivindex-warc",
  "archivindex-wbm-cdx-client",
  "clap",
