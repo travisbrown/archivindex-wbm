@@ -144,9 +144,9 @@ checkout of this repository:
 
 ```bash
 cargo install --path cdx-client-cli      # Installs the `archivindex-wbm-cdx-client` binary
-cargo install --path wbm-json-cli        # Installs the `archivindex-wbm-json` binary
-cargo install --path wbm-cdx-index-cli   # Installs the `archivindex-wbm-cdx-index` binary
-cargo install --path wbm-downloader-cli  # Installs the `archivindex-wbm-downloader` binary
+cargo install --path json-cli        # Installs the `archivindex-wbm-json` binary
+cargo install --path cdx-index-cli   # Installs the `archivindex-wbm-cdx-index` binary
+cargo install --path downloader-cli  # Installs the `archivindex-wbm-downloader` binary
 ```
 
 ## Usage

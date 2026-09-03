@@ -19,9 +19,9 @@ doc = false
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-cas = { path = "../wbm-cas/" }
-archivindex-wbm-downloader = { path = "../wbm-downloader/" }
-archivindex-wbm-invalid-log = { path = "../wbm-invalid-log/" }
+archivindex-wbm-cas = { path = "../cas/" }
+archivindex-wbm-downloader = { path = "../downloader/" }
+archivindex-wbm-invalid-log = { path = "../invalid-log/" }
 bounded-static = { workspace = true }
 chrono = { workspace = true }
 cli-helpers = { workspace = true }

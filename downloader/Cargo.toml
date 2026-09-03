@@ -17,7 +17,7 @@ workspace = true
 
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
-archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" }
+archivindex-wbm-invalid-log = { version = "0.1.0", path = "../invalid-log/" }
 bounded-static = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }

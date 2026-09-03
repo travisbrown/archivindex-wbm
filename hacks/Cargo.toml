@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-json = { path = "../wbm-json/" }
+archivindex-wbm-json = { path = "../json/" }
 bounded-static = { workspace = true }
 cli-helpers = { workspace = true }
 csv = { workspace = true }

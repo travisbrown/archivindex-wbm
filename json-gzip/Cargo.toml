@@ -31,7 +31,7 @@ default = ["zlib"]
 zlib = ["dep:libz-sys", "dep:libz-ng-sys"]
 
 [dependencies]
-archivindex-wbm-json = { version = "0.1.0", path = "../wbm-json/" }
+archivindex-wbm-json = { version = "0.1.0", path = "../json/" }
 flate2 = { workspace = true }
 # The `static` feature builds the vendored zlib from source; linking the system zlib would make
 # byte-exact reproduction vary by build host.
@@ -42,6 +42,6 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-test-data = { path = "../wbm-test-data/" }
+archivindex-wbm-test-data = { path = "../test-data/" }
 sha1 = { workspace = true }
 tokio = { workspace = true }

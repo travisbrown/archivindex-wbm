@@ -17,8 +17,8 @@ workspace = true
 
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
-archivindex-wbm-invalid-log = { version = "0.1.0", path = "../wbm-invalid-log/" }
-archivindex-wbm-json = { version = "0.1.0", path = "../wbm-json/" }
+archivindex-wbm-invalid-log = { version = "0.1.0", path = "../invalid-log/" }
+archivindex-wbm-json = { version = "0.1.0", path = "../json/" }
 bounded-static = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
@@ -36,7 +36,7 @@ zstd = { workspace = true }
 [dev-dependencies]
 # `compact_test` reproduces gzip archives, which needs the zlib path rather than just the
 # pure-Rust Go port, so the feature is requested explicitly instead of relying on defaults.
-archivindex-wbm-json-gzip = { path = "../wbm-json-gzip/", features = ["zlib"] }
+archivindex-wbm-json-gzip = { path = "../json-gzip/", features = ["zlib"] }
 # `ops_test` timestamps the invalid-digest log entries it inserts.
 chrono = { workspace = true }
 tempfile = { workspace = true }
