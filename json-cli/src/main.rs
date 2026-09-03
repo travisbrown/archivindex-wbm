@@ -4,8 +4,10 @@
 use std::fs::File;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
-use archivindex_cli_support::Verbosity;
+use anyhow::Context as _;
+use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
@@ -29,11 +31,26 @@ enum WxjPartition {
     Other,
 }
 
-// `main` is a flat dispatch over many subcommands; each arm is self contained, so a single match
+#[tokio::main]
+async fn main() -> ExitCode {
+    archivindex_cli_support::exit_code(run().await)
+}
+
+/// Run the selected subcommand.
+///
+/// # Returns
+///
+/// [`CommandOutcome::ReportedProblems`] if `verify` found an invalid or out-of-order snapshot,
+/// [`CommandOutcome::Success`] otherwise
+///
+/// # Errors
+///
+/// Returns an error if an input file cannot be read or parsed, an output file cannot be written,
+/// or CDX metadata resolution fails.
+// `run` is a flat dispatch over many subcommands; each arm is self contained, so a single match
 // reads better than splitting it.
 #[allow(clippy::too_many_lines)]
-#[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbose.init_logging();
 
@@ -50,13 +67,17 @@ async fn main() -> Result<(), Error> {
 
             log::info!("{} verified", counts.verified);
 
-            // Every problem has already been logged line by line; failing here makes the exit
-            // code reflect them, so scripts gating on it do not treat corrupt files as verified.
+            // Every problem has already been logged line by line; reporting them here makes the
+            // exit code reflect them, so scripts gating on it do not treat corrupt files as
+            // verified.
             if counts.invalid > 0 || counts.out_of_order > 0 {
-                return Err(Error::VerificationFailed {
-                    invalid: counts.invalid,
-                    out_of_order: counts.out_of_order,
-                });
+                log::error!(
+                    "Verification failed: {} invalid digests, {} out-of-order snapshots",
+                    counts.invalid,
+                    counts.out_of_order
+                );
+
+                return Ok(CommandOutcome::ReportedProblems);
             }
         }
         Command::StreamingValidate {
@@ -174,7 +195,7 @@ async fn main() -> Result<(), Error> {
 
                 if !in_flat && !in_data {
                     match snapshot::read_content(&path, compression_type)
-                        .map_err(|error| Error::FileIo(path, error))
+                        .with_context(|| format!("failed to read {}", path.display()))
                     {
                         Ok(content) => {
                             let bytes = content.as_bytes();
@@ -268,8 +289,13 @@ async fn main() -> Result<(), Error> {
 
             let mut resolver = data_info.resolver();
 
-            let database = archivindex_wbm_invalid_log::Database::open(&invalid_db)
-                .map_err(archivindex_wbm_json_processing::process::resolver::Error::from)?;
+            let database =
+                archivindex_wbm_invalid_log::Database::open(&invalid_db).with_context(|| {
+                    format!(
+                        "failed to open the invalid-digest database at {}",
+                        invalid_db.display()
+                    )
+                })?;
             let invalid_count = resolver.read_invalid_digests(&database)?;
             log::info!("Read {invalid_count} invalid digest entries");
 
@@ -415,7 +441,7 @@ async fn main() -> Result<(), Error> {
         }
     }
 
-    Ok(())
+    Ok(CommandOutcome::Success)
 }
 
 /// Write all snapshots from `input` with digests up to and including `digest` to `output`,
@@ -426,7 +452,7 @@ fn copy_through<I, W>(
     input: &mut std::iter::Peekable<I>,
     output: &mut SnapshotWriter<W>,
     digest: Sha1Digest,
-) -> Result<bool, Error>
+) -> Result<bool, anyhow::Error>
 where
     I: Iterator<Item = Result<ExactSnapshot<'static>, archivindex_wbm_json::Error>>,
     W: Write,
@@ -448,7 +474,7 @@ where
 
 /// Determine the validation context for a file: use the explicitly requested `format` if given,
 /// otherwise infer the closing whitespace from the file itself.
-fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Error> {
+fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, anyhow::Error> {
     let context = match format {
         Some(Format::Wxj) => wxj::context(),
         Some(Format::Ts) => wts::context(),
@@ -478,7 +504,7 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Erro
 fn write_compact_summary(
     summary: &archivindex_wbm_json_processing::process::compact::Summary,
     summary_output: &Path,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
     log::info!(
         "{} resolved, {} unresolved, {} skipped, {} warnings",
         summary.resolved_count,
@@ -499,23 +525,25 @@ fn export_snapshot(
     context: &Context,
     snapshot: &ExactSnapshot<'_>,
     output: &Path,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
     let bytes = context.encode(snapshot)?;
 
     let path = output.join(snapshot.digest.to_string());
-    std::fs::write(&path, &bytes).map_err(|error| Error::FileIo(path.clone(), error))?;
+    std::fs::write(&path, &bytes).with_context(|| format!("failed to write {}", path.display()))?;
 
-    let on_disk = std::fs::read(&path).map_err(|error| Error::FileIo(path, error))?;
+    let on_disk =
+        std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let actual = Sha1Digest::compute(&on_disk);
-    if actual == snapshot.digest {
-        log::info!("Exported {}", snapshot.digest);
-        Ok(())
-    } else {
-        Err(Error::DigestMismatch {
-            expected: snapshot.digest,
-            actual,
-        })
-    }
+
+    anyhow::ensure!(
+        actual == snapshot.digest,
+        "exported file for digest {} has digest {actual}",
+        snapshot.digest
+    );
+
+    log::info!("Exported {}", snapshot.digest);
+
+    Ok(())
 }
 
 /// Tallies accumulated by [`verify_file`] across input files.
@@ -537,7 +565,7 @@ fn verify_file(
     context: &Context,
     hasher: &mut sha1::Sha1,
     counts: &mut VerificationCounts,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
     let reader = zst::reader(path)?;
     let mut last_digest: Option<Sha1Digest> = None;
 
@@ -560,41 +588,6 @@ fn verify_file(
     }
 
     Ok(())
-}
-
-#[derive(thiserror::Error, Debug)]
-enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    #[error("file I/O error")]
-    FileIo(PathBuf, std::io::Error),
-    #[error("CSV error")]
-    Csv(#[from] csv::Error),
-    #[error("JSON error")]
-    Json(#[from] serde_json::Error),
-    #[error("WBM snapshot storage import error")]
-    WbmCas(#[from] archivindex_wbm_cas::legacy::import::Error),
-    #[error("WBM JSON parsing error")]
-    WbmJson(#[from] archivindex_wbm_json::Error),
-    #[error("WBM JSON write error")]
-    WbmJsonWrite(#[from] archivindex_wbm_json_processing::io::write::Error),
-    #[error("metadata resolution error")]
-    Resolver(#[from] archivindex_wbm_json_processing::process::resolver::Error),
-    #[error("compact error")]
-    Compact(#[from] archivindex_wbm_json_processing::process::compact::Error),
-    #[error("merge error")]
-    Merge(#[from] archivindex_wbm_json_processing::process::merge::Error),
-    #[error("validation error")]
-    Validation(#[from] archivindex_wbm_json::validation::ValidationError),
-    #[error("exported file for digest {expected} has digest {actual}")]
-    DigestMismatch {
-        expected: Sha1Digest,
-        actual: Sha1Digest,
-    },
-    #[error(
-        "verification failed: {invalid} invalid digests, {out_of_order} out-of-order snapshots"
-    )]
-    VerificationFailed { invalid: u64, out_of_order: u64 },
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

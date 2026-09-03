@@ -1,9 +1,11 @@
 //! Archive Internet Archive CDX query responses and extract their capture metadata.
 use std::io::Read;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
-use archivindex_cli_support::Verbosity;
+use anyhow::Context as _;
+use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm_cdx_client::{
     CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT, Request,
 };
@@ -13,20 +15,52 @@ mod extract;
 
 const DEFAULT_RETRY_ATTEMPTS: usize = 10;
 
-fn main() -> Result<(), Error> {
+fn main() -> ExitCode {
+    archivindex_cli_support::exit_code(run())
+}
+
+/// Run the selected command.
+///
+/// # Returns
+///
+/// [`CommandOutcome::ReportedProblems`] if the archive is incomplete, [`CommandOutcome::Success`]
+/// otherwise
+///
+/// # Errors
+///
+/// Returns an error if the input is not valid request CSV, the CDX client cannot be configured or
+/// cannot publish the WARC, or archived responses cannot be extracted.
+fn run() -> Result<CommandOutcome, anyhow::Error> {
     let options = Options::parse();
     options.verbosity.init_logging();
     match options.command {
         Command::Archive(options) => archive(&options),
         Command::Extract { input } => {
-            extract::extract(&input, std::io::stdout().lock())?;
-            Ok(())
+            extract::extract(&input, std::io::stdout().lock())
+                .context("failed to extract CDX rows from the archived responses")?;
+            Ok(CommandOutcome::Success)
         }
     }
 }
 
-fn archive(options: &ArchiveOptions) -> Result<(), Error> {
-    let requests = read_requests(std::io::stdin().lock())?;
+/// Archive the CDX queries read as CSV from standard input.
+///
+/// # Arguments
+///
+/// * `options` - The endpoint, retry, and output settings for the session
+///
+/// # Returns
+///
+/// [`CommandOutcome::ReportedProblems`] if any requested response was not captured completely,
+/// [`CommandOutcome::Success`] otherwise
+///
+/// # Errors
+///
+/// Returns an error if standard input is not valid request CSV or the client cannot be configured
+/// or cannot publish the WARC.
+fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
+    let requests =
+        read_requests(std::io::stdin().lock()).context("failed to read CDX requests as CSV")?;
     let config = archiver_config(options);
     let client =
         Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
@@ -70,12 +104,14 @@ fn archive(options: &ArchiveOptions) -> Result<(), Error> {
     );
 
     if summary.is_complete() {
-        Ok(())
+        Ok(CommandOutcome::Success)
     } else {
-        Err(Error::IncompleteArchive {
-            captured,
-            requested: requests.len(),
-        })
+        log::error!(
+            "Incomplete archive: captured {captured} CDX responses for {} requests",
+            requests.len()
+        );
+
+        Ok(CommandOutcome::ReportedProblems)
     }
 }
 
@@ -100,28 +136,6 @@ fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
         .from_reader(reader)
         .deserialize()
         .collect()
-}
-
-/// A command-line run could not read its input, archive all queries, or extract its output.
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    /// The input is not valid request CSV.
-    #[error("invalid CDX request CSV")]
-    Csv(#[from] csv::Error),
-    /// The CDX client could not be configured or could not publish the WARC.
-    #[error(transparent)]
-    Client(#[from] archivindex_wbm_cdx_client::Error),
-    /// Archived CDX responses could not be extracted.
-    #[error(transparent)]
-    Extract(#[from] extract::Error),
-    /// The WARC was published, but at least one requested response was not captured completely.
-    #[error("incomplete archive: captured {captured} CDX responses for {requested} requests")]
-    IncompleteArchive {
-        /// The number of successful captures.
-        captured: usize,
-        /// The number of requested queries.
-        requested: usize,
-    },
 }
 
 #[derive(Debug, Parser)]

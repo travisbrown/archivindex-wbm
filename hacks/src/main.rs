@@ -8,8 +8,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
-use archivindex_cli_support::Verbosity;
+use anyhow::Context as _;
+use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::cdx::mime_type::MimeType;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
@@ -26,8 +28,22 @@ mod wxj;
 
 // A scratch tool: `main` is a flat dispatch over many one-off subcommands, and the percentage logs
 // cast small counts to `f64`.
+fn main() -> ExitCode {
+    archivindex_cli_support::exit_code(run())
+}
+
+/// Run the selected subcommand.
+///
+/// # Returns
+///
+/// [`CommandOutcome::Success`]; the checks here report their findings as log output rather than
+/// through the exit status
+///
+/// # Errors
+///
+/// Returns an error if an input file cannot be read or parsed, or an output file cannot be written.
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
-fn main() -> Result<(), Error> {
+fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbose.init_logging();
 
@@ -176,13 +192,12 @@ fn main() -> Result<(), Error> {
             let mut seen_invalid_digests = BTreeSet::new();
 
             for cdx_path in cdx_paths {
-                let entry_list = std::fs::read_to_string(&cdx_path)
-                    .map_err(Error::from)
-                    .and_then(|contents| {
-                        serde_json::from_str::<ItemList<'_>>(&contents)
-                            .map(bounded_static::IntoBoundedStatic::into_static)
-                            .map_err(|error| Error::JsonFile(cdx_path.clone(), error))
-                    })?;
+                let contents = std::fs::read_to_string(&cdx_path)
+                    .with_context(|| format!("failed to read {}", cdx_path.display()))?;
+
+                let entry_list = serde_json::from_str::<ItemList<'_>>(&contents)
+                    .map(bounded_static::IntoBoundedStatic::into_static)
+                    .with_context(|| format!("failed to parse {}", cdx_path.display()))?;
 
                 let mut valid_digests = BTreeSet::new();
                 let mut invalid_digests = BTreeSet::new();
@@ -269,7 +284,7 @@ fn main() -> Result<(), Error> {
 
                     Ok(digest)
                 })
-                .collect::<Result<HashSet<Sha1Digest>, Error>>()?;
+                .collect::<Result<HashSet<Sha1Digest>, anyhow::Error>>()?;
 
             for entry in std::fs::read_dir(files)? {
                 let entry = entry?;
@@ -505,27 +520,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    Ok(())
-}
-
-#[derive(thiserror::Error, Debug)]
-enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    #[error("CSV error")]
-    Csv(#[from] csv::Error),
-    #[error("JSON error")]
-    Json(#[from] serde_json::Error),
-    #[error("JSON error in {}", .0.display())]
-    JsonFile(PathBuf, #[source] serde_json::Error),
-    #[error("SURT error")]
-    Surt(#[from] archivindex_wbm::surt::Error),
-    #[error("WBM JSON error")]
-    WbmJson(#[from] archivindex_wbm_json::Error),
-    #[error("WXJ hacking error")]
-    Wxj(#[from] wxj::Error),
-    #[error("Base32 digest parse error")]
-    Base32Parse(#[from] archivindex_wbm::digest::Error),
+    Ok(CommandOutcome::Success)
 }
 
 #[derive(Debug, Parser)]
@@ -670,12 +665,13 @@ struct CdxEntry {
 }
 
 /// Check that the SURT computed from each JSON capture's URL matches the SURT in the CDX data.
-fn check_surts(input: &Path) -> Result<(), Error> {
+fn check_surts(input: &Path) -> Result<(), anyhow::Error> {
     let mut success_count = 0u64;
     let mut failure_count = 0u64;
 
     for path in wxj::cdx_files(input)? {
-        let contents = std::fs::read_to_string(&path)?;
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
 
         let items = match serde_json::from_str::<ItemList<'_>>(&contents) {
             Ok(items) => items,

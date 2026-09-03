@@ -1,12 +1,13 @@
 //! Command-line tool to download Wayback Machine captures, verify a content-addressed store, and
 //! manage the invalid digest log database (merge, import, export, and dump operations).
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-use archivindex_cli_support::Verbosity;
+use anyhow::Context as _;
+use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm_cas::Store;
 use archivindex_wbm_downloader::DownloadResult;
-use archivindex_wbm_invalid_log::Database;
 use clap::Parser;
 
 mod invalid_log;
@@ -15,7 +16,22 @@ mod invalid_log;
 const DOWNLOAD_RESULT_BUFFER: usize = 4096;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> ExitCode {
+    archivindex_cli_support::exit_code(run().await)
+}
+
+/// Run the selected command.
+///
+/// # Returns
+///
+/// [`CommandOutcome::ReportedProblems`] if store verification found a mismatched digest,
+/// [`CommandOutcome::Success`] otherwise
+///
+/// # Errors
+///
+/// Returns an error if the download queue cannot be read, the downloader or its HTTP client cannot
+/// be built, a store cannot be read, or an invalid-digest database operation fails.
+async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbose.init_logging();
 
@@ -37,7 +53,8 @@ async fn main() -> Result<(), Error> {
                         )
                     })
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()
+                .context("failed to read the download queue as CSV")?;
 
             let mut manager = archivindex_wbm_downloader::Manager::new(
                 archivindex_wbm_downloader::ManagerConfiguration {
@@ -49,7 +66,8 @@ async fn main() -> Result<(), Error> {
                     buffer: DOWNLOAD_RESULT_BUFFER,
                 },
                 items,
-            )?;
+            )
+            .context("failed to start the downloader")?;
 
             if let Some(mut receiver) = manager.take_receiver() {
                 while let Some(result) = receiver.recv().await {
@@ -85,7 +103,8 @@ async fn main() -> Result<(), Error> {
         Command::Verify { base } => {
             let store = archivindex_wbm_cas::file::Store::<
                 archivindex_wbm_cas::file::entry::Buffered,
-            >::inferred_structure(base)?;
+            >::inferred_structure(&base)
+            .with_context(|| format!("failed to read the store at {}", base.display()))?;
 
             let verification_result = store.verify()?;
 
@@ -100,11 +119,15 @@ async fn main() -> Result<(), Error> {
 
             log::info!("Verified: {}", verification_result.verified_count);
             log::info!("Mismatched: {}", verification_result.errors.len());
+
+            if !verification_result.errors.is_empty() {
+                return Ok(CommandOutcome::ReportedProblems);
+            }
         }
         Command::InvalidLog { command } => match command {
             InvalidLogCommand::Merge { source, target } => {
-                let source_db = Database::open(source)?;
-                let target_db = Database::open(target)?;
+                let source_db = invalid_log::open(&source)?;
+                let target_db = invalid_log::open(&target)?;
 
                 target_db.merge(&source_db)?;
             }
@@ -116,42 +139,7 @@ async fn main() -> Result<(), Error> {
         },
     }
 
-    Ok(())
-}
-
-/// Error type for all failures this tool can encounter.
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    /// A file could not be read or written.
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    /// A CSV record could not be read or written.
-    #[error("CSV error")]
-    Csv(#[from] csv::Error),
-    /// Iterating over a content-addressed store failed.
-    #[error("store iteration error")]
-    StoreIteration(#[from] archivindex_wbm_cas::file::IterationError),
-    /// The layout of an existing content-addressed store could not be inferred.
-    #[error("store structure inference error")]
-    StoreStructureInference(#[from] archivindex_wbm_cas::file::StructureInferenceError),
-    /// An invalid-log database operation failed.
-    #[error("SQLite error")]
-    Sqlite(#[from] rusqlite::Error),
-    /// A digest string could not be parsed.
-    #[error("digest parsing error")]
-    Digest(#[from] archivindex_wbm::digest::Error),
-    /// A timestamp string could not be parsed.
-    #[error("timestamp parsing error")]
-    Timestamp(#[from] archivindex_wbm::timestamp::Error),
-    /// An exported observation timestamp is outside the representable range.
-    #[error("invalid observation timestamp: {0}")]
-    InvalidObservationTimestamp(i64),
-    /// A download could not be completed or recorded.
-    #[error("WBM downloader error")]
-    Downloader(#[from] archivindex_wbm_downloader::Error),
-    /// The downloader's shared HTTP client could not be built.
-    #[error("HTTP client initialization error")]
-    HttpClient(#[from] reqwest::Error),
+    Ok(CommandOutcome::Success)
 }
 
 #[derive(Debug, Parser)]

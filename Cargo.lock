@@ -106,6 +106,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "archivindex-archiver"
 version = "0.1.0"
 source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
@@ -157,6 +163,7 @@ dependencies = [
 name = "archivindex-hacks"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "archivindex-cli-support",
  "archivindex-wbm",
  "archivindex-wbm-json",
@@ -282,6 +289,7 @@ dependencies = [
 name = "archivindex-wbm-cdx-client-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "archivindex-cdx",
  "archivindex-cli-support",
  "archivindex-test-support",
@@ -311,6 +319,7 @@ dependencies = [
 name = "archivindex-wbm-cdx-index-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "archivindex-cli-support",
  "archivindex-wbm",
  "archivindex-wbm-cdx-index",
@@ -321,7 +330,6 @@ dependencies = [
  "log",
  "serde_json",
  "tempfile",
- "thiserror",
  "zstd",
 ]
 
@@ -349,6 +357,7 @@ dependencies = [
 name = "archivindex-wbm-downloader-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "archivindex-cli-support",
  "archivindex-wbm",
  "archivindex-wbm-cas",
@@ -359,10 +368,7 @@ dependencies = [
  "clap",
  "csv",
  "log",
- "reqwest",
- "rusqlite",
  "serde",
- "thiserror",
  "tokio",
 ]
 
@@ -394,6 +400,7 @@ dependencies = [
 name = "archivindex-wbm-json-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "archivindex-cli-support",
  "archivindex-wbm",
  "archivindex-wbm-cas",
@@ -408,7 +415,6 @@ dependencies = [
  "serde_json",
  "sha1",
  "tempfile",
- "thiserror",
  "tokio",
  "toml",
  "zstd",

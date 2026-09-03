@@ -7,8 +7,10 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
-use archivindex_cli_support::Verbosity;
+use anyhow::Context as _;
+use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::paths;
@@ -19,7 +21,22 @@ use archivindex_wbm_json::exact::ExactSnapshot;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
-fn main() -> Result<(), Error> {
+fn main() -> ExitCode {
+    archivindex_cli_support::exit_code(run())
+}
+
+/// Run the selected command.
+///
+/// # Returns
+///
+/// [`CommandOutcome::Success`], since every problem this tool finds in its input is a warning about
+/// a single file or item rather than a failure of the run
+///
+/// # Errors
+///
+/// Returns an error if an index or metadata database cannot be opened or written, an input file
+/// cannot be read, or a stored timestamp is outside the representable range.
+fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbose.init_logging();
 
@@ -29,7 +46,7 @@ fn main() -> Result<(), Error> {
         }
 
         Command::Stats { db } => {
-            let index = CdxIndex::open(&db)?;
+            let index = open_index(&db)?;
             let count = index.item_count()?;
             println!("items: {count}");
         }
@@ -43,7 +60,7 @@ fn main() -> Result<(), Error> {
             let excluded = collect_excluded_digests(&snapshot, &digest_file)?;
             log::info!("Loaded {} excluded digests", excluded.len());
 
-            let index = CdxIndex::open(&db)?;
+            let index = open_index(&db)?;
             // Locking once avoids re-acquiring the standard output lock for every record written.
             let mut writer = csv::Writer::from_writer(std::io::stdout().lock());
 
@@ -87,7 +104,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    Ok(())
+    Ok(CommandOutcome::Success)
 }
 
 /// Walk the `.json` files under the `input` directories (searched recursively) in sorted order,
@@ -100,8 +117,8 @@ fn main() -> Result<(), Error> {
 fn for_each_item_list(
     input: &[PathBuf],
     message: &'static str,
-    mut action: impl FnMut(&ProgressBar, &Path, &ItemList<'_>) -> Result<(), Error>,
-) -> Result<(usize, usize), Error> {
+    mut action: impl FnMut(&ProgressBar, &Path, &ItemList<'_>) -> Result<(), anyhow::Error>,
+) -> Result<(usize, usize), anyhow::Error> {
     let paths = paths::json_files(input, paths::Depth::Recursive, paths::Order::Path)?;
     let file_count = paths.len();
 
@@ -111,7 +128,8 @@ fn for_each_item_list(
 
     for path in paths {
         progress.inc(1);
-        let content = std::fs::read_to_string(&path)?;
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
 
         let list = match serde_json::from_str::<ItemList<'_>>(&content) {
             Ok(list) => list,
@@ -137,8 +155,8 @@ fn for_each_item_list(
 /// Items that cannot be encoded (for example a pre-epoch timestamp or a NUL byte in the SURT) are
 /// logged and filtered out so the remaining items can be inserted; failures of the batch write
 /// itself are environmental and remain fatal.
-fn fill_index(db: &Path, input: &[PathBuf]) -> Result<(), Error> {
-    let index = CdxIndex::open(db)?;
+fn fill_index(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
+    let index = open_index(db)?;
     let mut inserted = 0u64;
     let mut invalid = 0u64;
 
@@ -172,11 +190,11 @@ fn fill_index(db: &Path, input: &[PathBuf]) -> Result<(), Error> {
     Ok(())
 }
 
-/// Record every valid-digest item of the CDX index at `index` as a capture in the metadata
-/// database at `db`.
-fn import_metadata(db: &Path, index: &Path) -> Result<(), Error> {
-    let index = CdxIndex::open(index)?;
-    let metadata = MetadataDb::open(db)?;
+/// Record every valid-digest item of the CDX index at `index` as a capture in the metadata database
+/// at `db`.
+fn import_metadata(db: &Path, index: &Path) -> Result<(), anyhow::Error> {
+    let index = open_index(index)?;
+    let metadata = open_metadata(db)?;
 
     let progress = progress_bar(index.item_count()?, "Importing CDX index", "items");
 
@@ -211,8 +229,8 @@ fn import_metadata(db: &Path, index: &Path) -> Result<(), Error> {
 /// Items without a valid digest (routine in CDX data) and items whose URL is too long to encode are
 /// filtered out so the remaining items can be inserted; failures of the batch write itself are
 /// environmental and remain fatal.
-fn fill_metadata(db: &Path, input: &[PathBuf]) -> Result<(), Error> {
-    let metadata = MetadataDb::open(db)?;
+fn fill_metadata(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
+    let metadata = open_metadata(db)?;
 
     let mut inserted = 0u64;
     let mut invalid = 0u64;
@@ -294,12 +312,13 @@ fn write_item<W: std::io::Write>(
 fn collect_excluded_digests(
     snapshots: &[PathBuf],
     digest_files: &[PathBuf],
-) -> Result<HashSet<Sha1Digest>, Error> {
+) -> Result<HashSet<Sha1Digest>, anyhow::Error> {
     let mut excluded: HashSet<Sha1Digest> = HashSet::new();
 
     for path in snapshots {
         log::info!("Reading snapshot: {}", path.display());
-        let file = File::open(path)?;
+        let file = File::open(path)
+            .with_context(|| format!("failed to open snapshot file {}", path.display()))?;
         let reader = BufReader::new(zstd::Decoder::new(file)?);
         for line in reader.lines() {
             let line = line?;
@@ -314,7 +333,8 @@ fn collect_excluded_digests(
 
     for path in digest_files {
         log::info!("Reading digest file: {}", path.display());
-        let file = File::open(path)?;
+        let file = File::open(path)
+            .with_context(|| format!("failed to open digest file {}", path.display()))?;
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let line = line?;
@@ -336,18 +356,25 @@ fn collect_excluded_digests(
     Ok(excluded)
 }
 
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("I/O error")]
-    Io(#[from] std::io::Error),
-    #[error("CDX index error")]
-    Index(#[from] archivindex_wbm_cdx_index::Error),
-    #[error("CSV output error")]
-    Csv(#[from] csv::Error),
-    #[error("metadata database error")]
-    Metadata(#[from] archivindex_wbm_cdx_index::metadata::Error),
-    #[error("timestamp error")]
-    Timestamp(#[from] archivindex_wbm::timestamp::Error),
+/// Open the CDX item index at `path`, creating it if absent and including its path in errors.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created, opened, or read as an index.
+fn open_index(path: &Path) -> Result<CdxIndex, anyhow::Error> {
+    CdxIndex::open(path)
+        .with_context(|| format!("failed to open the CDX index at {}", path.display()))
+}
+
+/// Open the capture metadata database at `path`, creating it if absent and including its path in
+/// errors.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be created, opened, or read as a metadata database.
+fn open_metadata(path: &Path) -> Result<MetadataDb, anyhow::Error> {
+    MetadataDb::open(path)
+        .with_context(|| format!("failed to open the metadata database at {}", path.display()))
 }
 
 #[derive(Debug, Parser)]

@@ -18,6 +18,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
+anyhow = { workspace = true }
 archivindex-cli-support = { workspace = true }
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cas = { path = "../cas/" }
@@ -28,9 +29,5 @@ chrono = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
 log = { workspace = true }
-# For the `reqwest::Error` returned by `Manager::new` when the HTTP client cannot be built.
-reqwest = { workspace = true }
-rusqlite = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }

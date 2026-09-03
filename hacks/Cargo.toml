@@ -13,6 +13,7 @@ publish = false
 workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
 archivindex-cli-support = { workspace = true }
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-json = { path = "../json/" }

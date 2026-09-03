@@ -52,6 +52,7 @@ archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/ar
 # crate is `publish = false`, so `cargo package` strips it from the crates that depend on it.
 archivindex-test-support = { path = "../archivindex/test-support" }
 archivindex-warc = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex-warc" }
+anyhow = "1"
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.14"

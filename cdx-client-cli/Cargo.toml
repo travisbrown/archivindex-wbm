@@ -22,6 +22,7 @@ doc = false
 bundled = ["archivindex-wbm-cdx-client/bundled"]
 
 [dependencies]
+anyhow = { workspace = true }
 archivindex-cdx = { workspace = true }
 archivindex-cli-support = { workspace = true }
 archivindex-warc = { workspace = true, features = ["http"] }
