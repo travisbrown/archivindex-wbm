@@ -3,16 +3,17 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use archivindex_cli_support::Verbosity;
 use archivindex_wbm_cdx_client::{
     CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT, Request,
 };
-use cli_helpers::prelude::*;
+use clap::Parser;
 
 const DEFAULT_RETRY_ATTEMPTS: usize = 10;
 
 fn main() -> Result<(), Error> {
     let options = Options::parse();
-    options.verbosity.init_logging()?;
+    options.verbosity.init_logging();
     let requests = read_requests(std::io::stdin().lock())?;
     let config = archiver_config(&options);
     let client =
@@ -92,9 +93,6 @@ fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
 /// A command-line run could not read its input or archive all requested queries.
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    /// Logging could not be initialized.
-    #[error(transparent)]
-    Cli(#[from] cli_helpers::Error),
     /// The input is not valid request CSV.
     #[error("invalid CDX request CSV")]
     Csv(#[from] csv::Error),
@@ -151,7 +149,7 @@ mod tests {
     use std::time::Duration;
 
     use archivindex_wbm_cdx_client::{MatchType, Request};
-    use cli_helpers::prelude::clap::{CommandFactory as _, Parser as _};
+    use clap::{CommandFactory as _, Parser as _};
 
     use super::Options;
 

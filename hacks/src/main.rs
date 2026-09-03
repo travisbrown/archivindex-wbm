@@ -10,6 +10,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use archivindex_cli_support::Verbosity;
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::cdx::mime_type::MimeType;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
@@ -17,7 +18,7 @@ use archivindex_wbm::surt::Surt;
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
-use cli_helpers::prelude::*;
+use clap::Parser;
 use serde_json::value::RawValue;
 
 mod contexts;
@@ -28,7 +29,7 @@ mod wxj;
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging()?;
+    opts.verbose.init_logging();
 
     match opts.command {
         Command::WxjUrls {
@@ -506,8 +507,6 @@ fn main() -> Result<(), Error> {
 enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("CLI argument reading error")]
-    Args(#[from] cli_helpers::Error),
     #[error("CSV error")]
     Csv(#[from] csv::Error),
     #[error("JSON error")]

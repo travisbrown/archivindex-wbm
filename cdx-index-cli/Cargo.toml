@@ -18,12 +18,14 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
+archivindex-cli-support = { workspace = true }
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-cdx-index = { path = "../cdx-index/" }
 archivindex-wbm-json = { path = "../json/" }
-cli-helpers = { workspace = true }
+clap = { workspace = true }
 csv = { workspace = true }
 indicatif = { workspace = true }
+log = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true }

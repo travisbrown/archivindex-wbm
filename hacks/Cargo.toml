@@ -13,12 +13,14 @@ publish = false
 workspace = true
 
 [dependencies]
+archivindex-cli-support = { workspace = true }
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-json = { path = "../json/" }
 bounded-static = { workspace = true }
-cli-helpers = { workspace = true }
+clap = { workspace = true }
 csv = { workspace = true }
 globwalk = "0.9"
+log = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = { workspace = true }

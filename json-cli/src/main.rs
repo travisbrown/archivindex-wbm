@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+use archivindex_cli_support::Verbosity;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
@@ -12,7 +13,7 @@ use archivindex_wbm_json::format::FormatInfo;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::write::SnapshotWriter;
 use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition};
-use cli_helpers::prelude::*;
+use clap::Parser;
 use contexts::{wts, wxj};
 
 mod contexts;
@@ -33,7 +34,7 @@ enum WxjPartition {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging()?;
+    opts.verbose.init_logging();
 
     match opts.command {
         Command::Verify { format, input } => {
@@ -570,8 +571,6 @@ enum Error {
     Io(#[from] std::io::Error),
     #[error("file I/O error")]
     FileIo(PathBuf, std::io::Error),
-    #[error("CLI argument reading error")]
-    Args(#[from] cli_helpers::Error),
     #[error("CSV error")]
     Csv(#[from] csv::Error),
     #[error("JSON error")]

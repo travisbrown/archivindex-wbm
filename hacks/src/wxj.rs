@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::timestamp::Timestamp;
-use cli_helpers::prelude::log;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

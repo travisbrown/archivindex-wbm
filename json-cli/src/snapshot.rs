@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_cas::legacy::import::CompressionType;
-use cli_helpers::prelude::log;
 
 /// The partitioned result of walking legacy snapshot directories.
 #[derive(Default)]

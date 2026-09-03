@@ -2,11 +2,12 @@
 //! manage the invalid digest log database (merge, import, export, and dump operations).
 use std::path::PathBuf;
 
+use archivindex_cli_support::Verbosity;
 use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm_cas::Store;
 use archivindex_wbm_downloader::DownloadResult;
 use archivindex_wbm_invalid_log::Database;
-use cli_helpers::prelude::*;
+use clap::Parser;
 
 mod invalid_log;
 
@@ -16,7 +17,7 @@ const DOWNLOAD_RESULT_BUFFER: usize = 4096;
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging()?;
+    opts.verbose.init_logging();
 
     match opts.command {
         Command::Download {
@@ -124,9 +125,6 @@ pub enum Error {
     /// A file could not be read or written.
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    /// The command-line arguments could not be parsed.
-    #[error("CLI argument reading error")]
-    Args(#[from] cli_helpers::Error),
     /// A CSV record could not be read or written.
     #[error("CSV error")]
     Csv(#[from] csv::Error),

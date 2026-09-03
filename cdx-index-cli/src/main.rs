@@ -8,18 +8,19 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use archivindex_cli_support::Verbosity;
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_cdx_index::metadata::MetadataDb;
 use archivindex_wbm_cdx_index::{CdxIndex, StoredItem};
 use archivindex_wbm_json::exact::ExactSnapshot;
-use cli_helpers::prelude::*;
+use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 
 fn main() -> Result<(), Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging()?;
+    opts.verbose.init_logging();
 
     match opts.command {
         Command::Fill { db, input } => {
@@ -376,8 +377,6 @@ fn collect_excluded_digests(
 enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("CLI argument reading error")]
-    Args(#[from] cli_helpers::Error),
     #[error("CDX index error")]
     Index(#[from] archivindex_wbm_cdx_index::Error),
     #[error("CSV output error")]

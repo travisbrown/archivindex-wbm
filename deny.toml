@@ -31,20 +31,10 @@ allow = [
   "Zlib",
 ]
 exceptions = [
-  { crate = "cli-helpers", allow = [
-    "LicenseRef-Anti-Capitalist-Software-License-1.4",
-  ] },
   { crate = "prefix-file-tree", allow = [
     "GPL-3.0-only",
   ] },
 ]
-
-# `cli-helpers` ships the Anti-Capitalist Software License 1.4 in this file but does not declare it
-# in its manifest. The content hash makes this clarification stop applying if that license changes.
-[[licenses.clarify]]
-crate = "cli-helpers@0.1.0"
-expression = "LicenseRef-Anti-Capitalist-Software-License-1.4"
-license-files = [{ path = "LICENSE", hash = 0x4c560e9f }]
 
 [sources]
 unknown-registry = "deny"

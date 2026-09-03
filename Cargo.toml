@@ -46,12 +46,13 @@ version = "0.1.0"
 [workspace.dependencies]
 archivindex-archiver = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex-warc" }
 archivindex-cdx = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
+archivindex-cli-support = { path = "../archivindex/cli-support" }
 archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex", default-features = false }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
-cli-helpers = "0.1"
+clap = { version = "4", features = ["derive"] }
 csv = "1"
 data-encoding = "2"
 digest-io = "0.1"
