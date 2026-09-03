@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use archivindex_cli_support::Verbosity;
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::paths;
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_cdx_index::metadata::MetadataDb;
 use archivindex_wbm_cdx_index::{CdxIndex, StoredItem};
@@ -101,7 +102,7 @@ fn for_each_item_list(
     message: &'static str,
     mut action: impl FnMut(&ProgressBar, &Path, &ItemList<'_>) -> Result<(), Error>,
 ) -> Result<(usize, usize), Error> {
-    let paths = collect_sorted_json_files(input)?;
+    let paths = paths::json_files(input, paths::Depth::Recursive, paths::Order::Path)?;
     let file_count = paths.len();
 
     let progress = progress_bar(file_count as u64, message, "files");
@@ -265,39 +266,6 @@ fn progress_bar(len: u64, message: &'static str, unit: &str) -> ProgressBar {
     );
     progress.set_message(message);
     progress
-}
-
-/// Collect the paths of all `.json` files under the `input` directories (searched recursively),
-/// sorted by path.
-fn collect_sorted_json_files(input: &[PathBuf]) -> Result<Vec<PathBuf>, std::io::Error> {
-    let mut paths = Vec::new();
-
-    for directory in input {
-        collect_json_files(directory, &mut paths)?;
-    }
-
-    paths.sort();
-
-    Ok(paths)
-}
-
-/// Recursively collect the paths of all `.json` files under `directory` into `paths`.
-fn collect_json_files(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-
-        if path.is_dir() {
-            collect_json_files(&path, paths)?;
-        } else if path.is_file()
-            && path
-                .extension()
-                .is_some_and(|extension| extension == "json")
-        {
-            paths.push(path);
-        }
-    }
-
-    Ok(())
 }
 
 /// Returns `true` when the item has a valid digest that is absent from `excluded`.
@@ -468,37 +436,4 @@ enum MetadataCommand {
         #[clap(long)]
         input: Vec<PathBuf>,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    #[test]
-    fn collect_sorted_json_files_recurses_and_sorts() {
-        let base = tempfile::tempdir().expect("temporary directory");
-        let nested = base.path().join("nested");
-        std::fs::create_dir(&nested).expect("nested directory");
-
-        for path in [
-            base.path().join("b.json"),
-            base.path().join("a.json"),
-            // A non-JSON file that must not be collected.
-            base.path().join("c.txt"),
-            nested.join("d.json"),
-        ] {
-            std::fs::write(path, "[]").expect("test file");
-        }
-
-        let input = [base.path().to_path_buf()];
-        let paths = super::collect_sorted_json_files(&input).expect("collected paths");
-
-        let expected: Vec<PathBuf> = vec![
-            base.path().join("a.json"),
-            base.path().join("b.json"),
-            nested.join("d.json"),
-        ];
-
-        assert_eq!(paths, expected);
-    }
 }

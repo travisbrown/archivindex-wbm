@@ -9,16 +9,13 @@ use std::path::{Path, PathBuf};
 
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::paths;
 use archivindex_wbm::timestamp::Timestamp;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
-    #[error("glob error")]
-    Glob(#[from] globwalk::GlobError),
-    #[error("walkdir error")]
-    Walkdir(#[from] walkdir::Error),
     #[error("CSV error")]
     Csv(#[from] csv::Error),
     #[error("JSON error")]
@@ -115,27 +112,21 @@ pub fn read_url_paths<P: AsRef<Path>>(
 }
 
 /// Collect the `**/data/*.json` CDX files under `base`, most recently modified first.
+///
+/// # Errors
+///
+/// Returns an error if a directory cannot be read or a file's modification time is unavailable.
 pub fn cdx_files<P: AsRef<Path>>(base: P) -> Result<Vec<PathBuf>, Error> {
-    let walker = globwalk::GlobWalkerBuilder::new(base, "**/data/*.json")
-        .sort_by(|a, b| {
-            a.metadata()
-                .ok()
-                .and_then(|metadata| metadata.modified().ok())
-                .zip(
-                    b.metadata()
-                        .ok()
-                        .and_then(|metadata| metadata.modified().ok()),
-                )
-                .map_or_else(
-                    || a.file_name().cmp(b.file_name()),
-                    |(a, b)| a.cmp(&b).reverse(),
-                )
-        })
-        .build()?;
+    let mut paths = paths::json_files(&[base], paths::Depth::Recursive, paths::Order::NewestFirst)?;
 
-    walker
-        .map(|entry| entry.map_err(Error::from).map(walkdir::DirEntry::into_path))
-        .collect()
+    // The shared walk collects every JSON file; CDX documents are the ones in a `data` directory.
+    paths.retain(|path| {
+        path.parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "data")
+    });
+
+    Ok(paths)
 }
 
 /// Build per-digest metadata from the CDX files under `base`, keeping the first capture seen for

@@ -8,12 +8,12 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use archivindex_cli_support::Verbosity;
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::cdx::mime_type::MimeType;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::paths;
 use archivindex_wbm::surt::Surt;
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
@@ -169,7 +169,8 @@ fn main() -> Result<(), Error> {
             check_surts(&input)?;
         }
         Command::FindUnused { cdx } => {
-            let cdx_paths = find_json_files_all(&cdx)?;
+            let cdx_paths =
+                paths::json_files(&cdx, paths::Depth::Recursive, paths::Order::NewestFirst)?;
 
             let mut seen_valid_digests = BTreeSet::new();
             let mut seen_invalid_digests = BTreeSet::new();
@@ -354,7 +355,11 @@ fn main() -> Result<(), Error> {
             // Read only the referenced CDX entries into memory, keyed by digest string (valid or
             // invalid), keeping the earliest capture per digest.
             let mut cdx_map: HashMap<String, CdxEntry> = HashMap::new();
-            for path in find_json_files_all(std::slice::from_ref(&cdx))? {
+            for path in paths::json_files(
+                std::slice::from_ref(&cdx),
+                paths::Depth::Recursive,
+                paths::Order::NewestFirst,
+            )? {
                 let content = std::fs::read_to_string(&path)?;
                 let items = match serde_json::from_str::<ItemList<'_>>(&content) {
                     Ok(items) => items,
@@ -669,7 +674,7 @@ fn check_surts(input: &Path) -> Result<(), Error> {
     let mut success_count = 0u64;
     let mut failure_count = 0u64;
 
-    for path in find_cdx_files_structured(input)? {
+    for path in wxj::cdx_files(input)? {
         let contents = std::fs::read_to_string(&path)?;
 
         let items = match serde_json::from_str::<ItemList<'_>>(&contents) {
@@ -776,73 +781,6 @@ fn migrate_snapshot_line(line: &str) -> Result<String, serde_json::Error> {
     out.push('}');
 
     Ok(out)
-}
-
-/// Collect the CDX files of a `collection/screen-name/data` directory tree, most recently modified
-/// first.
-fn find_cdx_files_structured<P: AsRef<Path>>(root: P) -> Result<Vec<PathBuf>, Error> {
-    let mut cdx_paths = std::fs::read_dir(root)?
-        .flat_map(|collection_entry| {
-            collection_entry
-                .and_then(|entry| std::fs::read_dir(entry.path()))
-                .map_or_else(|error| vec![Err(error)], std::iter::Iterator::collect)
-        })
-        .flat_map(|screen_name_entry| {
-            screen_name_entry
-                .and_then(|entry| std::fs::read_dir(entry.path().join("data")))
-                .map_or_else(|error| vec![Err(error)], std::iter::Iterator::collect)
-        })
-        .map(|entry| {
-            entry.and_then(|entry| {
-                let modified = entry.metadata()?.modified()?;
-
-                Ok((modified, entry.path()))
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    cdx_paths.sort_by_key(|(timestamp, _)| std::cmp::Reverse(*timestamp));
-
-    Ok(cdx_paths.into_iter().map(|(_, path)| path).collect())
-}
-
-/// Collect every `.json` file under `roots` (searched recursively), most recently modified first.
-fn find_json_files_all<P: AsRef<Path>>(roots: &[P]) -> Result<Vec<PathBuf>, Error> {
-    let mut json_paths = vec![];
-
-    for root in roots {
-        find_json_files_all_rec(root, &mut json_paths)?;
-    }
-
-    json_paths.sort_by_key(|(timestamp, _)| std::cmp::Reverse(*timestamp));
-
-    Ok(json_paths.into_iter().map(|(_, path)| path).collect())
-}
-
-/// Accumulate every `.json` file at or under `current` with its modification time.
-fn find_json_files_all_rec<P: AsRef<Path>>(
-    current: P,
-    acc: &mut Vec<(SystemTime, PathBuf)>,
-) -> Result<(), Error> {
-    if current.as_ref().is_file() {
-        if current
-            .as_ref()
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
-            let modified = current.as_ref().metadata()?.modified()?;
-
-            acc.push((modified, current.as_ref().to_path_buf()));
-        }
-    } else {
-        for entry in std::fs::read_dir(current)? {
-            let entry = entry?;
-
-            find_json_files_all_rec(entry.path(), acc)?;
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::paths::{Depth, Order};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_invalid_log::Database;
 use bounded_static::{IntoBoundedStatic, ToBoundedStatic};
@@ -158,11 +159,14 @@ impl Resolver {
         directories: &[P],
         recursive: bool,
     ) -> Result<usize, Error> {
-        let mut cdx_paths = vec![];
-
-        for directory in directories {
-            find_cdx_paths(directory, recursive, &mut cdx_paths)?;
-        }
+        let depth = if recursive {
+            Depth::Recursive
+        } else {
+            Depth::Shallow
+        };
+        // Path order, rather than the file system's, so the primary resolution chosen for a digest
+        // with equally ranked captures does not depend on directory iteration order.
+        let cdx_paths = archivindex_wbm::paths::json_files(directories, depth, Order::Path)?;
 
         // Field borrows (rather than borrowing all of `self`) let the parallel matching read the
         // targets while the sequential application below writes `self.done`.
@@ -268,35 +272,6 @@ struct CdxFileMatches {
     /// Items whose digest appears in the invalid-digest log: the CDX-declared digest and the
     /// capture metadata.
     invalid: Vec<(Digest<'static>, ResolvedMetadata)>,
-}
-
-/// Accumulate all JSON file paths in a directory, optionally recursing into subdirectories.
-fn find_cdx_paths<P: AsRef<Path>>(
-    directory: P,
-    recursive: bool,
-    acc: &mut Vec<PathBuf>,
-) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-
-        if is_json_file(&path) {
-            acc.push(path);
-        } else if path.is_dir() && recursive {
-            find_cdx_paths(&path, true, acc)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Whether `path` names a regular file with a `.json` extension.
-///
-/// The extension is checked first, so the directory walk only pays for a metadata lookup on
-/// candidates that could actually be CDX files.
-fn is_json_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension == "json")
-        && path.is_file()
 }
 
 /// A set of resolution candidates for a given digest.
