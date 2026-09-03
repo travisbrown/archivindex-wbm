@@ -70,9 +70,7 @@ impl Summary {
 /// Returns an error if the file cannot be opened or read; individual line problems are recorded in
 /// the summary rather than returned as errors.
 pub fn check(input: &Path, context: &Context) -> Result<Summary, std::io::Error> {
-    let file = std::fs::File::open(input)?;
-
-    check_lines(std::io::BufReader::new(zstd::Decoder::new(file)?), context)
+    check_lines(crate::io::zst::reader(input)?, context)
 }
 
 /// Check compact snapshot JSONL lines against the given context.

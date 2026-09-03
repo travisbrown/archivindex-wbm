@@ -9,7 +9,6 @@
 //! sequentially on the reader thread, while higher values dispatch chunks of lines to tokio
 //! blocking tasks and use [`futures::StreamExt::buffered`] for ordered concurrent execution.
 
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::Arc;
@@ -93,10 +92,7 @@ pub fn open_zstd<P: AsRef<Path> + Send + 'static>(
     path: P,
     parallelism: usize,
 ) -> BoxStream<'static, StreamItem> {
-    open_with(
-        move || File::open(path).and_then(zstd::Decoder::new),
-        parallelism,
-    )
+    open_with(move || crate::io::zst::decoder(path), parallelism)
 }
 
 /// Open a JSONL snapshot source and stream parsed snapshots.
@@ -182,12 +178,7 @@ pub async fn validate_zstd<P: AsRef<Path> + Send + 'static>(
     parallelism: usize,
     context: Context,
 ) -> Result<StreamValidation, Error> {
-    validate_with(
-        move || File::open(path).and_then(zstd::Decoder::new),
-        parallelism,
-        context,
-    )
-    .await
+    validate_with(move || crate::io::zst::decoder(path), parallelism, context).await
 }
 
 /// Validate a JSONL snapshot source, returning validation results.
@@ -438,8 +429,7 @@ mod tests {
             .collect::<Vec<String>>();
         lines.extend(extra_lines.iter().map(|line| (*line).to_owned()));
 
-        let file = std::fs::File::create(path).expect("create file");
-        let mut encoder = zstd::Encoder::new(file, 1).expect("encoder");
+        let mut encoder = crate::io::zst::encoder(path, 1).expect("encoder");
         encoder
             .write_all((lines.join("\n") + "\n").as_bytes())
             .expect("write lines");

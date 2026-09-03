@@ -1,8 +1,9 @@
 //! Synchronous JSONL input and output for snapshots.
 //!
-//! Reading and writing operate on Zstandard-compressed JSONL files: one snapshot per line. See
-//! [`read`] for parsing raw snapshots and [`write`](mod@write) for serializing them under a
-//! context.
+//! Readers and writers accept uncompressed streams and provide helpers for Zstandard-compressed
+//! files. See [`read`] for parsing snapshots, [`write`](mod@write) for serializing them under a
+//! context, and [`zst`] for opening compressed files.
 
 pub mod read;
 pub mod write;
+pub mod zst;

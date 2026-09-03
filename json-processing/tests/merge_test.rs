@@ -14,6 +14,7 @@ use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::Format;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::write::SnapshotWriter;
+use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::stream::merge::{
     DualConfig, Error, NewSnapshotTarget, Source, Stats, merge_dual_zstd,
 };
@@ -378,8 +379,7 @@ async fn merge_fails_fast_on_invalid_input_line() {
     larger_snapshot.timestamp = Some(TIMESTAMP.parse().unwrap());
     let larger_line = larger_snapshot.display(&line_context).to_string();
 
-    let file = std::fs::File::create(tmp.path().join("first.jsonl.zst")).unwrap();
-    let mut encoder = zstd::Encoder::new(file, 1).unwrap();
+    let mut encoder = zst::encoder(tmp.path().join("first.jsonl.zst"), 1).unwrap();
     std::io::Write::write_all(
         &mut encoder,
         format!("{smaller_line}\nnot a snapshot\n{larger_line}\n").as_bytes(),

@@ -12,6 +12,7 @@ use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
+use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
 
 const CLOSING_WHITESPACE: &[char] = &['\n'];
@@ -278,8 +279,7 @@ fn check_reports_problems() {
     // Repeat the first line at the end so the file is out of order.
     lines.push(lines[0].clone());
 
-    let file = std::fs::File::create(&path).expect("create file");
-    let mut encoder = zstd::Encoder::new(file, 1).expect("encoder");
+    let mut encoder = zst::encoder(&path, 1).expect("encoder");
     std::io::Write::write_all(&mut encoder, (lines.join("\n") + "\n").as_bytes()).expect("write");
     encoder.finish().expect("finish");
 

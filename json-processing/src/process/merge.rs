@@ -7,8 +7,7 @@
 //! validated.
 
 use std::cmp::Ordering;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::iter::Peekable;
 use std::path::Path;
 
@@ -224,8 +223,8 @@ pub fn merge_zst<F: AsRef<Path>, S: AsRef<Path>, O: AsRef<Path>>(
     output: O,
     compression_level: u16,
 ) -> Result<Summary, Error> {
-    let reader_first = BufReader::new(zstd::Decoder::new(File::open(first)?)?);
-    let reader_second = BufReader::new(zstd::Decoder::new(File::open(second)?)?);
+    let reader_first = crate::io::zst::reader(first)?;
+    let reader_second = crate::io::zst::reader(second)?;
 
     // `DurableEncoder` writes to a temporary file and publishes without overwrite after finishing
     // and syncing it. The merge loop also attempts to finish partial output after a failure.
@@ -749,8 +748,7 @@ mod tests {
 
     /// Helper: write `lines` as a Zstandard-compressed JSONL file at `path`.
     fn write_zst_lines(path: &std::path::Path, lines: &[String]) {
-        let file = File::create(path).expect("create input");
-        let mut encoder = zstd::Encoder::new(file, 1).expect("encoder");
+        let mut encoder = crate::io::zst::encoder(path, 1).expect("encoder");
         encoder
             .write_all((lines.join("\n") + "\n").as_bytes())
             .expect("write lines");
@@ -759,7 +757,8 @@ mod tests {
 
     /// Helper: read every line of a Zstandard-compressed JSONL file.
     fn read_zst_lines(path: &std::path::Path) -> Vec<String> {
-        BufReader::new(zstd::Decoder::new(File::open(path).expect("open output")).expect("decoder"))
+        crate::io::zst::reader(path)
+            .expect("open output")
             .lines()
             .collect::<Result<Vec<String>, std::io::Error>>()
             .expect("read lines")

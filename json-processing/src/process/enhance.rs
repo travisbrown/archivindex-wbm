@@ -377,8 +377,7 @@ mod tests {
             .to_string();
 
         // Hand-build an input whose second line duplicates the first.
-        let file = std::fs::File::create(&input).expect("create input");
-        let mut encoder = zstd::Encoder::new(file, 1).expect("encoder");
+        let mut encoder = crate::io::zst::encoder(&input, 1).expect("encoder");
         std::io::Write::write_all(&mut encoder, format!("{line}\n{line}\n").as_bytes())
             .expect("write input");
         encoder.finish().expect("finish input");

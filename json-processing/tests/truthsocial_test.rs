@@ -47,6 +47,7 @@ use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::format::Format;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
+use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
 
 /// Relative to the package root, which Cargo sets as the working directory for integration tests.
@@ -211,10 +212,8 @@ fn cdx_captures(directory: &Path) -> HashMap<Sha1Digest, Vec<UrlParts<'static>>>
 
 /// Decompress an operation's Zstandard output into the JSONL text it wrote.
 fn read_jsonl(path: &Path) -> String {
-    let file = std::fs::File::open(path)
-        .unwrap_or_else(|error| panic!("open {}: {error}", path.display()));
-    let mut decoder = zstd::Decoder::new(file)
-        .unwrap_or_else(|error| panic!("decode {}: {error}", path.display()));
+    let mut decoder =
+        zst::decoder(path).unwrap_or_else(|error| panic!("open {}: {error}", path.display()));
     let mut text = String::new();
 
     std::io::Read::read_to_string(&mut decoder, &mut text)

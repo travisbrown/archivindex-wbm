@@ -4,7 +4,6 @@
 //! Parsing keeps the content as raw JSON and needs no configuration; interpret the results with a
 //! [`Context`](archivindex_wbm_json::context::Context) when verification is needed.
 
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
@@ -23,7 +22,7 @@ pub struct SnapshotReader<R> {
     line: String,
 }
 
-impl SnapshotReader<zstd::Decoder<'_, BufReader<File>>> {
+impl SnapshotReader<super::zst::Decoder> {
     /// Open a Zstandard-compressed JSONL file of snapshots.
     ///
     /// # Errors
@@ -31,7 +30,7 @@ impl SnapshotReader<zstd::Decoder<'_, BufReader<File>>> {
     /// Returns an error if the file cannot be opened or the decoder cannot be initialized. Invalid
     /// Zstandard data is reported when reading, not when opening the file.
     pub fn open<P: AsRef<Path>>(input: P) -> Result<Self, std::io::Error> {
-        Ok(Self::new(zstd::Decoder::new(File::open(input)?)?))
+        Ok(Self::new(super::zst::decoder(input)?))
     }
 }
 

@@ -2,7 +2,7 @@
 //!
 //! Works with Zstandard-compressed JSONL, digest-named content files, and CDX metadata.
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use archivindex_cli_support::Verbosity;
@@ -12,6 +12,7 @@ use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::FormatInfo;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::write::SnapshotWriter;
+use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition};
 use clap::Parser;
 use contexts::{wts, wxj};
@@ -113,7 +114,7 @@ async fn main() -> Result<(), Error> {
             let mut count = 0;
 
             for path in input {
-                let reader = BufReader::new(zstd::Decoder::new(File::open(&path)?)?);
+                let reader = zst::reader(&path)?;
                 log::info!("Reading file: {}", path.as_os_str().to_string_lossy());
 
                 for line in reader.lines() {
@@ -451,11 +452,7 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, Erro
     let context = match format {
         Some(Format::Wxj) => wxj::context(),
         Some(Format::Ts) => wts::context(),
-        None => Context::infer(
-            std::io::BufReader::new(zstd::Decoder::new(std::fs::File::open(path)?)?),
-            10,
-        )?
-        .map_or_else(
+        None => Context::infer(zst::reader(path)?, 10)?.map_or_else(
             || {
                 log::warn!("Could not infer closing whitespace; assuming none");
                 Context::default()
@@ -541,7 +538,7 @@ fn verify_file(
     hasher: &mut sha1::Sha1,
     counts: &mut VerificationCounts,
 ) -> Result<(), Error> {
-    let reader = BufReader::new(zstd::Decoder::new(File::open(path)?)?);
+    let reader = zst::reader(path)?;
     let mut last_digest: Option<Sha1Digest> = None;
 
     for line in reader.lines() {
