@@ -21,6 +21,8 @@ sqlite = ["dep:rusqlite"]
 validation = []
 
 [dependencies]
+archivindex-cdx = { workspace = true }
+archivindex-surt = { workspace = true, features = ["bounded-static"] }
 bounded-static = { workspace = true }
 chrono = { workspace = true }
 data-encoding = { workspace = true }

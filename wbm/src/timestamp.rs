@@ -1,6 +1,6 @@
 //! A Wayback Machine URL timestamp, a second-precision UTC instant rendered in the fourteen-digit
 //! `%Y%m%d%H%M%S` form, with parsing, formatting, and serialization.
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -30,12 +30,20 @@ pub enum Error {
 }
 
 /// Represents a Wayback Machine URL timestamp.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Timestamp(DateTime<Utc>);
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Timestamp(archivindex_cdx::timestamp::Timestamp);
 
 impl Display for Timestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.format(TIMESTAMP_FMT))
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Debug for Timestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Timestamp")
+            .field(&self.0.datetime())
+            .finish()
     }
 }
 
@@ -47,7 +55,7 @@ impl TryFrom<DateTime<Utc>> for Timestamp {
         // leap-second nanoseconds: chrono represents a leap second as second 59 plus a full second
         // of nanoseconds, and such an instant would break the second-precision integer round trips.
         if value.timestamp_subsec_nanos() == 0 {
-            Ok(Self(value))
+            Ok(Self(archivindex_cdx::timestamp::Timestamp::new(value)))
         } else {
             Err(Error::SubsecondDateTime(value))
         }
@@ -56,7 +64,7 @@ impl TryFrom<DateTime<Utc>> for Timestamp {
 
 impl From<Timestamp> for DateTime<Utc> {
     fn from(value: Timestamp) -> Self {
-        value.0
+        value.0.datetime()
     }
 }
 
@@ -68,9 +76,9 @@ impl TryFrom<i64> for Timestamp {
     type Error = Error;
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         if (MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&value) {
-            Ok(Self(
+            Ok(Self(archivindex_cdx::timestamp::Timestamp::new(
                 DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
-            ))
+            )))
         } else {
             Err(Error::InvalidTimestampI64(value))
         }
@@ -101,7 +109,7 @@ impl FromStr for Timestamp {
             {
                 Err(Error::InvalidValue(s.to_string()))
             } else {
-                let timestamp = Self(date_time);
+                let timestamp = Self(archivindex_cdx::timestamp::Timestamp::new(date_time));
 
                 // This validation confirms that the input can be round-tripped through our
                 // representation. I've never seen an input where this fails, and the check is
@@ -163,7 +171,9 @@ impl rusqlite::types::FromSql for Timestamp {
 #[cfg(feature = "sqlite")]
 impl rusqlite::ToSql for Timestamp {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::from(self.0.timestamp()))
+        Ok(rusqlite::types::ToSqlOutput::from(
+            self.0.datetime().timestamp(),
+        ))
     }
 }
 
@@ -181,12 +191,21 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let timestamp = Timestamp(Utc::now().trunc_subsecs(0));
+        let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(
+            Utc::now().trunc_subsecs(0),
+        ));
 
         let timestamp_str = timestamp.to_string();
         let timestamp_parsed = timestamp_str.parse().unwrap();
 
         assert_eq!(timestamp, timestamp_parsed);
+    }
+
+    #[test]
+    fn debug_shape_is_preserved() {
+        let timestamp = "20240101000000".parse::<Timestamp>().unwrap();
+
+        assert_eq!(format!("{timestamp:?}"), "Timestamp(2024-01-01T00:00:00Z)");
     }
 
     #[cfg(feature = "sqlite")]
@@ -200,7 +219,7 @@ mod tests {
         )?;
 
         let now = Utc::now();
-        let timestamp = Timestamp(now);
+        let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(now));
 
         // Test `ToSql` implementation.
         conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
@@ -210,8 +229,8 @@ mod tests {
             conn.query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))?;
 
         // Compare timestamps (seconds only).
-        assert_eq!(retrieved.0.timestamp(), now.timestamp());
-        assert_eq!(timestamp.0.timestamp(), retrieved.0.timestamp());
+        assert_eq!(retrieved.0.datetime().timestamp(), now.timestamp());
+        assert_eq!(timestamp.0.datetime(), retrieved.0.datetime());
 
         Ok(())
     }
@@ -224,7 +243,7 @@ mod tests {
 
         assert!(result.is_ok());
         let timestamp = result.unwrap();
-        assert_eq!(timestamp.0.timestamp(), 1_704_067_200);
+        assert_eq!(timestamp.0.datetime().timestamp(), 1_704_067_200);
     }
 
     #[cfg(feature = "sqlite")]

@@ -22,6 +22,7 @@ allow = [
   "BSL-1.0",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
+  "GPL-3.0-only",
   "ISC",
   "MIT",
   "MIT-0",
@@ -48,3 +49,5 @@ license-files = [{ path = "LICENSE", hash = 0x4c560e9f }]
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# The shared CDX and SURT crates are consumed from their repository until they are published.
+allow-git = ["https://github.com/travisbrown/archivindex"]

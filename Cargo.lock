@@ -106,6 +106,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-cdx"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#e84302c6175b8f81d459304647283defc01a41a3"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "archivindex-hacks"
 version = "0.1.0"
 dependencies = [
@@ -124,9 +135,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-surt"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#e84302c6175b8f81d459304647283defc01a41a3"
+dependencies = [
+ "bounded-static",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "archivindex-wbm"
 version = "0.1.0"
 dependencies = [
+ "archivindex-cdx",
+ "archivindex-surt",
  "bounded-static",
  "chrono",
  "data-encoding",

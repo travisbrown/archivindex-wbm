@@ -1,7 +1,8 @@
 //! A simplified Sort-friendly URI Reordering Transform key, providing the sort-friendly URL
 //! representation and domain-part access needed for Wayback Machine CDX results.
 use std::borrow::Cow;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
@@ -36,18 +37,29 @@ pub enum Error {
 ///
 /// Currently only implements features necessary to handle Wayback Machine CDX results.
 ///
-/// By construction there will always be at least one domain name part length.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, bounded_static::ToStatic)]
+/// By construction there will always be at least one domain name part.
+#[derive(Clone, bounded_static::ToStatic)]
 pub struct Surt<'a> {
-    source: Cow<'a, str>,
+    representation: Representation<'a>,
     domain_name_part_lens: Vec<u8>,
+}
+
+/// Most keys use the shared representation. The fallback preserves the legacy parser's acceptance
+/// of non-numeric ports and whitespace or control characters after the host terminator.
+#[derive(Clone, Debug, bounded_static::ToStatic)]
+enum Representation<'a> {
+    Shared(archivindex_surt::Surt<'a>),
+    Legacy(Cow<'a, str>),
 }
 
 impl<'a> Surt<'a> {
     /// Borrows the whole SURT, in the form it takes in the `urlkey` field of a CDX record.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.source
+        match &self.representation {
+            Representation::Shared(surt) => surt.as_str(),
+            Representation::Legacy(source) => source,
+        }
     }
 
     fn path_start(&self) -> usize {
@@ -70,7 +82,7 @@ impl<'a> Surt<'a> {
     #[must_use]
     pub fn domain_name_parts(&self) -> DomainNamePartIter<'_> {
         DomainNamePartIter {
-            source: &self.source[0..self.path_start() - 1],
+            source: &self.as_str()[..self.path_start() - 1],
             domain_name_part_lens: self.domain_name_part_lens.iter(),
         }
     }
@@ -83,7 +95,7 @@ impl<'a> Surt<'a> {
     /// preserves the supplied text, including trailing slashes.
     #[must_use]
     pub fn path(&self) -> &str {
-        &self.source[self.path_start()..]
+        &self.as_str()[self.path_start()..]
     }
 
     /// Parses a SURT string, borrowing from the input.
@@ -111,7 +123,6 @@ impl<'a> Surt<'a> {
                 }
 
                 domain_name_part_lens.push(len);
-
                 len = 0;
             } else if ch == ')' {
                 if len == 0 {
@@ -120,10 +131,10 @@ impl<'a> Surt<'a> {
 
                 domain_name_part_lens.push(len);
 
-                return Ok(Self {
-                    source: input.into(),
+                return Ok(Self::from_validated(
+                    Cow::Borrowed(input),
                     domain_name_part_lens,
-                });
+                ));
             } else {
                 return Err(Error::InvalidSurt(input.to_string()));
             }
@@ -131,6 +142,26 @@ impl<'a> Surt<'a> {
 
         // The domain name list terminator was never seen.
         Err(Error::InvalidSurt(input.to_string()))
+    }
+
+    fn from_validated(source: Cow<'a, str>, domain_name_part_lens: Vec<u8>) -> Self {
+        let representation = match source {
+            Cow::Borrowed(source) => archivindex_surt::Surt::parse(source).map_or_else(
+                |_| Representation::Legacy(Cow::Borrowed(source)),
+                Representation::Shared,
+            ),
+            Cow::Owned(source) => source
+                .parse::<archivindex_surt::Surt<'static>>()
+                .map_or_else(
+                    |_| Representation::Legacy(Cow::Owned(source)),
+                    Representation::Shared,
+                ),
+        };
+
+        Self {
+            representation,
+            domain_name_part_lens,
+        }
     }
 
     /// Views the SURT as the `https` URL it was derived from.
@@ -217,10 +248,10 @@ impl Surt<'static> {
                         }
                     }
 
-                    Ok(Self {
-                        source: source.into(),
+                    Ok(Self::from_validated(
+                        Cow::Owned(source),
                         domain_name_part_lens,
-                    })
+                    ))
                 }
             }
             _ => Err(Error::UnexpectedUrl(input.to_string())),
@@ -319,6 +350,42 @@ impl Surt<'static> {
 impl Display for Surt<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl Debug for Surt<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Surt")
+            .field("source", &self.as_str())
+            .field("domain_name_part_lens", &self.domain_name_part_lens)
+            .finish()
+    }
+}
+
+impl PartialEq for Surt<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for Surt<'_> {}
+
+impl PartialOrd for Surt<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Surt<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl Hash for Surt<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+        self.domain_name_part_lens.hash(state);
     }
 }
 
@@ -444,8 +511,8 @@ impl<'a> Iterator for DomainNamePartIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.domain_name_part_lens.next().map(|len| {
-            let len = *len as usize;
-            let part = &self.source[0..len];
+            let len = usize::from(*len);
+            let part = &self.source[..len];
 
             // Skip past the domain part and the comma separator.
             self.source = if self.source.len() > len {
@@ -462,15 +529,15 @@ impl<'a> Iterator for DomainNamePartIter<'a> {
 impl DoubleEndedIterator for DomainNamePartIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.domain_name_part_lens.next_back().map(|len| {
-            let len = *len as usize;
+            let len = usize::from(*len);
             let part = &self.source[self.source.len() - len..];
 
             // Skip back past the domain part and the comma separator.
             let new_len = self.source.len() - len;
             self.source = if new_len > 0 {
-                &self.source[0..new_len - 1]
+                &self.source[..new_len - 1]
             } else {
-                &self.source[0..new_len]
+                &self.source[..new_len]
             };
 
             part
@@ -487,11 +554,30 @@ mod tests {
         let input = "com,twitter)/farleftwatch/status/999825423977639936";
         let parsed = input.parse::<Surt<'_>>().unwrap();
 
+        assert!(matches!(&parsed.representation, Representation::Shared(_)));
         assert_eq!(parsed.domain_name_parts().count(), 2);
+        assert_eq!(
+            format!("{parsed:?}"),
+            "Surt { source: \"com,twitter)/farleftwatch/status/999825423977639936\", domain_name_part_lens: [3, 7] }"
+        );
 
         let printed = parsed.to_string();
 
         assert_eq!(input, printed);
+    }
+
+    #[test]
+    fn preserves_legacy_only_keys() {
+        let input = "com,example:not-a-port)/a b";
+        let parsed = Surt::parse_str(input).unwrap();
+
+        assert!(matches!(&parsed.representation, Representation::Legacy(_)));
+        assert_eq!(parsed.as_str(), input);
+        assert_eq!(parsed.path(), "/a b");
+        assert_eq!(
+            parsed.canonical_url().to_string(),
+            "https://example.com:not-a-port/a b"
+        );
     }
 
     #[test]

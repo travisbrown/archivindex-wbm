@@ -40,6 +40,8 @@ readme = "README.md"
 version = "0.1.0"
 
 [workspace.dependencies]
+archivindex-cdx = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
+archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex", default-features = false }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.14"
