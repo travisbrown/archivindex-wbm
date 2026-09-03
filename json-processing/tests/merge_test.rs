@@ -9,7 +9,6 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::Format;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
@@ -19,12 +18,9 @@ use archivindex_wbm_json_processing::stream::merge::{
     DualConfig, Error, NewSnapshotTarget, Source, Stats, merge_dual_zstd,
 };
 
-const CLOSING_WHITESPACE: &[char] = &['\n'];
 const TIMESTAMP: &str = "20240101000000";
 
-fn context() -> Context {
-    Context::from_static(CLOSING_WHITESPACE).expect("valid closing whitespace")
-}
+mod common;
 
 /// A generated snapshot fixture: the exact file bytes (content plus closing whitespace) and their
 /// digest.
@@ -60,14 +56,14 @@ fn classify_content(content: &str) -> NewSnapshotTarget {
 /// valid input is wanted), giving each snapshot whose digest is in `timestamped` a timestamp so
 /// that preserve-existing behavior is observable in the merged output.
 fn write_input(path: &Path, entries: &[&Entry], timestamped: &BTreeSet<Sha1Digest>) {
-    let mut writer = SnapshotWriter::create(path, 1, context()).expect("create input file");
+    let mut writer = SnapshotWriter::create(path, 1, common::context()).expect("create input file");
     for entry in entries {
         let mut snapshot = writer
             .context()
             .unprocessed_snapshot(&Format::Utf8, entry.bytes.as_bytes())
             .expect("snapshot from bytes");
         if timestamped.contains(&entry.digest) {
-            snapshot.timestamp = Some(TIMESTAMP.parse().expect("valid timestamp"));
+            snapshot.timestamp = Some(common::timestamp(TIMESTAMP));
         }
         writer.write_snapshot(&snapshot).expect("write snapshot");
     }
@@ -103,8 +99,8 @@ fn config(
         second_output: dir.join("second_output.jsonl.zst"),
         compression_level: 1,
         parallelism,
-        first_context: context(),
-        second_context: context(),
+        first_context: common::context(),
+        second_context: common::context(),
         classify: classify_content,
     }
 }
@@ -197,7 +193,7 @@ fn build_fixture(dir: &Path) -> Fixture {
 /// preserve-existing semantics (overlapping digests keep their timestamped existing lines), and
 /// digest validity of every written line.
 fn assert_fixture_outputs(dir: &Path, fixture: &Fixture) {
-    let verify_context = context();
+    let verify_context = common::context();
     let mut hasher = sha1::Sha1::default();
 
     for (name, expected) in [
@@ -367,7 +363,7 @@ async fn merge_fails_fast_on_invalid_input_line() {
 
     // Hand-build the first input: a valid line, an invalid line, then a valid timestamped line
     // whose digest matches a new entry.
-    let line_context = context();
+    let line_context = common::context();
     let smaller_line = line_context
         .unprocessed_snapshot(&Format::Utf8, smaller.bytes.as_bytes())
         .unwrap()
@@ -376,7 +372,7 @@ async fn merge_fails_fast_on_invalid_input_line() {
     let mut larger_snapshot = line_context
         .unprocessed_snapshot(&Format::Utf8, larger.bytes.as_bytes())
         .unwrap();
-    larger_snapshot.timestamp = Some(TIMESTAMP.parse().unwrap());
+    larger_snapshot.timestamp = Some(common::timestamp(TIMESTAMP));
     let larger_line = larger_snapshot.display(&line_context).to_string();
 
     let mut encoder = zst::encoder(tmp.path().join("first.jsonl.zst"), 1).unwrap();

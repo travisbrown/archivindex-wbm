@@ -7,13 +7,14 @@
 
 use std::fs;
 
-use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::format::{Format, FormatInfo};
 use archivindex_wbm_json_gzip::{Compressor, FORMAT, GzipParams, OsByte, register};
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition, compact};
 use serde_json::Value;
+
+mod common;
 
 #[test]
 fn compact_populates_gzip_format() {
@@ -36,8 +37,7 @@ fn compact_populates_gzip_format() {
         extra_flushes: 0,
     };
     let archive = params.reproduce(text.as_bytes());
-    let digest = Sha1Digest::compute(&archive);
-    fs::write(data_dir.join(digest.to_string()), &archive).unwrap();
+    common::write_data_file(&data_dir, &archive);
 
     let mut context = Context::from_static(&[]).expect("valid closing whitespace");
     register(&mut context);

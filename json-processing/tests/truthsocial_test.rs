@@ -43,12 +43,13 @@ use std::path::Path;
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::item::UrlParts;
-use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::format::Format;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
+
+mod common;
 
 /// Relative to the package root, which Cargo sets as the working directory for integration tests.
 const SNAPSHOTS_DIR: &str = "tests/data/truthsocial/snapshots";
@@ -63,9 +64,8 @@ const ENHANCED_EXPECTED: &str = "tests/data/truthsocial/output/enhanced.jsonl";
 /// comparing against them.
 const UPDATE_EXPECTED_VAR: &str = "ARCHIVINDEX_UPDATE_EXPECTED";
 
-/// The canonical Truth Social context (see `wbm-json-cli/src/contexts/truthsocial.toml`): posts
+/// The canonical Truth Social context (see `tools/json-cli/src/contexts/truthsocial.toml`): posts
 /// close with a single newline, and a post's URL follows from its `id`.
-const CLOSING_WHITESPACE: &[char] = &['\n'];
 const URL_QUERY: &str = "'https://truthsocial.com/api/v1/statuses/' + content.id";
 
 /// The snapshots whose enhancement this test pins: the digest, and the timestamp it must be given
@@ -123,9 +123,10 @@ fn as_count(count: usize) -> u64 {
     u64::try_from(count).expect("fixture size fits in a u64")
 }
 
+/// A context with this fixture's URL query and the gzip codec registered, as the pipeline that
+/// produced the committed expectations was configured.
 fn context() -> Context {
-    let mut context = Context::from_static(CLOSING_WHITESPACE)
-        .expect("valid closing whitespace")
+    let mut context = common::context()
         .with_url_query(URL_QUERY)
         .expect("valid CEL query");
     archivindex_wbm_json_gzip::register(&mut context);
@@ -134,12 +135,6 @@ fn context() -> Context {
 
 fn digest(value: &str) -> Sha1Digest {
     value.parse().unwrap_or_else(|_| panic!("digest {value}"))
-}
-
-fn timestamp(value: &str) -> Timestamp {
-    value
-        .parse()
-        .unwrap_or_else(|_| panic!("timestamp {value}"))
 }
 
 /// The fixture's data files in digest-sorted order (the order [`pack`] writes them in), each
@@ -395,12 +390,7 @@ fn pack_and_enhance_truthsocial_examples() {
         &context,
         |digests| {
             lookup_calls += 1;
-            Ok::<_, Infallible>(
-                digests
-                    .iter()
-                    .map(|digest| captures.get(digest).cloned())
-                    .collect(),
-            )
+            Ok::<_, Infallible>(common::lookup_captures(&captures, digests))
         },
     )
     .expect("enhance succeeds");
@@ -476,7 +466,7 @@ fn pack_and_enhance_truthsocial_examples() {
 
         assert_eq!(
             snapshot.timestamp,
-            expected_timestamp.map(timestamp),
+            expected_timestamp.map(common::timestamp),
             "{value}"
         );
     }

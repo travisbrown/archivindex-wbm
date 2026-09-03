@@ -9,17 +9,16 @@ use std::convert::Infallible;
 
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::{ItemInfo, UrlParts};
-use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::zst;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
 
-const CLOSING_WHITESPACE: &[char] = &['\n'];
+mod common;
 
+/// A context whose URL query infers the item URLs these fixtures are built around.
 fn context() -> Context {
-    Context::from_static(CLOSING_WHITESPACE)
-        .expect("valid closing whitespace")
+    common::context()
         .with_url_query("'https://example.com/items/' + content.id")
         .expect("valid CEL query")
 }
@@ -27,10 +26,7 @@ fn context() -> Context {
 /// Writes `content` (plus the default closing whitespace) into `dir` under its digest name,
 /// returning the digest.
 fn write_data_file(dir: &std::path::Path, content: &str) -> Sha1Digest {
-    let bytes = format!("{content}\n");
-    let digest = Sha1Digest::compute(bytes.as_bytes());
-    std::fs::write(dir.join(digest.to_string()), bytes).expect("write data file");
-    digest
+    common::write_data_file(dir, format!("{content}\n").as_bytes())
 }
 
 /// Records `actual` in the invalid-digest log as having been declared under `expected` by the CDX
@@ -45,10 +41,7 @@ fn insert_invalid_digest(
         archivindex_wbm_invalid_log::Database::open(invalid_db).expect("open invalid db");
     let entry = archivindex_wbm_invalid_log::Entry::new(
         ItemInfo::new(
-            UrlParts::new(
-                url,
-                "20240101000000".parse::<Timestamp>().expect("timestamp"),
-            ),
+            UrlParts::new(url, common::timestamp("20240101000000")),
             Digest::Valid(expected),
         ),
         actual,
@@ -147,7 +140,7 @@ fn pack_enhance_check_round_trip() {
     // for d (recorded only in the invalid-digest log), and both digests for e (where the content
     // digest's capture must win). The URL for a is inferred from its content (so serialization
     // omits it); the URLs for b, d, and e are not (so they are kept). c is unmatched.
-    let timestamp = "20240101000000".parse::<Timestamp>().expect("timestamp");
+    let timestamp = common::timestamp("20240101000000");
     let captures: HashMap<Sha1Digest, Vec<UrlParts<'static>>> = [
         (
             digest_a,
@@ -155,7 +148,7 @@ fn pack_enhance_check_round_trip() {
                 // The later capture is ignored; the earliest one wins.
                 UrlParts::new(
                     "https://example.com/other/1",
-                    "20250101000000".parse::<Timestamp>().expect("timestamp"),
+                    common::timestamp("20250101000000"),
                 ),
                 UrlParts::new("https://example.com/items/1", timestamp),
             ],
@@ -189,14 +182,7 @@ fn pack_enhance_check_round_trip() {
         1,
         batch_size,
         &context,
-        |digests| {
-            Ok::<_, Infallible>(
-                digests
-                    .iter()
-                    .map(|digest| captures.get(digest).cloned())
-                    .collect(),
-            )
-        },
+        |digests| Ok::<_, Infallible>(common::lookup_captures(&captures, digests)),
     )
     .expect("enhance succeeds");
 
@@ -311,7 +297,7 @@ fn pack_output_is_digest_sorted() {
     let invalid_db = dir.path().join("invalid.db");
     let packed = dir.path().join("packed.jsonl.zst");
 
-    let context = Context::from_static(CLOSING_WHITESPACE).expect("valid closing whitespace");
+    let context = common::context();
 
     for id in 0..20 {
         write_data_file(&data_dir, &format!(r#"{{"id":"{id}"}}"#));
