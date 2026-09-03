@@ -22,10 +22,16 @@ doc = false
 bundled = ["archivindex-wbm-cdx-client/bundled"]
 
 [dependencies]
+archivindex-cdx = { workspace = true }
 archivindex-cli-support = { workspace = true }
+archivindex-warc = { workspace = true, features = ["http"] }
 archivindex-wbm-cdx-client = { path = "../cdx-client/" }
 clap = { workspace = true }
 csv = { workspace = true }
 humantime = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
+tempfile = { workspace = true }

@@ -151,18 +151,26 @@ cargo install --path downloader-cli  # Installs the `archivindex-wbm-downloader`
 
 ## Usage
 
-The CDX client reads CSV rows from standard input in `URL,matchType,fastLatest,limit` order, without
-a header. `matchType` accepts `exact`, `prefix`, `host`, or `domain`; a negative `limit` requests the
-last N results. The `limit` field is optional and may be omitted or left empty. Pass `--resume` to
-follow CDX resumption keys until every query is exhausted. Transient failures are retried up to ten
-times by default; use `--retry-attempts` to change that limit. `--request-delay` accepts a humantime
-duration such as `250ms`, `2s`, or `1m` and waits that long between session requests:
+The CDX client's `archive` command reads CSV rows from standard input in
+`URL,matchType,fastLatest,limit` order, without a header. `matchType` accepts `exact`, `prefix`,
+`host`, or `domain`; a negative `limit` requests the last N results. The `limit` field is optional
+and may be omitted or left empty. Pass `--resume` to follow CDX resumption keys until every query
+is exhausted. Transient failures get up to ten attempts, including the initial request, by default;
+use `--retry-attempts` to change that limit. `--request-delay` accepts a duration such as `250ms`,
+`2s`, or `1m` and waits that long between session requests:
 
 ```bash
 printf '%s\n' \
   'example.org,exact,true,-5' \
   'example.com/docs/,prefix,false,' |
-  archivindex-wbm-cdx-client --resume --request-delay 1s --output queries.warc
+  archivindex-wbm-cdx-client archive --resume --request-delay 1s --output queries.warc
+```
+
+The `extract` command reads one or more plain or gzip-compressed WARC files produced by the client
+and prints headerless CSV rows containing original URL, timestamp, digest, MIME type, and status:
+
+```bash
+archivindex-wbm-cdx-client extract --input queries.warc > captures.csv
 ```
 
 As an example, the `archivindex-wbm-json` tool can verify the digest and ordering of every snapshot

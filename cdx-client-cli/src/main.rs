@@ -1,4 +1,4 @@
-//! Command-line client for archiving Internet Archive CDX query responses in a WARC file.
+//! Archive Internet Archive CDX query responses and extract their capture metadata.
 use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -9,13 +9,25 @@ use archivindex_wbm_cdx_client::{
 };
 use clap::Parser;
 
+mod extract;
+
 const DEFAULT_RETRY_ATTEMPTS: usize = 10;
 
 fn main() -> Result<(), Error> {
     let options = Options::parse();
     options.verbosity.init_logging();
+    match options.command {
+        Command::Archive(options) => archive(&options),
+        Command::Extract { input } => {
+            extract::extract(&input, std::io::stdout().lock())?;
+            Ok(())
+        }
+    }
+}
+
+fn archive(options: &ArchiveOptions) -> Result<(), Error> {
     let requests = read_requests(std::io::stdin().lock())?;
-    let config = archiver_config(&options);
+    let config = archiver_config(options);
     let client =
         Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
     let mut events = |event: CaptureEvent<'_>| {
@@ -67,7 +79,7 @@ fn main() -> Result<(), Error> {
     }
 }
 
-fn archiver_config(options: &Options) -> Config {
+fn archiver_config(options: &ArchiveOptions) -> Config {
     let mut config = Config {
         gzip_warc: options.gzip,
         ..Config::default()
@@ -90,7 +102,7 @@ fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
         .collect()
 }
 
-/// A command-line run could not read its input or archive all requested queries.
+/// A command-line run could not read its input, archive all queries, or extract its output.
 #[derive(Debug, thiserror::Error)]
 enum Error {
     /// The input is not valid request CSV.
@@ -99,6 +111,9 @@ enum Error {
     /// The CDX client could not be configured or could not publish the WARC.
     #[error(transparent)]
     Client(#[from] archivindex_wbm_cdx_client::Error),
+    /// Archived CDX responses could not be extracted.
+    #[error(transparent)]
+    Extract(#[from] extract::Error),
     /// The WARC was published, but at least one requested response was not captured completely.
     #[error("incomplete archive: captured {captured} CDX responses for {requested} requests")]
     IncompleteArchive {
@@ -115,6 +130,29 @@ struct Options {
     #[clap(flatten)]
     verbosity: Verbosity,
 
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Parser)]
+enum Command {
+    /// Archive CDX query responses in a WARC file.
+    Archive(ArchiveOptions),
+    /// Extract capture metadata from archived CDX responses as headerless CSV.
+    Extract {
+        /// WARC files to read, in output order; plain and gzip files are detected automatically.
+        #[clap(
+            long,
+            required = true,
+            value_name = "FILE",
+            value_hint = clap::ValueHint::FilePath
+        )]
+        input: Vec<PathBuf>,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct ArchiveOptions {
     /// The WARC file to write; an existing file is not overwritten.
     #[clap(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     output: PathBuf,
@@ -151,7 +189,7 @@ mod tests {
     use archivindex_wbm_cdx_client::{MatchType, Request};
     use clap::{CommandFactory as _, Parser as _};
 
-    use super::Options;
+    use super::{Command, Options};
 
     #[test]
     fn clap_definition_is_consistent() {
@@ -160,21 +198,36 @@ mod tests {
 
     #[test]
     fn resumption_is_opt_in() {
-        let without = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
-            .expect("valid options");
-        let with = Options::try_parse_from(["cdx-client", "--output", "queries.warc", "--resume"])
-            .expect("valid options");
+        let without =
+            Options::try_parse_from(["cdx-client", "archive", "--output", "queries.warc"])
+                .expect("valid options");
+        let with = Options::try_parse_from([
+            "cdx-client",
+            "archive",
+            "--output",
+            "queries.warc",
+            "--resume",
+        ])
+        .expect("valid options");
 
+        let Command::Archive(without) = without.command else {
+            panic!("archive command");
+        };
+        let Command::Archive(with) = with.command else {
+            panic!("archive command");
+        };
         assert!(!without.resume);
         assert!(with.resume);
     }
 
     #[test]
     fn retries_transient_failures_by_default() {
-        let defaults = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
-            .expect("valid options");
+        let defaults =
+            Options::try_parse_from(["cdx-client", "archive", "--output", "queries.warc"])
+                .expect("valid options");
         let custom = Options::try_parse_from([
             "cdx-client",
+            "archive",
             "--output",
             "queries.warc",
             "--retry-attempts",
@@ -182,16 +235,24 @@ mod tests {
         ])
         .expect("valid options");
 
+        let Command::Archive(defaults) = defaults.command else {
+            panic!("archive command");
+        };
+        let Command::Archive(custom) = custom.command else {
+            panic!("archive command");
+        };
         assert_eq!(defaults.retry_attempts, super::DEFAULT_RETRY_ATTEMPTS);
         assert_eq!(custom.retry_attempts, 4);
     }
 
     #[test]
     fn accepts_an_optional_request_delay() {
-        let without = Options::try_parse_from(["cdx-client", "--output", "queries.warc"])
-            .expect("valid options");
+        let without =
+            Options::try_parse_from(["cdx-client", "archive", "--output", "queries.warc"])
+                .expect("valid options");
         let with = Options::try_parse_from([
             "cdx-client",
+            "archive",
             "--output",
             "queries.warc",
             "--request-delay",
@@ -199,6 +260,12 @@ mod tests {
         ])
         .expect("valid options");
 
+        let Command::Archive(without) = without.command else {
+            panic!("archive command");
+        };
+        let Command::Archive(with) = with.command else {
+            panic!("archive command");
+        };
         assert_eq!(without.request_delay, None);
         assert_eq!(with.request_delay, Some(Duration::from_millis(250)));
         assert_eq!(

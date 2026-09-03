@@ -275,12 +275,16 @@ dependencies = [
 name = "archivindex-wbm-cdx-client-cli"
 version = "0.1.0"
 dependencies = [
+ "archivindex-cdx",
  "archivindex-cli-support",
+ "archivindex-warc",
  "archivindex-wbm-cdx-client",
  "clap",
  "csv",
+ "flate2",
  "humantime",
  "log",
+ "tempfile",
  "thiserror",
 ]
 

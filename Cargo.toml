@@ -48,6 +48,7 @@ archivindex-archiver = { version = "0.1.0", git = "https://github.com/travisbrow
 archivindex-cdx = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-cli-support = { path = "../archivindex/cli-support" }
 archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex", default-features = false }
+archivindex-warc = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex-warc" }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.14"
