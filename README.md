@@ -93,6 +93,8 @@ to include the `url` field.
 
 The crates:
 
+- `archivindex-wbm-cdx-client`: Queries the Internet Archive CDX server and records the HTTP
+  requests and responses in WARC files.
 - `archivindex-wbm`: Core Wayback Machine data types for parsing and modeling archived web captures,
   including digests, timestamps, SURT (Sort-friendly URI Reordering Transform) keys, redirect pages,
   and CDX index records.
@@ -110,6 +112,8 @@ The crates:
 
 There are also several command-line tools (not published):
 
+- `archivindex-wbm-cdx-client-cli`: Reads CDX request parameters as CSV and archives the query
+  responses in a WARC file.
 - `archivindex-wbm-json-cli`: Verifies digests, exports, compacts, and merges snapshot JSONL,
   resolving digests to CDX metadata and reproducing original content bytes as needed.
 - `archivindex-wbm-cdx-index-cli`: Fills the CDX index from JSON files, reports statistics, lists
@@ -139,12 +143,24 @@ The command-line tools are not published to [crates.io][crates], but they can be
 checkout of this repository:
 
 ```bash
+cargo install --path cdx-client-cli      # Installs the `archivindex-wbm-cdx-client` binary
 cargo install --path wbm-json-cli        # Installs the `archivindex-wbm-json` binary
 cargo install --path wbm-cdx-index-cli   # Installs the `archivindex-wbm-cdx-index` binary
 cargo install --path wbm-downloader-cli  # Installs the `archivindex-wbm-downloader` binary
 ```
 
 ## Usage
+
+The CDX client reads CSV rows from standard input in `URL,matchType,fastLatest,limit` order, without
+a header. `matchType` accepts `exact`, `prefix`, `host`, or `domain`; a negative `limit` requests the
+last N results:
+
+```bash
+printf '%s\n' \
+  'example.org,exact,true,-5' \
+  'example.com/docs/,prefix,false,100' |
+  archivindex-wbm-cdx-client --output queries.warc
+```
 
 As an example, the `archivindex-wbm-json` tool can verify the digest and ordering of every snapshot
 in a set of snapshot JSONL Zstandard files:

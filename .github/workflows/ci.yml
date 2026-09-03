@@ -79,12 +79,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # The core CDX and SURT libraries are consumed from their repository, and a package cannot
-      # be prepared until those dependencies are on the registry; until then only the contents are
-      # checked.
+      # The WARC archiver and core CDX/SURT libraries are consumed from their repositories, and a
+      # package cannot be prepared until those dependencies are on the registry; until then only the
+      # contents are checked.
       - name: Inspect the contents of the publishable crates
         run: >-
           cargo package --locked --list --workspace
+          --exclude archivindex-wbm-cdx-client-cli
           --exclude archivindex-hacks
           --exclude archivindex-wbm-cdx-index-cli
           --exclude archivindex-wbm-downloader-cli

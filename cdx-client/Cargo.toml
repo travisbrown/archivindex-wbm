@@ -1,0 +1,27 @@
+[package]
+name = "archivindex-wbm-cdx-client"
+description = "Archive Internet Archive CDX server query responses in WARC files"
+keywords = ["wayback-machine", "web-archive", "cdx", "warc"]
+categories = ["web-programming::http-client"]
+authors = { workspace = true }
+repository = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[features]
+bundled = ["archivindex-archiver/bundled"]
+
+[dependencies]
+archivindex-archiver = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

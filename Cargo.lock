@@ -106,6 +106,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-archiver"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
+dependencies = [
+ "archivindex-warc",
+ "archivindex-warc-revisit-index",
+ "chrono",
+ "data-encoding",
+ "fluent-uri",
+ "http",
+ "humantime-serde",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.20",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
 name = "archivindex-cdx"
 version = "0.1.0"
 source = "git+https://github.com/travisbrown/archivindex#e84302c6175b8f81d459304647283defc01a41a3"
@@ -144,6 +166,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-warc"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
+dependencies = [
+ "archivindex-warc-digest",
+ "chrono",
+ "file-format",
+ "flate2",
+ "fluent-uri",
+ "http",
+ "memchr",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "archivindex-warc-digest"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
+dependencies = [
+ "data-encoding",
+ "md-5",
+ "serde",
+ "sha1",
+ "sha2",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "archivindex-warc-revisit-index"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex-warc#1c659f4ad09fff610099fc85e90710dedab33073"
+dependencies = [
+ "archivindex-warc",
+ "fluent-uri",
+ "rusqlite",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "archivindex-wbm"
 version = "0.1.0"
 dependencies = [
@@ -177,6 +241,27 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "zstd",
+]
+
+[[package]]
+name = "archivindex-wbm-cdx-client"
+version = "0.1.0"
+dependencies = [
+ "archivindex-archiver",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.20",
+ "url",
+]
+
+[[package]]
+name = "archivindex-wbm-cdx-client-cli"
+version = "0.1.0"
+dependencies = [
+ "archivindex-wbm-cdx-client",
+ "cli-helpers",
+ "csv",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -451,6 +536,12 @@ checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
 ]
+
+[[package]]
+name = "borrow-or-share"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 
 [[package]]
 name = "bounded-static"
@@ -927,6 +1018,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
+name = "file-format"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55d9ccda37e95b4f0978a3074b4a9939979103a7256459cfb449c9c84d1adf23"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -941,6 +1038,17 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
  "zlib-rs",
+]
+
+[[package]]
+name = "fluent-uri"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc74ac4d8359ae70623506d512209619e5cf8f347124910440dbc221714b328e"
+dependencies = [
+ "borrow-or-share",
+ "ref-cast",
+ "serde",
 ]
 
 [[package]]
@@ -1229,6 +1337,22 @@ name = "httpdate"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
+name = "humantime"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15cdd26707701c53297e2fa6afb323d55fbc1d0810c3aec078ae3ef0424c3c15"
+
+[[package]]
+name = "humantime-serde"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a3db5ea5923d99402c94e9feb261dc5ee9b4efa158b0315f788cf549cc200c"
+dependencies = [
+ "humantime",
+ "serde",
+]
 
 [[package]]
 name = "hybrid-array"
@@ -1609,6 +1733,7 @@ version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -1676,6 +1801,16 @@ checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest",
 ]
 
 [[package]]
@@ -2081,6 +2216,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ref-cast"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e440fb4e4b4147295338efb76001ab9e4efc0e5839df2c47fc5ac2381d365c3"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ecd8964f8453721699a1ed72037b0db49ce2f5a5138486ee89bed6f67cdf3a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
+
+[[package]]
 name = "regex"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2239,6 +2394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "rustls-pki-types",
  "rustls-webpki",
@@ -2442,6 +2598,17 @@ name = "sha1"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -3017,6 +3184,7 @@ version = "1.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "wasm-bindgen",
 ]
@@ -3156,6 +3324,15 @@ name = "webpki-root-certs"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]

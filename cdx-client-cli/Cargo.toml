@@ -1,0 +1,28 @@
+[package]
+name = "archivindex-wbm-cdx-client-cli"
+description = "Command-line client for archiving Internet Archive CDX server query responses"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "archivindex-wbm-cdx-client"
+path = "src/main.rs"
+# Avoid a rustdoc output-filename collision with the `archivindex-wbm-cdx-client` library crate.
+doc = false
+
+[features]
+bundled = ["archivindex-wbm-cdx-client/bundled"]
+
+[dependencies]
+archivindex-wbm-cdx-client = { path = "../cdx-client/" }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+thiserror = { workspace = true }
