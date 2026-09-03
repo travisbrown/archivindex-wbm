@@ -2,11 +2,15 @@
 //!
 //! Reads digest-to-URL-path mappings and CDX captures, then builds per-digest [`Metadata`] (the
 //! timestamp, expected digest, and canonical Twitter URL path) used to enrich snapshot lines.
-use archivindex_wbm::{cdx::item::ItemList, digest::Sha1Digest, timestamp::Timestamp};
-use cli_helpers::prelude::log;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
+
+use archivindex_wbm::cdx::item::ItemList;
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::timestamp::Timestamp;
+use cli_helpers::prelude::log;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

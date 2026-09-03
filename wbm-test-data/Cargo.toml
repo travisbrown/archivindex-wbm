@@ -12,6 +12,9 @@ rust-version = { workspace = true }
 license = { workspace = true }
 readme = { workspace = true }
 
+[lints]
+workspace = true
+
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
 archivindex-wbm-cas = { version = "0.1.0", path = "../wbm-cas/", default-features = false }

@@ -13,6 +13,19 @@ readme = { workspace = true }
 version = { workspace = true }
 exclude = ["tests/"]
 
+# This crate's FFI modules need narrowly scoped `allow(unsafe_code)` attributes, so its unsafe lint
+# is `deny` instead of inheriting the workspace's non-overridable `forbid` level.
+[lints.rust]
+missing_docs = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+
 [features]
 default = ["zlib"]
 zlib = ["dep:libz-sys", "dep:libz-ng-sys"]

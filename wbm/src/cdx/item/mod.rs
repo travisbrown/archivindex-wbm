@@ -1,9 +1,14 @@
 //! The standard seven-field CDX index record, with deserialization from the JSON array rows that
 //! the Wayback Machine CDX API returns.
-use crate::cdx::{mime_type::MimeType, status_code::StatusCode};
-use crate::{digest::Digest, surt::Surt, timestamp::Timestamp};
-use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 use std::borrow::Cow;
+
+use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
+
+use crate::cdx::mime_type::MimeType;
+use crate::cdx::status_code::StatusCode;
+use crate::digest::Digest;
+use crate::surt::Surt;
+use crate::timestamp::Timestamp;
 
 pub mod extended;
 

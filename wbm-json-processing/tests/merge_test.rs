@@ -5,6 +5,9 @@
 //! contents and ordering, the reported statistics, and the error behavior for unsorted or invalid
 //! input.
 
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
@@ -14,8 +17,6 @@ use archivindex_wbm_json_processing::io::write::SnapshotWriter;
 use archivindex_wbm_json_processing::stream::merge::{
     DualConfig, Error, NewSnapshotTarget, Source, Stats, merge_dual_zstd,
 };
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 const CLOSING_WHITESPACE: &[char] = &['\n'];
 const TIMESTAMP: &str = "20240101000000";

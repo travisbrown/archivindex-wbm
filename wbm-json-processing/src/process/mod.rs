@@ -6,10 +6,11 @@
 //! file from a CDX capture source ([`enhance`]), check a compact file's digests and metadata
 //! consistency ([`check`]), and merge sorted snapshot streams ([`merge`]).
 
-use archivindex_wbm::digest::{Digest, Sha1Digest};
-use bounded_static::IntoBoundedStatic;
 use std::collections::HashMap;
 use std::path::Path;
+
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use bounded_static::IntoBoundedStatic;
 
 /// Number of files whose independent read/hash/decode work is dispatched to the Rayon pool at a
 /// time by the batch operations in this module.

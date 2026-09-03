@@ -5,13 +5,15 @@
 //! written on blocking threads with backpressure via bounded channels, mirroring the read-side
 //! architecture in [`super`].
 
-use crate::io::write::{Finish, SnapshotWriter};
+use std::path::PathBuf;
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-use std::path::PathBuf;
+
+use crate::io::write::{Finish, SnapshotWriter};
 
 /// Identifies which merge input an out-of-order digest came from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

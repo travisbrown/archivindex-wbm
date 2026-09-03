@@ -1,13 +1,3 @@
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    rust_2018_idioms
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-
 //! On-disk CDX item index backed by `RocksDB` with Zstandard compression.
 //!
 //! Supports fast lookup by digest and prefix iteration by SURT (Sort-friendly URI Reordering
@@ -17,18 +7,17 @@
 
 pub mod metadata;
 
-use archivindex_wbm::{
-    cdx::item::Item,
-    digest::{Digest, Sha1Digest},
-    item::UrlParts,
-    timestamp::Timestamp,
-};
+use std::path::Path;
+
+use archivindex_wbm::cdx::item::Item;
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::UrlParts;
+use archivindex_wbm::timestamp::Timestamp;
 use chrono::{DateTime, Duration, Utc};
 use rocksdb::{
     BlockBasedOptions, ColumnFamilyDescriptor, DB, DBCompressionType, Direction, IteratorMode,
     Options, ReadOptions, WriteBatch,
 };
-use std::path::Path;
 
 const CF_ITEMS: &str = "items";
 const CF_DIGEST: &str = "digest";
@@ -822,12 +811,13 @@ impl CdxIndex {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use archivindex_wbm::{
-        cdx::{mime_type::MimeType, status_code::StatusCode},
-        surt::Surt,
-    };
     use std::borrow::Cow;
+
+    use archivindex_wbm::cdx::mime_type::MimeType;
+    use archivindex_wbm::cdx::status_code::StatusCode;
+    use archivindex_wbm::surt::Surt;
+
+    use super::*;
 
     fn item(
         surt: &'static str,

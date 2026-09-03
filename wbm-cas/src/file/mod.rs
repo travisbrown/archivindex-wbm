@@ -1,15 +1,18 @@
 //! Filesystem-backed [`Store`](crate::Store) that lays items out in a prefix-file-tree keyed by
 //! digest, with optional zstd compression of stored bytes.
-use crate::SaveSummary;
-use archivindex_wbm::digest::Sha1Digest;
-use prefix_file_tree::{Tree, scheme::Case, scheme::encoding::Base32};
 use std::fs::File;
 use std::io::Write;
+#[cfg(feature = "zstd")]
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(feature = "zstd")]
-use std::io::{BufReader, Read};
+use archivindex_wbm::digest::Sha1Digest;
+use prefix_file_tree::Tree;
+use prefix_file_tree::scheme::Case;
+use prefix_file_tree::scheme::encoding::Base32;
+
+use crate::SaveSummary;
 
 pub mod entry;
 
@@ -345,8 +348,9 @@ impl<C: Copy> Iterator for Iter<'_, C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Store as _;
     use archivindex_wbm::digest::Sha1Digest;
+
+    use crate::Store as _;
 
     #[test]
     fn iteration_skips_stale_temporary_files() -> Result<(), Box<dyn std::error::Error>> {

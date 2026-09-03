@@ -8,6 +8,9 @@ rust-version = { workspace = true }
 license = { workspace = true }
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "archivindex-wbm-json"
 path = "src/main.rs"

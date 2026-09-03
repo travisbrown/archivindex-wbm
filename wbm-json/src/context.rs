@@ -4,14 +4,16 @@
 //! [`Format`]s (each a name and a [`Codec`]), and a CEL query that infers a snapshot's canonical
 //! URL from its JSON content (used to omit a re-derivable `url` field when serializing).
 
-use crate::exact::ExactSnapshot;
-use crate::format::{Codec, Format, FormatInfo};
-use crate::{Snapshot, validation};
-use archivindex_wbm::digest::Sha1Digest;
-use sha1::{Digest as _, Sha1};
 use std::borrow::Cow;
 use std::io::BufRead;
 use std::sync::Arc;
+
+use archivindex_wbm::digest::Sha1Digest;
+use sha1::{Digest as _, Sha1};
+
+use crate::exact::ExactSnapshot;
+use crate::format::{Codec, Format, FormatInfo};
+use crate::{Snapshot, validation};
 
 /// Map closing-whitespace characters to their UTF-8 bytes (every JSON whitespace character is
 /// ASCII, so each is a single byte).

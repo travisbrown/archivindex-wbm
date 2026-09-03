@@ -1,15 +1,14 @@
 //! Integration tests exercising the downloader against live snapshots, covering digest verification
 //! and logging of withheld URLs and invalid digests to the database.
-use archivindex_wbm::{
-    item::{ItemInfo, UrlParts},
-    timestamp::Timestamp,
-};
-use archivindex_wbm_downloader::{client::Client, downloader::Downloader};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_downloader::client::Client;
+use archivindex_wbm_downloader::downloader::Downloader;
 use archivindex_wbm_invalid_log::{Database, Entry};
 
 /// Test basic download and verification of a known archived page.
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live Wayback Machine access"]
 async fn test_downloader_basic() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
@@ -44,7 +43,7 @@ async fn test_downloader_basic() {
 
 /// Test that withheld URLs (status code 403) are properly logged to the database.
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live Wayback Machine access"]
 async fn test_downloader_withheld_url_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();
@@ -82,7 +81,7 @@ async fn test_downloader_withheld_url_logging() {
 
 /// Test that a URL with a known invalid digest is properly logged to the database.
 #[tokio::test]
-#[ignore]
+#[ignore = "requires live Wayback Machine access"]
 async fn test_downloader_invalid_digest_logging() {
     let client = Client::new_with_default_configuration().unwrap();
     let invalid_log_database = Database::in_memory().unwrap();

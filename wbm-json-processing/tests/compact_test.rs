@@ -5,6 +5,8 @@
 //! codec's zlib reproduction path. The dev-dependency on `archivindex-wbm-json-gzip` enables its
 //! `zlib` feature explicitly, which is why there is no feature gate here.
 
+use std::fs;
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::format::{Format, FormatInfo};
@@ -12,7 +14,6 @@ use archivindex_wbm_json_gzip::{Compressor, FORMAT, GzipParams, OsByte, register
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition, compact};
 use serde_json::Value;
-use std::fs;
 
 #[test]
 fn compact_populates_gzip_format() {

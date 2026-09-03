@@ -25,15 +25,6 @@
 //! object. At verification time the codec reads that metadata back (via
 //! [`GzipParams::from_metadata`]) and calls [`GzipParams::reproduce`].
 
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    rust_2018_idioms
-)]
-#![deny(unsafe_code)]
-
 use std::borrow::Cow;
 use std::io::Read;
 
@@ -578,11 +569,12 @@ pub fn detect(bytes: &[u8]) -> Option<FormatInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[cfg(feature = "zlib")]
     use archivindex_wbm::digest::Sha1Digest;
     #[cfg(feature = "zlib")]
     use archivindex_wbm_json::exact::ExactSnapshot;
+
+    use super::*;
 
     /// Parameters at `level` with the Go header fields: mtime 0, unknown OS, and no flushes.
     const fn params(compressor: Compressor, level: u8) -> GzipParams {

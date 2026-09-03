@@ -11,13 +11,14 @@
 //! final name once its contents are complete and durable — and [`DurableEncoder`] adds Zstandard
 //! compression on top.
 
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::{Context, SnapshotError};
 use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::Format;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
 
 /// Errors writing a snapshot line.
 #[derive(Debug, thiserror::Error)]
@@ -361,11 +362,13 @@ fn remove_or_warn(path: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{DurableEncoder, DurableFile, Finish, SnapshotWriter};
+    use std::io::Write;
+
     use archivindex_wbm::digest::Sha1Digest;
     use archivindex_wbm_json::context::Context;
     use archivindex_wbm_json::format::Format;
-    use std::io::Write;
+
+    use super::{DurableEncoder, DurableFile, Finish, SnapshotWriter};
 
     /// A finished writer leaves exactly the complete output under the final name: no temporary
     /// sibling remains, and the file parses back to the written snapshot.

@@ -1,19 +1,19 @@
 //! Command-line tool for verifying, exporting, compacting, and merging snapshot JSONL.
 //!
-//! Each subcommand reads or writes Zstandard-compressed JSONL of web archive snapshots, resolving
-//! digests to CDX metadata and reproducing original content bytes as needed.
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wbm_json::{context::Context, exact::ExactSnapshot, format::FormatInfo};
-use archivindex_wbm_json_processing::io::{read::SnapshotReader, write::SnapshotWriter};
-use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition};
-use cli_helpers::prelude::*;
-use contexts::{wts, wxj};
+//! Works with Zstandard-compressed JSONL, digest-named content files, and CDX metadata.
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm_json::context::Context;
+use archivindex_wbm_json::exact::ExactSnapshot;
+use archivindex_wbm_json::format::FormatInfo;
+use archivindex_wbm_json_processing::io::read::SnapshotReader;
+use archivindex_wbm_json_processing::io::write::SnapshotWriter;
+use archivindex_wbm_json_processing::process::compact::{CompactConfig, Partition};
+use cli_helpers::prelude::*;
+use contexts::{wts, wxj};
 
 mod contexts;
 mod snapshot;
@@ -565,7 +565,7 @@ fn verify_file(
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
     #[error("file I/O error")]

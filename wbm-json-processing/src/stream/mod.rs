@@ -9,14 +9,17 @@
 //! sequentially on the reader thread, while higher values dispatch chunks of lines to tokio
 //! blocking tasks and use [`futures::StreamExt::buffered`] for ordered concurrent execution.
 
-use archivindex_wbm::digest::Sha1Digest;
-use archivindex_wbm_json::{Error, context::Context, exact::ExactSnapshot};
-use futures::StreamExt;
-use futures::stream::{BoxStream, Stream};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::Arc;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm_json::Error;
+use archivindex_wbm_json::context::Context;
+use archivindex_wbm_json::exact::ExactSnapshot;
+use futures::StreamExt;
+use futures::stream::{BoxStream, Stream};
 use tokio_stream::wrappers::ReceiverStream;
 
 pub mod merge;
@@ -412,11 +415,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamValidation, validate_zstd};
-    use archivindex_wbm_json::context::Context;
-    use archivindex_wbm_json::format::Format;
     use std::io::Write;
     use std::path::Path;
+
+    use archivindex_wbm_json::context::Context;
+    use archivindex_wbm_json::format::Format;
+
+    use super::{StreamValidation, validate_zstd};
 
     /// Serialize `contents` as snapshot lines (in the given order) followed by `extra_lines`, as a
     /// Zstandard-compressed JSONL file at `path`.

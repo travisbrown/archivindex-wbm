@@ -1,6 +1,7 @@
 //! A simplified HTTP status-code enumeration covering the values seen in CDX index results, with
 //! several Cloudflare-specific codes.
-use std::{fmt::Display, str::FromStr};
+use std::fmt::Display;
+use std::str::FromStr;
 
 /// An error indicating a status-code value outside the supported set.
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]

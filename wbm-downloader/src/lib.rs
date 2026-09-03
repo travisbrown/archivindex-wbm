@@ -2,25 +2,16 @@
 //!
 //! Provides a worker-pool [`Manager`] that pulls items off a queue, fetches each snapshot, verifies
 //! its digest, and writes the bytes into a content-addressed store on disk.
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    rust_2018_idioms
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::{
-    digest::{Digest, Sha1Digest},
-    item::{ItemInfo, UrlParts},
-    timestamp::Timestamp,
-};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
+
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::timestamp::Timestamp;
+use tokio::sync::mpsc::Receiver;
+use tokio::task::JoinHandle;
 
 pub mod client;
 pub mod downloader;
@@ -406,11 +397,10 @@ async fn new_downloader(
 
 #[cfg(test)]
 mod tests {
+    use archivindex_wbm::digest::{Digest, Sha1Digest};
+    use archivindex_wbm::timestamp::Timestamp;
+
     use super::{DownloadErrorType, DownloadResult, downloader};
-    use archivindex_wbm::{
-        digest::{Digest, Sha1Digest},
-        timestamp::Timestamp,
-    };
 
     fn timestamp() -> Timestamp {
         "20200101000000".parse().expect("Invalid test timestamp")

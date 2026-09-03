@@ -3,16 +3,16 @@
 //! The database iteration and insertion live in [`archivindex_wbm_invalid_log::Database`]; this
 //! module owns only the CSV serialization and the on-disk file layout (the two CSV file names).
 
-use crate::Error;
-use archivindex_wbm::{
-    digest::{Digest, Sha1Digest},
-    item::{ItemInfo, UrlParts},
-    timestamp::Timestamp,
-};
+use std::path::Path;
+
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_invalid_log::{Database, Entry, Export, InvalidDigestRecord, WithheldRecord};
 use bounded_static::IntoBoundedStatic;
 use chrono::{DateTime, Utc};
-use std::path::Path;
+
+use crate::Error;
 
 /// CSV file (within an export directory) holding the `invalid_digest` rows.
 const INVALID_DIGESTS_CSV: &str = "invalid-digests.csv";

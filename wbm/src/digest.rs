@@ -3,17 +3,15 @@
 //! The Wayback Machine's CDX index provides a digest for each page in its search results. In most
 //! cases these are Base32-encoded SHA-1 digests, but some use unknown encodings.
 
-use bounded_static::IntoBoundedStatic;
-use data_encoding::BASE32;
-use serde::{
-    de::{Deserialize, Deserializer, Unexpected, Visitor},
-    ser::{Serialize, Serializer},
-};
-use sha1::Digest as _;
 use std::borrow::Cow;
 use std::fmt::Display;
 use std::io::Read;
 use std::str::FromStr;
+
+use data_encoding::BASE32;
+use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
+use serde::ser::{Serialize, Serializer};
+use sha1::Digest as _;
 
 /// An error encountered while converting a string or byte sequence into a [`Sha1Digest`].
 ///
@@ -115,7 +113,9 @@ impl bounded_static::IntoBoundedStatic for Digest<'_> {
     fn into_static(self) -> Self::Static {
         match self {
             Self::Valid(digest) => Self::Static::Valid(digest),
-            Self::Invalid(digest) => Self::Static::Invalid(digest.into_static()),
+            Self::Invalid(digest) => {
+                Self::Static::Invalid(bounded_static::IntoBoundedStatic::into_static(digest))
+            }
         }
     }
 }
@@ -203,7 +203,9 @@ impl rusqlite::types::ToSql for Digest<'_> {
 #[cfg(feature = "sqlite")]
 impl rusqlite::types::FromSql for Digest<'static> {
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
-        Ok(Digest::parse_str(value.as_str()?).into_static())
+        Ok(bounded_static::IntoBoundedStatic::into_static(
+            Digest::parse_str(value.as_str()?),
+        ))
     }
 }
 
@@ -348,6 +350,7 @@ mod tests {
         any::<[u8; 20]>().prop_map(super::Sha1Digest)
     }
 
+    #[cfg(feature = "sqlite")]
     fn arb_digest() -> impl Strategy<Value = super::Digest<'static>> {
         prop_oneof![
             arb_sha1_digest().prop_map(super::Digest::Valid),

@@ -5,11 +5,10 @@
 //! serializes it back, validating that every character is JSON whitespace (carriage return, line
 //! feed, space, or tab).
 
-use serde::{
-    de::{Deserialize, Deserializer},
-    ser::Serializer,
-};
 use std::borrow::Cow;
+
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::Serializer;
 
 pub const fn is_json_whitespace(candidate: char) -> bool {
     candidate == '\r' || candidate == '\n' || candidate == ' ' || candidate == '\t'

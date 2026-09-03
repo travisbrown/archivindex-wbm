@@ -1,33 +1,33 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
-    "hacks",
-    "wbm",
-    "wbm-cas",
-    "wbm-cdx-index",
-    "wbm-cdx-index-cli",
-    "wbm-downloader",
-    "wbm-downloader-cli",
-    "wbm-invalid-log",
-    "wbm-json",
-    "wbm-json-cli",
-    "wbm-json-gzip",
-    "wbm-json-processing",
-    "wbm-test-data",
+  "hacks",
+  "wbm",
+  "wbm-cas",
+  "wbm-cdx-index",
+  "wbm-cdx-index-cli",
+  "wbm-downloader",
+  "wbm-downloader-cli",
+  "wbm-invalid-log",
+  "wbm-json",
+  "wbm-json-cli",
+  "wbm-json-gzip",
+  "wbm-json-processing",
+  "wbm-test-data",
 ]
 default-members = [
-    "wbm",
-    "wbm-cas",
-    "wbm-cdx-index",
-    "wbm-cdx-index-cli",
-    "wbm-downloader",
-    "wbm-downloader-cli",
-    "wbm-invalid-log",
-    "wbm-json",
-    "wbm-json-cli",
-    "wbm-json-gzip",
-    "wbm-json-processing",
-    "wbm-test-data",
+  "wbm",
+  "wbm-cas",
+  "wbm-cdx-index",
+  "wbm-cdx-index-cli",
+  "wbm-downloader",
+  "wbm-downloader-cli",
+  "wbm-invalid-log",
+  "wbm-json",
+  "wbm-json-cli",
+  "wbm-json-gzip",
+  "wbm-json-processing",
+  "wbm-test-data",
 ]
 
 [workspace.package]
@@ -75,5 +75,16 @@ tokio-stream = "0.1"
 toml = "1"
 url = { version = "2", features = ["serde"] }
 wiremock = "0.6"
-rocksdb = { version = "0.24", features = ["zstd"] }
+rocksdb = { version = "0.25", features = ["zstd"] }
 zstd = "0.13"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"

@@ -1,0 +1,50 @@
+# The dependency policy, checked in continuous integration by `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# A path dependency on a package that is never published cannot carry a version requirement.
+allow-wildcard-paths = true
+
+[licenses]
+version = 2
+allow = [
+  "0BSD",
+  "AGPL-3.0-only",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+exceptions = [
+  { crate = "cli-helpers", allow = [
+    "LicenseRef-Anti-Capitalist-Software-License-1.4",
+  ] },
+  { crate = "prefix-file-tree", allow = [
+    "GPL-3.0-only",
+  ] },
+]
+
+# `cli-helpers` ships the Anti-Capitalist Software License 1.4 in this file but does not declare it
+# in its manifest. The content hash makes this clarification stop applying if that license changes.
+[[licenses.clarify]]
+crate = "cli-helpers@0.1.0"
+expression = "LicenseRef-Anti-Capitalist-Software-License-1.4"
+license-files = [{ path = "LICENSE", hash = 0x4c560e9f }]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

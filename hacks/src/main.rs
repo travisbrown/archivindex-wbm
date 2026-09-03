@@ -2,24 +2,23 @@
 //!
 //! This is a scratch tool collecting one-off subcommands (URL inference, format migration, CDX
 //! reconciliation, and cleanup) that are run occasionally and not part of the stable pipeline.
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::{
-    cdx::{item::ItemList, mime_type::MimeType},
-    digest::{Digest, Sha1Digest},
-    surt::Surt,
-    timestamp::Timestamp,
-};
-use archivindex_wbm_json::{context::Context, exact::ExactSnapshot};
-use cli_helpers::prelude::*;
-use serde_json::value::RawValue;
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap, HashSet, hash_map::Entry};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+use archivindex_wbm::cdx::item::ItemList;
+use archivindex_wbm::cdx::mime_type::MimeType;
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::surt::Surt;
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_json::context::Context;
+use archivindex_wbm_json::exact::ExactSnapshot;
+use cli_helpers::prelude::*;
+use serde_json::value::RawValue;
 
 mod contexts;
 mod wxj;
@@ -504,7 +503,7 @@ fn main() -> Result<(), Error> {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
     #[error("CLI argument reading error")]

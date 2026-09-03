@@ -1,8 +1,10 @@
 //! The extended eleven-field CDX index record, adding redirect, robot-flag, and WARC-location
 //! fields to the standard item, with deserialization from the JSON array rows.
-use crate::surt::Surt;
-use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 use std::borrow::Cow;
+
+use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
+
+use crate::surt::Surt;
 
 const INVALID_LENGTH_MESSAGE: &str = "expected 11 elements";
 const ITEM_LIST_HEADER: [&str; 11] = [

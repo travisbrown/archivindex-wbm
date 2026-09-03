@@ -2,12 +2,16 @@
 //!
 //! Handles request construction, retry with exponential backoff, redirect-chain following, and
 //! resolution of synthesized redirect snapshots.
-use archivindex_wbm::{digest::Sha1Digest, item::UrlParts, timestamp::Timestamp};
-use bytes::Bytes;
-use http::{StatusCode, header::LOCATION};
-use reqwest::Response;
 use std::borrow::Cow;
 use std::time::Duration;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::item::UrlParts;
+use archivindex_wbm::timestamp::Timestamp;
+use bytes::Bytes;
+use http::StatusCode;
+use http::header::LOCATION;
+use reqwest::Response;
 
 /// The public Wayback Machine origin, used unless [`Configuration::base_url`] says otherwise.
 pub const DEFAULT_BASE_URL: &str = "https://web.archive.org";
@@ -406,9 +410,11 @@ fn redirect_location(response: &Response) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Client, Configuration, Error};
-    use http::StatusCode;
     use std::borrow::Cow;
+
+    use http::StatusCode;
+
+    use super::{Client, Configuration, Error};
 
     const BASE_URL: &str = "https://web.archive.org";
 

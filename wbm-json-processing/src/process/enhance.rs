@@ -18,14 +18,16 @@
 //! When the content digest itself resolves, any expected digest the snapshot carried is dropped
 //! from the output, since it is no longer needed for lookups.
 
-use crate::io::write::{Finish, SnapshotWriter};
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::path::Path;
+
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::UrlParts;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
-use std::collections::HashMap;
-use std::num::NonZeroUsize;
-use std::path::Path;
+
+use crate::io::write::{Finish, SnapshotWriter};
 
 /// Errors that can occur during the enhance operation. `E` is the capture lookup's error type.
 // The derive adds the `std::error::Error` bound on `E` in its generated impls, so it is not
@@ -319,11 +321,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, HashMap, NonZeroUsize, SnapshotWriter, enhance, enhance_into};
+    use std::convert::Infallible;
+
     use archivindex_wbm::item::UrlParts;
     use archivindex_wbm_json::format::Format;
     use bounded_static::IntoBoundedStatic;
-    use std::convert::Infallible;
+
+    use super::{Context, HashMap, NonZeroUsize, SnapshotWriter, enhance, enhance_into};
 
     /// The generic core runs entirely in memory: the input snapshot passes through to the buffer,
     /// and its digest is recorded as unmatched.

@@ -8,11 +8,12 @@
 //! and skipped rather than failing the scan, like every other per-file problem in
 //! [`process`](crate::process).
 
-use archivindex_wbm::digest::Sha1Digest;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+
+use archivindex_wbm::digest::Sha1Digest;
 
 /// Errors scanning digest-named data directories.
 #[derive(Debug, thiserror::Error)]
@@ -167,8 +168,9 @@ impl Data {
 
 #[cfg(test)]
 mod tests {
-    use super::{Data, ScanCounts};
     use archivindex_wbm::digest::Sha1Digest;
+
+    use super::{Data, ScanCounts};
 
     /// The same digest appearing in two directories is grouped under one entry, whose paths are
     /// sorted and deduplicated, and [`Data::files`] yields the digests in sorted order.

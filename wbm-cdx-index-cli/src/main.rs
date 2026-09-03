@@ -2,24 +2,17 @@
 //!
 //! Fills the index from CDX JSON files, reports statistics, lists items whose digest is absent from
 //! given snapshot or digest files, and builds a digest-keyed capture metadata database.
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
+use std::cmp::Reverse;
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
-use std::{
-    cmp::Reverse,
-    collections::HashSet,
-    fs::File,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-};
-
-use archivindex_wbm::{
-    cdx::item::ItemList,
-    digest::{Digest, Sha1Digest},
-    timestamp::Timestamp,
-};
-use archivindex_wbm_cdx_index::{CdxIndex, StoredItem, metadata::MetadataDb};
+use archivindex_wbm::cdx::item::ItemList;
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_cdx_index::metadata::MetadataDb;
+use archivindex_wbm_cdx_index::{CdxIndex, StoredItem};
 use archivindex_wbm_json::exact::ExactSnapshot;
 use cli_helpers::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -380,7 +373,7 @@ fn collect_excluded_digests(
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+enum Error {
     #[error("I/O error")]
     Io(#[from] std::io::Error),
     #[error("CLI argument reading error")]

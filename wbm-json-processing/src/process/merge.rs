@@ -6,13 +6,15 @@
 //! ordering violations are reported as errors. The remaining fields and content digests are not
 //! validated.
 
-use crate::io::write::Finish;
-use archivindex_wbm::digest::Sha1Digest;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Peekable;
 use std::path::Path;
+
+use archivindex_wbm::digest::Sha1Digest;
+
+use crate::io::write::Finish;
 
 /// Which of the two input streams a line came from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -515,8 +517,9 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
+    use super::*;
 
     /// Helper: build an infallible line iterator from digest strings and dummy content.
     fn lines_from_digests<'a>(

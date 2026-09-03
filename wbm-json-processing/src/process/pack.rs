@@ -6,17 +6,19 @@
 //! Zstandard-compressed output in digest-sorted order. CDX metadata (timestamp and URL) is added
 //! separately by [`enhance`](super::enhance).
 
-use super::skip::{SkipReason, Skipped, read_verified};
-use crate::io::write::{Finish, SnapshotWriter};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::path::Path;
+
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::FormatInfo;
 use bounded_static::IntoBoundedStatic;
 use rayon::prelude::*;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::path::Path;
+
+use super::skip::{SkipReason, Skipped, read_verified};
+use crate::io::write::{Finish, SnapshotWriter};
 
 /// Errors that can occur during the pack operation.
 #[derive(Debug, thiserror::Error)]

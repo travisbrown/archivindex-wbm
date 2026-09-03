@@ -4,17 +4,16 @@
 //! CDX directories to resolve each digest to its metadata (timestamp, URL, and expected digest).
 //! Extra valid or invalid matches are accumulated as resolution warnings.
 
-use archivindex_wbm::{
-    cdx::item::ItemList,
-    digest::{Digest, Sha1Digest},
-    timestamp::Timestamp,
-};
-use archivindex_wbm_invalid_log::Database;
-use bounded_static::{IntoBoundedStatic, ToBoundedStatic};
-use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+use archivindex_wbm::cdx::item::ItemList;
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_invalid_log::Database;
+use bounded_static::{IntoBoundedStatic, ToBoundedStatic};
+use rayon::prelude::*;
 
 /// Errors resolving data digests against CDX records.
 #[derive(Debug, thiserror::Error)]

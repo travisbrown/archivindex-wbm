@@ -1055,8 +1055,9 @@ pub fn deflate(content: &[u8], level: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Read as _;
+
+    use super::*;
 
     /// Inflates a raw deflate stream produced by [`deflate`], as a gzip reader would.
     fn inflate(body: &[u8]) -> Vec<u8> {

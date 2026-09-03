@@ -1,7 +1,8 @@
 //! Reading a [`ContextConfig`] from a configuration file.
 
-use archivindex_wbm_json::context::ContextConfig;
 use std::path::Path;
+
+use archivindex_wbm_json::context::ContextConfig;
 
 /// Errors reading a [`ContextConfig`] file.
 #[derive(Debug, thiserror::Error)]

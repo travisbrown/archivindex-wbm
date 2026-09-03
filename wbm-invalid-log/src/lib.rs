@@ -15,21 +15,14 @@
 //! - `invalid_digest`: Tracks digest mismatches with URL, timestamps, and both expected and actual
 //!   digest values.
 //! - `withheld_url`: Records URLs that have been withheld from the archive.
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    rust_2018_idioms,
-    missing_docs
-)]
-#![allow(clippy::missing_errors_doc, clippy::doc_markdown)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::digest::Digest;
-use archivindex_wbm::{digest::Sha1Digest, item::ItemInfo};
-use chrono::{DateTime, Utc};
-use rusqlite::{Connection, params};
+#![allow(clippy::doc_markdown)]
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::ItemInfo;
+use chrono::{DateTime, Utc};
+use rusqlite::{Connection, params};
 
 pub mod types;
 
@@ -484,9 +477,10 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use super::{Database, Entry};
     use archivindex_wbm::item::{ItemInfo, UrlParts};
     use chrono::{SubsecRound, Utc};
+
+    use super::{Database, Entry};
 
     fn example_entry_01() -> Entry<'static> {
         Entry::new(

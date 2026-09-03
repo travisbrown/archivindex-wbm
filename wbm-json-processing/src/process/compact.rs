@@ -5,7 +5,9 @@
 //! expected digest), and writes it into the matching Zstandard-compressed partition. Snapshots are
 //! emitted in digest-sorted order.
 
-use crate::io::write::{Finish, SnapshotWriter};
+use std::borrow::Cow;
+use std::path::Path;
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_invalid_log::Database;
 use archivindex_wbm_json::context::Context;
@@ -13,11 +15,10 @@ use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::FormatInfo;
 use bounded_static::IntoBoundedStatic;
 use rayon::prelude::*;
-use std::borrow::Cow;
-use std::path::Path;
 
 use super::resolver::{Resolution, ResolutionWarnings};
 use super::skip::{SkipReason, Skipped, read_verified};
+use crate::io::write::{Finish, SnapshotWriter};
 
 /// Errors that can occur during the compact operation.
 #[derive(Debug, thiserror::Error)]
@@ -364,9 +365,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::io::read::SnapshotReader;
-    use std::fs;
 
     /// A data file whose contents do not hash to the digest it is named by (here, an empty file,
     /// whose digest is the empty-input SHA-1, stored under a different name) is skipped with a

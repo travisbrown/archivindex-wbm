@@ -20,16 +20,6 @@
 //! [`Snapshot`]: archivindex_wbm_json::Snapshot
 //! [`Context`]: archivindex_wbm_json::context::Context
 //! [`ContextConfig`]: archivindex_wbm_json::context::ContextConfig
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    rust_2018_idioms,
-    missing_docs
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-
 pub mod config;
 pub mod io;
 pub mod process;

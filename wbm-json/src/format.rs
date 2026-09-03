@@ -8,8 +8,9 @@
 //!   digest). The default [`Format::Utf8`] codec is built into
 //!   [`Context`](crate::context::Context); non-default formats register a [`Codec`].
 
-use serde_json::{Map, Value};
 use std::borrow::Cow;
+
+use serde_json::{Map, Value};
 
 /// The format of a snapshot's [`content`](crate::Snapshot::content) field.
 ///

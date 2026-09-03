@@ -9,6 +9,9 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 archivindex-wbm = { path = "../wbm/" }
 archivindex-wbm-json = { path = "../wbm-json/" }

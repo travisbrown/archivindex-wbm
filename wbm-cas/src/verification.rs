@@ -1,7 +1,8 @@
 //! Result types reporting whether each stored item's recorded digest matches the digest computed
 //! from its content.
-use archivindex_wbm::digest::Sha1Digest;
 use std::path::PathBuf;
+
+use archivindex_wbm::digest::Sha1Digest;
 
 /// The outcome of a [`Store::verify`](crate::Store::verify) call.
 #[derive(Clone, Debug, Eq, PartialEq)]

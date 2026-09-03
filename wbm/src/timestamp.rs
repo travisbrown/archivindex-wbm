@@ -1,12 +1,11 @@
 //! A Wayback Machine URL timestamp, a second-precision UTC instant rendered in the fourteen-digit
 //! `%Y%m%d%H%M%S` form, with parsing, formatting, and serialization.
-use chrono::{DateTime, NaiveDateTime, Utc};
-use serde::{
-    de::{Deserialize, Deserializer, Unexpected, Visitor},
-    ser::{Serialize, Serializer},
-};
 use std::fmt::Display;
 use std::str::FromStr;
+
+use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
+use serde::ser::{Serialize, Serializer};
 
 const TIMESTAMP_FMT: &str = "%Y%m%d%H%M%S";
 
@@ -170,10 +169,11 @@ impl rusqlite::ToSql for Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use super::Timestamp;
     use chrono::{SubsecRound, Utc};
     use proptest::prelude::*;
     use test_strategy::proptest;
+
+    use super::Timestamp;
 
     fn arb_timestamp() -> impl Strategy<Value = Timestamp> {
         any::<u32>().prop_map(|timestamp_s| Timestamp::try_from(i64::from(timestamp_s)).unwrap())

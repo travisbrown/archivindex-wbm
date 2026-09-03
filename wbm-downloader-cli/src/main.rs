@@ -1,14 +1,12 @@
 //! Command-line tool to download Wayback Machine captures, verify a content-addressed store, and
 //! manage the invalid digest log database (merge, import, export, and dump operations).
-#![warn(clippy::all, clippy::pedantic, clippy::nursery, rust_2018_idioms)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
+use std::path::PathBuf;
+
 use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm_cas::Store;
 use archivindex_wbm_downloader::DownloadResult;
 use archivindex_wbm_invalid_log::Database;
 use cli_helpers::prelude::*;
-use std::path::PathBuf;
 
 mod invalid_log;
 

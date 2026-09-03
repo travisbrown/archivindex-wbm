@@ -10,8 +10,9 @@
 //! parameter coverage pinned by [`REQUIRED_COVERAGE`].
 #![cfg(feature = "zlib")]
 
-use archivindex_wbm_json_gzip::Compressor;
 use std::path::Path;
+
+use archivindex_wbm_json_gzip::Compressor;
 
 mod common;
 

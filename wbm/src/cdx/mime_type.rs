@@ -1,12 +1,11 @@
 //! A simplified MIME type for CDX index results, with dedicated variants for the common text and
 //! JSON values and a fallback covering everything else.
-use serde::{
-    de::{Deserialize, Deserializer, Visitor},
-    ser::{Serialize, Serializer},
-};
 use std::borrow::Cow;
 use std::fmt::Display;
 use std::str::FromStr;
+
+use serde::de::{Deserialize, Deserializer, Visitor};
+use serde::ser::{Serialize, Serializer};
 
 /// A simplified MIME type as it appears in CDX index results.
 ///

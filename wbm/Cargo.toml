@@ -12,6 +12,9 @@ readme = { workspace = true }
 version = { workspace = true }
 exclude = ["tests/"]
 
+[lints]
+workspace = true
+
 [features]
 default = ["sqlite", "validation"]
 sqlite = ["dep:rusqlite"]

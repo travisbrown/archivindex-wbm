@@ -41,20 +41,13 @@
 //! # Ok(())
 //! # }
 //! ```
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    rust_2018_idioms
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
-use archivindex_wbm_cas::Store as _;
-use bytes::Bytes;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_cas::Store as _;
+use bytes::Bytes;
 
 // The defaults are much less patient than the downloader client's, so that a test run without
 // network access skips its snapshots in seconds instead of retrying for minutes.
@@ -229,10 +222,12 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
-    use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
-    use archivindex_wbm_downloader::client::Configuration;
     use std::borrow::Cow;
     use std::time::Duration;
+
+    use archivindex_wbm::digest::Sha1Digest;
+    use archivindex_wbm::timestamp::Timestamp;
+    use archivindex_wbm_downloader::client::Configuration;
     use wiremock::matchers::{any, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

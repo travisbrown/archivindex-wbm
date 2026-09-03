@@ -12,6 +12,9 @@ readme = { workspace = true }
 version = { workspace = true }
 exclude = ["tests/"]
 
+[lints]
+workspace = true
+
 [dependencies]
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
 bounded-static = { workspace = true }

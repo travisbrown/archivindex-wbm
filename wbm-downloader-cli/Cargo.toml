@@ -8,6 +8,9 @@ rust-version = { workspace = true }
 license = { workspace = true }
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "archivindex-wbm-downloader"
 path = "src/main.rs"

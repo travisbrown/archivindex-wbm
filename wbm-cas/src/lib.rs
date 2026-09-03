@@ -2,15 +2,6 @@
 //!
 //! Defines the [`Store`] trait for saving, looking up, verifying, and copying downloaded archive
 //! data across backing implementations.
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    rust_2018_idioms,
-    missing_docs
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
 use std::io::Read;
 
 use archivindex_wbm::digest::Sha1Digest;
@@ -151,9 +142,10 @@ pub trait Store {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Store as _, file::Store};
     use archivindex_wbm::digest::Sha1Digest;
 
+    use crate::Store as _;
+    use crate::file::Store;
     #[cfg(feature = "zstd")]
     use crate::file::entry::zstd::Compressed;
 

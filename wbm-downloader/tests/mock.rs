@@ -2,25 +2,22 @@
 //!
 //! These cover the parts of the request pipeline that live snapshots cannot exercise reliably:
 //! retry classification, redirect-chain following and cycle detection, digest verification, and the
-//! worker pool. They need no network access, so unlike the tests in `client.rs` and `downloader.rs`
-//! they are not `#[ignore]`d.
-use archivindex_wbm::{
-    digest::{Digest, Sha1Digest},
-    item::{ItemInfo, UrlParts},
-    redirect::make_redirect_html,
-    timestamp::Timestamp,
-};
-use archivindex_wbm_downloader::{
-    DownloadResult, Manager, ManagerConfiguration,
-    client::{Client, Configuration, Error, FailedDownload},
-    downloader::Downloader,
-};
-use archivindex_wbm_invalid_log::{Database, Entry};
-use http::StatusCode;
+//! worker pool. They use a local HTTP server and need no internet access, so they run by default.
+//! The live tests in `client.rs` and `downloader.rs` are ignored by default.
 use std::borrow::Cow;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::redirect::make_redirect_html;
+use archivindex_wbm::timestamp::Timestamp;
+use archivindex_wbm_downloader::client::{Client, Configuration, Error, FailedDownload};
+use archivindex_wbm_downloader::downloader::Downloader;
+use archivindex_wbm_downloader::{DownloadResult, Manager, ManagerConfiguration};
+use archivindex_wbm_invalid_log::{Database, Entry};
+use http::StatusCode;
 use wiremock::matchers::{any, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 

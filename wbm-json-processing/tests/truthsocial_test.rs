@@ -35,6 +35,11 @@
 //! [`pack`]: archivindex_wbm_json_processing::process::pack
 //! [`enhance`]: archivindex_wbm_json_processing::process::enhance
 
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::num::NonZeroUsize;
+use std::path::Path;
+
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::item::UrlParts;
@@ -43,10 +48,6 @@ use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::format::Format;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
-use std::collections::HashMap;
-use std::convert::Infallible;
-use std::num::NonZeroUsize;
-use std::path::Path;
 
 /// Relative to the package root, which Cargo sets as the working directory for integration tests.
 const SNAPSHOTS_DIR: &str = "tests/data/truthsocial/snapshots";
@@ -148,8 +149,8 @@ fn timestamp(value: &str) -> Timestamp {
 fn data_file_digests(directory: &Path) -> Vec<Sha1Digest> {
     let mut digests = Vec::new();
 
-    for entry in
-        std::fs::read_dir(directory).unwrap_or_else(|error| panic!("read {directory:?}: {error}"))
+    for entry in std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
     {
         let path = entry.expect("directory entry").path();
 
@@ -162,7 +163,8 @@ fn data_file_digests(directory: &Path) -> Vec<Sha1Digest> {
             .expect("file name")
             .to_string_lossy()
             .into_owned();
-        let bytes = std::fs::read(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+        let bytes =
+            std::fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
 
         assert_eq!(
             Sha1Digest::compute(&bytes).to_string(),
@@ -185,14 +187,14 @@ fn data_file_digests(directory: &Path) -> Vec<Sha1Digest> {
 fn cdx_captures(directory: &Path) -> HashMap<Sha1Digest, Vec<UrlParts<'static>>> {
     let mut captures: HashMap<Sha1Digest, Vec<UrlParts<'static>>> = HashMap::new();
 
-    for entry in
-        std::fs::read_dir(directory).unwrap_or_else(|error| panic!("read {directory:?}: {error}"))
+    for entry in std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
     {
         let path = entry.expect("directory entry").path();
-        let source =
-            std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
         let list = serde_json::from_str::<ItemList<'_>>(&source)
-            .unwrap_or_else(|error| panic!("parse {path:?}: {error}"));
+            .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
 
         for item in list.values {
             if let Some(digest) = item.digest.valid() {
@@ -209,13 +211,14 @@ fn cdx_captures(directory: &Path) -> HashMap<Sha1Digest, Vec<UrlParts<'static>>>
 
 /// Decompress an operation's Zstandard output into the JSONL text it wrote.
 fn read_jsonl(path: &Path) -> String {
-    let file = std::fs::File::open(path).unwrap_or_else(|error| panic!("open {path:?}: {error}"));
-    let mut decoder =
-        zstd::Decoder::new(file).unwrap_or_else(|error| panic!("decode {path:?}: {error}"));
+    let file = std::fs::File::open(path)
+        .unwrap_or_else(|error| panic!("open {}: {error}", path.display()));
+    let mut decoder = zstd::Decoder::new(file)
+        .unwrap_or_else(|error| panic!("decode {}: {error}", path.display()));
     let mut text = String::new();
 
     std::io::Read::read_to_string(&mut decoder, &mut text)
-        .unwrap_or_else(|error| panic!("read {path:?}: {error}"));
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
 
     text
 }
@@ -232,17 +235,21 @@ fn assert_matches_expected(expected_path: &str, actual: &str) {
     if std::env::var_os(UPDATE_EXPECTED_VAR).is_some() {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .unwrap_or_else(|error| panic!("create {parent:?}: {error}"));
+                .unwrap_or_else(|error| panic!("create {}: {error}", parent.display()));
         }
 
-        std::fs::write(path, actual).unwrap_or_else(|error| panic!("write {path:?}: {error}"));
+        std::fs::write(path, actual)
+            .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
         eprintln!("wrote {expected_path}");
 
         return;
     }
 
     let expected = std::fs::read_to_string(path).unwrap_or_else(|error| {
-        panic!("read {path:?}: {error} (regenerate with {UPDATE_EXPECTED_VAR}=1)")
+        panic!(
+            "read {}: {error} (regenerate with {UPDATE_EXPECTED_VAR}=1)",
+            path.display()
+        )
     });
 
     for (index, (actual_line, expected_line)) in actual.lines().zip(expected.lines()).enumerate() {
@@ -308,6 +315,7 @@ fn earliest_capture<'a>(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn pack_and_enhance_truthsocial_examples() {
     let dir = tempfile::tempdir().expect("tempdir");
     let invalid_db = dir.path().join("invalid.db");

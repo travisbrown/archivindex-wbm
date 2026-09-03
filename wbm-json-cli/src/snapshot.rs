@@ -2,11 +2,12 @@
 //!
 //! Walks the given directories, partitioning entries into valid digest-keyed paths, skipped files,
 //! and digest mismatches, then sorts the valid paths by digest for merge consumption.
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_cas::legacy::import::CompressionType;
 use cli_helpers::prelude::log;
-use std::io::Read;
-use std::path::{Path, PathBuf};
 
 /// The partitioned result of walking legacy snapshot directories.
 #[derive(Default)]
@@ -118,8 +119,9 @@ pub fn read_content(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
+    use super::*;
 
     const CONTENT: &str = "{\"created_at\":\"Sat Jan 01 00:00:00 +0000 2022\"}\n";
 

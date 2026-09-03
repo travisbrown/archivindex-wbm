@@ -1,12 +1,11 @@
 //! A simplified Sort-friendly URI Reordering Transform key, providing the sort-friendly URL
 //! representation and domain-part access needed for Wayback Machine CDX results.
-use serde::{
-    de::{Deserialize, Deserializer, Unexpected, Visitor},
-    ser::{Serialize, Serializer},
-};
 use std::borrow::Cow;
 use std::fmt::Display;
 use std::str::FromStr;
+
+use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
+use serde::ser::{Serialize, Serializer};
 
 /// An error encountered while building a [`Surt`], either from a SURT string or from a URL.
 #[derive(thiserror::Error, Debug)]

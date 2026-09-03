@@ -1,8 +1,9 @@
 //! The [`Entry`] trait, abstracting a single stored item by its digest and a reader over its
 //! decoded bytes.
-use archivindex_wbm::digest::Sha1Digest;
 use std::io::Read;
 use std::path::Path;
+
+use archivindex_wbm::digest::Sha1Digest;
 
 /// A single item in a [`Store`](crate::Store), identified by the digest of its decoded content.
 ///

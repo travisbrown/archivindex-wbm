@@ -4,14 +4,15 @@
 //! invalid-digest log), checks the packed file, enhances it from a fake CDX capture source, and
 //! checks the result.
 
+use std::collections::HashMap;
+use std::convert::Infallible;
+
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::process::{check, enhance, pack};
-use std::collections::HashMap;
-use std::convert::Infallible;
 
 const CLOSING_WHITESPACE: &[char] = &['\n'];
 
@@ -57,6 +58,7 @@ fn insert_invalid_digest(
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn pack_enhance_check_round_trip() {
     let dir = tempfile::tempdir().expect("tempdir");
     let data_dir = dir.path().join("data");

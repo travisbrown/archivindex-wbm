@@ -29,20 +29,11 @@
 //! - [`format`](mod@format): [`Format`](format::Format) and [`Codec`](format::Codec)
 //! - [`validation`]: Types for validation results
 //!
-//! Reading and writing snapshot files in bulk lives in the separate
-//! `archivindex-wbm-json-processing` crate, which keeps this one free of an async runtime, the CDX-
-//! matching machinery, file handling, and various other concerns.
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    missing_docs,
-    rust_2018_idioms
-)]
-#![allow(clippy::missing_errors_doc)]
-#![forbid(unsafe_code)]
-use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
+//! File I/O, batch processing, and CDX matching are provided by `archivindex-wbm-json-processing`.
 use std::borrow::Cow;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::timestamp::Timestamp;
 
 mod closing_whitespace;
 pub mod context;

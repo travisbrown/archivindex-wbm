@@ -6,11 +6,14 @@
 //! read-modify-write; `RocksDB` folds the operands into a sorted, deduplicated list lazily during
 //! reads and compaction.
 
-use archivindex_wbm::{digest::Sha1Digest, item::UrlParts, timestamp::Timestamp};
+use std::path::Path;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::item::UrlParts;
+use archivindex_wbm::timestamp::Timestamp;
 use rocksdb::{
     BlockBasedOptions, DB, DBCompressionType, IteratorMode, MergeOperands, Options, WriteBatch,
 };
-use std::path::Path;
 
 /// Errors returned by [`MetadataDb`] operations.
 #[derive(Debug, thiserror::Error)]

@@ -44,8 +44,9 @@ impl From<TimestampSecond> for DateTime<Utc> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rusqlite::{Connection, Result};
+
+    use super::*;
 
     #[test]
     fn test_timestamp_roundtrip() -> Result<()> {

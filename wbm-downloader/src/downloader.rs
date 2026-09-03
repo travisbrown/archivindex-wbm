@@ -1,14 +1,13 @@
-//! [`Downloader`] that fetches a snapshot, verifies its SHA-1 digest, and records withheld URLs
-//! and digest mismatches to the invalid-log database.
-use crate::client::{Client, Download, FailedDownload};
-use archivindex_wbm::{
-    digest::{Digest, Sha1Digest},
-    item::{ItemInfo, UrlParts},
-    timestamp::Timestamp,
-};
+//! [`Downloader`] that fetches a snapshot, verifies its SHA-1 digest, and records withheld URLs and
+//! digest mismatches to the invalid-log database.
+use archivindex_wbm::digest::{Digest, Sha1Digest};
+use archivindex_wbm::item::{ItemInfo, UrlParts};
+use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_invalid_log::{Database, Entry};
 use bounded_static::ToBoundedStatic;
 use chrono::Utc;
+
+use crate::client::{Client, Download, FailedDownload};
 
 /// A snapshot that could not be downloaded or whose outcome could not be recorded.
 #[derive(Debug, thiserror::Error)]

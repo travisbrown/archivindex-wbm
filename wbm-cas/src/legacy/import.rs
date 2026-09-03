@@ -1,9 +1,10 @@
 //! Recursively walks a legacy directory tree, parsing each file name into a digest and optional
 //! compression type, and optionally verifying that the decoded content matches the recorded digest.
-use archivindex_wbm::digest::Sha1Digest;
 use std::borrow::Cow;
 use std::fs::ReadDir;
 use std::path::{Path, PathBuf};
+
+use archivindex_wbm::digest::Sha1Digest;
 
 /// A failure encountered while walking or verifying a legacy directory tree.
 #[derive(thiserror::Error, Debug)]
@@ -298,10 +299,12 @@ fn digest_content(
 
 #[cfg(test)]
 mod tests {
-    use super::{CompressionType, Error, File, Importer};
-    use archivindex_wbm::digest::Sha1Digest;
     use std::io::Write;
     use std::path::Path;
+
+    use archivindex_wbm::digest::Sha1Digest;
+
+    use super::{CompressionType, Error, File, Importer};
 
     const DIGEST: &str = "BN4XMPASWOOKCS6N3LOIGAAQ2N7NY3BK";
 

@@ -4,11 +4,12 @@
 //! reject them for the same reasons, so both accumulate a [`Skipped`] and share the read-and-verify
 //! step in [`read_verified`] that produces most of those rejections.
 
+use std::path::{Path, PathBuf};
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::{Context, SnapshotError};
 use archivindex_wbm_json::exact::ExactSnapshot;
 use archivindex_wbm_json::format::FormatInfo;
-use std::path::{Path, PathBuf};
 
 /// Why a digest-named data file was not written as a snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,8 +152,9 @@ pub(crate) fn build_snapshot<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{SkipReason, Skipped, read_verified};
     use archivindex_wbm::digest::Sha1Digest;
+
+    use super::{SkipReason, Skipped, read_verified};
 
     /// Each reason lands in its own list, and the counts add up across all of them.
     #[test]

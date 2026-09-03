@@ -6,12 +6,13 @@
 //! consistent state (a URL never appears without a timestamp, and neither the URL nor expected
 //! digest is redundant). Missing timestamps are counted but do not make a check fail.
 
+use std::io::BufRead;
+use std::path::Path;
+
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::validation::ValidationError;
 use sha1::Sha1;
-use std::io::BufRead;
-use std::path::Path;
 
 /// Errors that can occur during the check operation.
 #[derive(Debug, thiserror::Error)]
@@ -162,9 +163,10 @@ pub fn check_lines<R: BufRead>(reader: R, context: &Context) -> Result<Summary, 
 
 #[cfg(test)]
 mod tests {
-    use super::check_lines;
     use archivindex_wbm_json::context::Context;
     use archivindex_wbm_json::format::Format;
+
+    use super::check_lines;
 
     /// Lines are checked from any in-memory source: a valid line verifies, an unparseable line is
     /// recorded as a schema error, and the summary reflects both.

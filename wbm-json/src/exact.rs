@@ -4,9 +4,14 @@
 //! [`ExactSnapshot::parse`] parser. [`Context::verify`](crate::context::Context::verify) checks
 //! their digests, and [`ExactSnapshot::display`] serializes them as canonical JSONL.
 
-use crate::{Snapshot, context::Context, format::FormatInfo};
-use archivindex_wbm::{digest::Sha1Digest, timestamp::Timestamp};
 use std::borrow::Cow;
+
+use archivindex_wbm::digest::Sha1Digest;
+use archivindex_wbm::timestamp::Timestamp;
+
+use crate::Snapshot;
+use crate::context::Context;
+use crate::format::FormatInfo;
 
 /// The exact serialized JSON content of a snapshot.
 ///
@@ -375,9 +380,12 @@ pub fn format_closing_whitespace(whitespace: &[char]) -> String {
 /// ascending digest order with no trailing newline. Each file is named by its first line's digest.
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{Snapshot, context::Context, format::Format};
     use sha1::{Digest as _, Sha1};
+
+    use super::*;
+    use crate::Snapshot;
+    use crate::context::Context;
+    use crate::format::Format;
 
     type RawSnapshot<'a> = ExactSnapshot<'a>;
     // A concrete typed snapshot for deserialization round-trips; the content schema is irrelevant.

@@ -5,48 +5,142 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build and test
+  format:
+    name: Formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+  toml:
+    name: TOML formatting and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned to a minor version because formatting output can change between releases.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: taplo@0.10
+      - name: Check formatting
+        run: taplo fmt --check --diff
+      # Validates the Cargo manifests and other configuration against their published schemas.
+      - name: Lint
+        run: taplo lint
+
+  build:
+    name: Build, test, lint, and document
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Check formatting
-        run: cargo fmt --check
-      - name: Lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Docs
-        run: cargo doc --workspace --no-deps
+      - uses: taiki-e/install-action@cargo-hack
+      # Every package on its own, with no features, its defaults, and each pair of features.
+      - name: Lint every feature combination
+        run: >-
+          cargo hack clippy --locked --workspace --feature-powerset --depth 2
+          --all-targets -- -D warnings
+      - name: Check documentation
+        run: cargo doc --locked --workspace --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - name: Build
-        run: cargo build --workspace --all-targets
+        run: cargo build --locked --workspace --all-targets --all-features
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace --all-features
+      - name: Test core without default features
+        run: cargo test --locked -p archivindex-wbm --no-default-features
+      - name: Test content store without default features
+        run: cargo test --locked -p archivindex-wbm-cas --no-default-features
+      - name: Test gzip support without default features
+        run: cargo test --locked -p archivindex-wbm-json-gzip --no-default-features
+
+  package:
+    name: Package the publishable crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Package
+        run: >-
+          cargo package --locked --workspace
+          --exclude archivindex-hacks
+          --exclude archivindex-wbm-cdx-index-cli
+          --exclude archivindex-wbm-downloader-cli
+          --exclude archivindex-wbm-json-cli
+
+  deny:
+    name: Check the dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - name: Check the workspace
+        run: cargo deny --workspace check
+
+  platforms:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --locked --workspace --all-features
+
+  msrv:
+    name: Rust 1.91 compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Check workspace
+        run: cargo check --locked --workspace --all-targets --all-features
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
-      - name: Generate coverage report
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+      - name: Generate coverage
+        run: >-
+          cargo llvm-cov --locked --workspace --all-features --lcov
+          --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-          # Fork PRs do not have access to the token, so a failed upload should not fail CI.
+          # Fork pull requests do not have access to the token.
           fail_ci_if_error: false

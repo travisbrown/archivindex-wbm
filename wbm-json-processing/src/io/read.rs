@@ -4,10 +4,12 @@
 //! Parsing keeps the content as raw JSON and needs no configuration; interpret the results with a
 //! [`Context`](archivindex_wbm_json::context::Context) when verification is needed.
 
-use archivindex_wbm_json::{Error, exact::ExactSnapshot};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
+
+use archivindex_wbm_json::Error;
+use archivindex_wbm_json::exact::ExactSnapshot;
 
 /// Reads JSONL snapshot lines into raw [`Snapshot`](archivindex_wbm_json::Snapshot) values.
 ///

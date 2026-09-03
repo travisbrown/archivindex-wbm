@@ -1,9 +1,11 @@
 //! Wayback Machine snapshot URL parts, pairing an original URL with a capture timestamp, and the
 //! conversions to and from the `web.archive.org` URL form.
-use crate::{digest::Digest, timestamp::Timestamp};
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::LazyLock;
+
+use crate::digest::Digest;
+use crate::timestamp::Timestamp;
 
 // The optional flag after the timestamp selects a rendering (`id_` for original bytes, and `im_`,
 // `js_`, `cs_`, `if_`, etc. for media, scripts, stylesheets, and frames).
