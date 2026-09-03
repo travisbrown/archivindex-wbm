@@ -69,6 +69,7 @@ log = "0.4"
 prefix-file-tree = "0.5"
 proptest = "1"
 rayon = "1"
+redb = "4"
 regex = "1"
 reqwest = { version = "0.13", features = ["json"] }
 rusqlite = "0.40"
@@ -84,7 +85,6 @@ tokio-stream = "0.1"
 toml = "1"
 url = { version = "2", features = ["serde"] }
 wiremock = "0.6"
-rocksdb = { version = "0.25", features = ["zstd"] }
 zstd = "0.13"
 
 [workspace.lints.rust]

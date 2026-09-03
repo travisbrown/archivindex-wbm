@@ -1,4 +1,4 @@
-//! On-disk CDX item index backed by `RocksDB` with Zstandard compression.
+//! On-disk CDX item index backed by [`redb`], a pure-Rust embedded B-tree store.
 //!
 //! Supports fast lookup by digest and prefix iteration by SURT (Sort-friendly URI Reordering
 //! Transform key). Each item carries a status of [`ItemStatus::Available`],
@@ -7,6 +7,7 @@
 
 pub mod metadata;
 
+use std::ops::Bound;
 use std::path::Path;
 
 use archivindex_wbm::cdx::item::Item;
@@ -14,14 +15,50 @@ use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::UrlParts;
 use archivindex_wbm::timestamp::Timestamp;
 use chrono::{DateTime, Duration, Utc};
-use rocksdb::{
-    BlockBasedOptions, ColumnFamilyDescriptor, DB, DBCompressionType, Direction, IteratorMode,
-    Options, ReadOptions, WriteBatch,
-};
+use redb::{Database, ReadableDatabase, ReadableTableMetadata, TableDefinition};
 
-const CF_ITEMS: &str = "items";
-const CF_DIGEST: &str = "digest";
-const CF_STATUS: &str = "status";
+/// Key and value type of every table here: raw bytes, which redb orders lexicographically. All
+/// encoding and decoding is done by this crate, so redb never needs to understand the payloads.
+type Bytes = &'static [u8];
+
+/// Items keyed by [`item_key`].
+const ITEMS: TableDefinition<'_, Bytes, Bytes> = TableDefinition::new("items");
+/// A digest index: keys are [`digest_key`], values are empty (the key carries all the data).
+const DIGESTS: TableDefinition<'_, Bytes, ()> = TableDefinition::new("digest");
+/// Processing statuses keyed by [`item_key`], holding the [`encode_status`] encoding.
+const STATUSES: TableDefinition<'_, Bytes, Bytes> = TableDefinition::new("status");
+
+/// Generate the `From` impls that let `?` funnel redb's error types into an error enum's `Redb`
+/// variant.
+///
+/// redb returns a different error type from each class of operation (`DatabaseError` when opening a
+/// database, `TransactionError` when beginning a transaction, `TableError` when opening a table,
+/// and so on), and each of them converts into the flat [`redb::Error`]. Rust's `?` applies only one
+/// `From` conversion, so without these impls every redb call would need an explicit
+/// `.map_err(redb::Error::from)`.
+macro_rules! from_redb_errors {
+    ($target:ty) => {
+        $crate::from_redb_errors!(
+            $target,
+            redb::CommitError,
+            redb::DatabaseError,
+            redb::StorageError,
+            redb::TableError,
+            redb::TransactionError,
+        );
+    };
+    ($target:ty $(, $source:ty)+ $(,)?) => {
+        $(
+            impl From<$source> for $target {
+                fn from(error: $source) -> Self {
+                    Self::Redb(error.into())
+                }
+            }
+        )+
+    };
+}
+
+pub(crate) use from_redb_errors;
 
 /// The processing state of a CDX index item.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,9 +107,9 @@ pub struct StoredItem {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// The underlying `RocksDB` instance failed to open, read, write, or iterate.
-    #[error("RocksDB error: {0}")]
-    RocksDb(#[from] rocksdb::Error),
+    /// The underlying redb database failed to open, read, write, or iterate.
+    #[error("redb error: {0}")]
+    Redb(#[from] redb::Error),
     /// A stored SURT, original URL, MIME type, or digest string was not valid UTF-8.
     ///
     /// Every one of those fields is written from a `&str`, so this indicates on-disk corruption
@@ -134,7 +171,7 @@ pub enum Error {
     /// Fewer than eight bytes remain after a length tag announcing a recorded length.
     #[error("not enough bytes to read length field")]
     DecodeTruncatedLength,
-    /// A status column-family value is empty, so it carries no status tag byte.
+    /// A status value is empty, so it carries no status tag byte.
     #[error("missing status tag byte")]
     DecodeMissingStatusByte,
     /// An in-progress status value carries fewer than eight bytes of timeout after its tag.
@@ -155,12 +192,12 @@ pub enum Error {
     /// The status tag byte is none of 0 (available), 1 (in progress), or 2 (done).
     #[error("unknown status tag byte: {0:#x}")]
     DecodeUnknownStatusTag(u8),
-    /// A key in the digest column family is shorter than the 20-byte SHA-1 prefix that every such
-    /// key begins with.
+    /// A key in the digest index is shorter than the 20-byte SHA-1 prefix that every such key
+    /// begins with.
     #[error("digest key too short")]
     DecodeDigestKeyTooShort,
-    /// A digest index entry points at an item key with no corresponding row in the items column
-    /// family, which means the two column families have diverged.
+    /// A digest index entry points at an item key with no corresponding row in the items table,
+    /// which means the two tables have diverged.
     #[error("digest index references missing item")]
     DecodeIndexReferenceMissing,
     /// The SURT contains a NUL byte, which would make its item key ambiguous because NUL terminates
@@ -171,17 +208,15 @@ pub enum Error {
 
 /// On-disk CDX item index.
 ///
-/// All column families are created when the index is [opened](Self::open), so the internal
-/// column-family handle lookups performed by the methods of this type can only fail if that
-/// invariant is broken. Each method that performs such a lookup records this in its `# Panics`
-/// section. Storing the resolved handles instead is not possible because `rocksdb` binds their
-/// lifetimes to the database value.
+/// Reads use consistent redb snapshots; returned iterators keep their read transaction alive.
+/// Each write operation commits its own transaction.
 pub struct CdxIndex {
-    db: DB,
+    db: Database,
 }
 
-/// Check that an item satisfies the invariants required to encode and insert it, without touching
-/// any database.
+from_redb_errors!(Error);
+
+/// Check whether an item can be encoded before inserting it, without touching any database.
 ///
 /// The SURT must not contain a NUL byte (NUL terminates the SURT portion of the encoded key), the
 /// capture timestamp must not be before the Unix epoch (keys encode it as a big-endian `u64`, so a
@@ -454,109 +489,105 @@ fn prefix_upper_bound(prefix: &[u8]) -> Option<Vec<u8>> {
         .then_some(upper)
 }
 
-fn make_cf_opts() -> Options {
-    let mut block_opts = BlockBasedOptions::default();
-    block_opts.set_bloom_filter(10.0, false);
+/// Decode the `(key, value)` pairs of a range over [`ITEMS`] into items.
+///
+/// The range keeps the read transaction that produced it alive on its own, so the returned iterator
+/// borrows neither the table nor the index it came from.
+fn decode_items(
+    range: redb::Range<'static, Bytes, Bytes>,
+) -> impl Iterator<Item = Result<StoredItem, Error>> {
+    range.map(|entry| {
+        let (key, value) = entry?;
 
-    let mut opts = Options::default();
-    opts.set_compression_type(DBCompressionType::Zstd);
-    opts.set_block_based_table_factory(&block_opts);
-    opts
+        decode_item(key.value(), value.value())
+    })
 }
 
-fn open_db(path: &Path) -> Result<DB, rocksdb::Error> {
-    let mut root_opts = Options::default();
-    root_opts.create_if_missing(true);
-    root_opts.create_missing_column_families(true);
-
-    let cf_opts = make_cf_opts();
-    let column_families = [
-        ColumnFamilyDescriptor::new(CF_ITEMS, cf_opts.clone()),
-        ColumnFamilyDescriptor::new(CF_DIGEST, cf_opts.clone()),
-        ColumnFamilyDescriptor::new(CF_STATUS, cf_opts),
-    ];
-
-    DB::open_cf_descriptors(&root_opts, path, column_families)
+/// The redb range bounds covering exactly the keys that start with `prefix`.
+fn prefix_bounds<'a>(
+    prefix: &'a [u8],
+    upper: Option<&'a [u8]>,
+) -> (Bound<&'a [u8]>, Bound<&'a [u8]>) {
+    (
+        Bound::Included(prefix),
+        // A prefix of all-`0xFF` bytes has no successor, so it runs to the end of the table.
+        upper.map_or(Bound::Unbounded, Bound::Excluded),
+    )
 }
 
 impl CdxIndex {
-    /// Open (or create) the index at `path`.
+    /// Open (or create) the index file at `path`.
+    ///
+    /// Every table is created here, so the read paths below can open them unconditionally. Opening
+    /// a table in a redb write transaction creates it if it is absent, and committing an empty
+    /// transaction over an existing index is a no-op beyond the commit itself.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
-        Ok(Self {
-            db: open_db(path.as_ref())?,
-        })
-    }
+        let db = Database::create(path)?;
 
-    /// Fetch a column family handle. All column families are created by
-    /// [`open`](Self::open), so the handles always exist.
-    fn cf(&self, name: &str) -> &rocksdb::ColumnFamily {
-        self.db
-            .cf_handle(name)
-            .expect("column family created at open")
+        let write_txn = db.begin_write()?;
+        write_txn.open_table(ITEMS)?;
+        write_txn.open_table(DIGESTS)?;
+        write_txn.open_table(STATUSES)?;
+        write_txn.commit()?;
+
+        Ok(Self { db })
     }
 
     /// Insert CDX items in a single atomic write batch.
     ///
-    /// Re-inserting an item with the same SURT and timestamp overwrites the stored value
-    /// (last write wins). A digest-index entry from an earlier insert with a different digest is
-    /// not removed, but such stale entries are skipped by
-    /// [`iter_by_digest`](Self::iter_by_digest).
+    /// Re-inserting an item with the same SURT and timestamp overwrites the stored value (last
+    /// write wins). A digest-index entry from an earlier insert with a different digest is not
+    /// removed, but such stale entries are skipped by [`iter_by_digest`](Self::iter_by_digest).
     ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
+    /// An unencodable item aborts the whole batch: returning through `?` drops the uncommitted
+    /// transaction, so none of its items are written.
     pub fn insert_batch<'a>(
         &self,
         items: impl IntoIterator<Item = &'a Item<'a>>,
     ) -> Result<(), Error> {
-        let cf_items = self.cf(CF_ITEMS);
-        let cf_digest = self.cf(CF_DIGEST);
+        let write_txn = self.db.begin_write()?;
 
-        let mut batch = WriteBatch::default();
+        // Scoped so both tables, which borrow the transaction, are dropped before the commit.
+        {
+            let mut items_table = write_txn.open_table(ITEMS)?;
+            let mut digests_table = write_txn.open_table(DIGESTS)?;
 
-        for item in items {
-            // See `validate_item` for the invariants (no NUL in the SURT, a non-negative
-            // timestamp, and field lengths that fit their two-byte prefixes).
-            validate_item(item)?;
+            for item in items {
+                // See `validate_item` for the invariants (no NUL in the SURT, a non-negative
+                // timestamp, and field lengths that fit their two-byte prefixes).
+                validate_item(item)?;
 
-            let timestamp_secs: i64 = i64::from(item.timestamp);
-            let surt = item.key.as_str();
+                let timestamp_secs: i64 = i64::from(item.timestamp);
+                let surt = item.key.as_str();
 
-            let key = item_key(surt, timestamp_secs);
-            let value = encode_item_value(item)?;
+                items_table.insert(
+                    item_key(surt, timestamp_secs).as_slice(),
+                    encode_item_value(item)?.as_slice(),
+                )?;
 
-            batch.put_cf(cf_items, &key, &value);
-
-            if let Digest::Valid(sha1) = &item.digest {
-                batch.put_cf(cf_digest, digest_key(sha1, surt, timestamp_secs), []);
+                if let Digest::Valid(sha1) = &item.digest {
+                    digests_table.insert(digest_key(sha1, surt, timestamp_secs).as_slice(), ())?;
+                }
             }
         }
 
-        self.db.write(batch)?;
+        write_txn.commit()?;
+
         Ok(())
     }
 
     /// Look up a single item by its exact SURT and capture timestamp.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn get(&self, surt: &str, timestamp_secs: i64) -> Result<Option<StoredItem>, Error> {
         let key = item_key(surt, timestamp_secs);
-        self.db
-            .get_cf(self.cf(CF_ITEMS), &key)?
-            .map(|raw_value| decode_item(&key, &raw_value))
+        let items_table = self.db.begin_read()?.open_table(ITEMS)?;
+
+        items_table
+            .get(key.as_slice())?
+            .map(|raw_value| decode_item(&key, raw_value.value()))
             .transpose()
     }
 
     /// Insert a single CDX item.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn insert(&self, item: &Item<'_>) -> Result<(), Error> {
         self.insert_batch(std::iter::once(item))
     }
@@ -564,106 +595,66 @@ impl CdxIndex {
     /// Iterate all items whose SURT starts with `prefix`, in `(surt, timestamp)` order. Does not
     /// populate status; call [`get_status`](Self::get_status) separately when needed.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
-    pub fn iter_by_surt_prefix<'a>(
-        &'a self,
+    /// Returns an error if the read transaction cannot be opened; per-item decoding errors are
+    /// reported by the returned iterator.
+    pub fn iter_by_surt_prefix(
+        &self,
         prefix: &str,
-    ) -> impl Iterator<Item = Result<StoredItem, Error>> + 'a {
-        let cf = self.cf(CF_ITEMS);
-        let prefix_bytes = prefix.as_bytes().to_vec();
+    ) -> Result<impl Iterator<Item = Result<StoredItem, Error>> + use<>, Error> {
+        let items_table = self.db.begin_read()?.open_table(ITEMS)?;
+        let prefix_bytes = prefix.as_bytes();
+        let upper = prefix_upper_bound(prefix_bytes);
 
-        let mut read_opts = ReadOptions::default();
-        if let Some(upper) = prefix_upper_bound(&prefix_bytes) {
-            read_opts.set_iterate_upper_bound(upper);
-        }
-
-        self.db
-            .iterator_cf_opt(
-                cf,
-                read_opts,
-                IteratorMode::From(&prefix_bytes, Direction::Forward),
-            )
-            .map(|result| {
-                result
-                    .map_err(Error::RocksDb)
-                    .and_then(|(key, value)| decode_item(&key, &value))
-            })
+        // `range` copies its bounds, so the borrowed prefix need not outlive this call.
+        Ok(decode_items(items_table.range::<&[u8]>(prefix_bounds(
+            prefix_bytes,
+            upper.as_deref(),
+        ))?))
     }
 
     /// Iterate all items with the given valid digest.
     ///
-    /// The digest index is scanned and the referenced items are fetched in a single batched
-    /// `MultiGet` when this method is called (a digest shared by many captures would otherwise
-    /// cost one point lookup per capture); only decoding remains lazy in the returned iterator.
+    /// The digest index is scanned lazily and each referenced item is looked up as the iterator
+    /// advances. Both tables are read through one transaction, so the two views are consistent with
+    /// each other and the lookups walk B-tree pages the scan has already warmed.
     ///
     /// Digest-index entries whose item has since been re-inserted with a different digest are stale
     /// and are skipped rather than returned under the wrong digest.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
+    /// Returns an error if the read transaction cannot be opened; per-item lookup and decoding
+    /// errors are reported by the returned iterator.
     pub fn iter_by_digest(
         &self,
         digest: Sha1Digest,
-    ) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {
-        let cf_digest = self.cf(CF_DIGEST);
-        let cf_items = self.cf(CF_ITEMS);
+    ) -> Result<impl Iterator<Item = Result<StoredItem, Error>> + use<>, Error> {
+        let read_txn = self.db.begin_read()?;
+        let items_table = read_txn.open_table(ITEMS)?;
+        let digests_table = read_txn.open_table(DIGESTS)?;
 
-        let digest_prefix = digest.0;
-        let mut read_opts = ReadOptions::default();
-        if let Some(upper) = prefix_upper_bound(&digest_prefix) {
-            read_opts.set_iterate_upper_bound(upper);
-        }
+        let upper = prefix_upper_bound(&digest.0);
+        let index_entries =
+            digests_table.range::<&[u8]>(prefix_bounds(&digest.0, upper.as_deref()))?;
 
-        // Collect the item keys referenced by the digest index. The digest key layout is `20 bytes
-        // digest || surt || NUL || 8 bytes timestamp`, so stripping the shared 20-byte prefix
-        // recovers the item's column family key, and the stripped keys remain in ascending order.
-        let index_entries: Vec<Result<Vec<u8>, Error>> = self
-            .db
-            .iterator_cf_opt(
-                cf_digest,
-                read_opts,
-                IteratorMode::From(&digest_prefix, Direction::Forward),
-            )
-            .map(|result| {
-                result.map_err(Error::RocksDb).and_then(|(key_bytes, _)| {
-                    key_bytes
-                        .get(20..)
-                        .map(<[u8]>::to_vec)
-                        .ok_or(Error::DecodeDigestKeyTooShort)
-                })
-            })
-            .collect();
-
-        // Fetch every referenced item in one batched read instead of one `get_cf` per index
-        // entry. `sorted_input` is `true` because the keys come from an ascending prefix scan.
-        let mut item_values = self
-            .db
-            .batched_multi_get_cf(
-                cf_items,
-                index_entries
-                    .iter()
-                    .filter_map(|entry| entry.as_deref().ok()),
-                true,
-            )
-            .into_iter();
-
-        index_entries.into_iter().filter_map(move |entry| {
-            let decoded = entry.and_then(|items_key| {
-                // Exactly one `MultiGet` result was produced, in order, for each successfully
-                // collected key, so the two sequences cannot run out of step.
-                let raw_value = item_values
-                    .next()
-                    .expect("one MultiGet result per collected item key")
-                    .map_err(Error::RocksDb)?
-                    // A missing value means the index references an item row that does not
-                    // exist, exactly as a `None` from the point lookup did before batching.
+        // A redb read-only table and its ranges hold their own references to the transaction rather
+        // than borrowing it, so moving the table into the closure keeps both tables (and the
+        // snapshot they share) alive for exactly as long as the returned iterator.
+        Ok(index_entries.filter_map(move |entry| {
+            let decoded = entry.map_err(Error::from).and_then(|(key, _value)| {
+                // The digest key layout is `20 bytes digest || surt || NUL || 8 bytes timestamp`,
+                // so stripping the shared 20-byte prefix recovers the item table's key.
+                let item_key = key
+                    .value()
+                    .get(20..)
+                    .ok_or(Error::DecodeDigestKeyTooShort)?;
+                let raw_value = items_table
+                    .get(item_key)?
                     .ok_or(Error::DecodeIndexReferenceMissing)?;
-                decode_item(&items_key, &raw_value)
+
+                decode_item(item_key, raw_value.value())
             });
 
             match decoded {
@@ -671,7 +662,7 @@ impl CdxIndex {
                 Ok(item) if item.digest != Some(digest) => None,
                 other => Some(other),
             }
-        })
+        }))
     }
 
     /// Collect all items recorded for a digest (see [`iter_by_digest`](Self::iter_by_digest)).
@@ -679,30 +670,21 @@ impl CdxIndex {
     /// # Errors
     ///
     /// Returns an error if iteration or item decoding fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn items_by_digest(&self, digest: Sha1Digest) -> Result<Vec<StoredItem>, Error> {
-        self.iter_by_digest(digest).collect()
+        self.iter_by_digest(digest)?.collect()
     }
 
     /// Collect the captures (original URL and timestamp pairs) recorded for a digest.
     ///
-    /// This is the lookup shape expected by the `archivindex-wbm-json` enhance operation.
+    /// This is the lookup shape expected by the `archivindex-wbm-json-processing` enhance
+    /// operation.
     ///
     /// # Errors
     ///
     /// Returns an error if iteration or item decoding fails, or if a stored timestamp is out of
     /// range.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn captures_by_digest(&self, digest: Sha1Digest) -> Result<Vec<UrlParts<'static>>, Error> {
-        self.iter_by_digest(digest)
+        self.iter_by_digest(digest)?
             .map(|result| {
                 let item = result?;
                 let timestamp = Timestamp::try_from(item.timestamp_secs)
@@ -717,17 +699,16 @@ impl CdxIndex {
     ///
     /// Does not populate status; call [`get_status`](Self::get_status) separately when needed.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
-    pub fn iter_all(&self) -> impl Iterator<Item = Result<StoredItem, Error>> + '_ {
-        let cf = self.cf(CF_ITEMS);
-        self.db.iterator_cf(cf, IteratorMode::Start).map(|result| {
-            result
-                .map_err(Error::RocksDb)
-                .and_then(|(key, value)| decode_item(&key, &value))
-        })
+    /// Returns an error if the read transaction cannot be opened; per-item decoding errors are
+    /// reported by the returned iterator.
+    pub fn iter_all(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<StoredItem, Error>> + use<>, Error> {
+        let items_table = self.db.begin_read()?.open_table(ITEMS)?;
+
+        Ok(decode_items(items_table.range::<&[u8]>(..)?))
     }
 
     /// Get the effective status of an item, lazily resolving expired `InProgress` timeouts back to
@@ -735,37 +716,43 @@ impl CdxIndex {
     ///
     /// Items with no stored status (including items that were never inserted) report
     /// [`ItemStatus::Available`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn get_status(&self, surt: &str, timestamp_secs: i64) -> Result<ItemStatus, Error> {
-        let cf = self.cf(CF_STATUS);
         let key = item_key(surt, timestamp_secs);
-        self.db
-            .get_cf(cf, &key)?
-            .map_or(Ok(ItemStatus::Available), |raw| decode_status(&raw))
+        let statuses_table = self.db.begin_read()?.open_table(STATUSES)?;
+
+        statuses_table
+            .get(key.as_slice())?
+            .map_or(Ok(ItemStatus::Available), |raw| decode_status(raw.value()))
     }
 
     /// Set the status of an item.
     ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
+    /// [`ItemStatus::Available`] is the absence of a stored status, so setting it removes the row
+    /// rather than writing one.
     pub fn set_status(
         &self,
         surt: &str,
         timestamp_secs: i64,
         status: &ItemStatus,
     ) -> Result<(), Error> {
-        let cf = self.cf(CF_STATUS);
         let key = item_key(surt, timestamp_secs);
-        match status {
-            ItemStatus::Available => self.db.delete_cf(cf, &key)?,
-            other => self.db.put_cf(cf, &key, encode_status(other))?,
+        let write_txn = self.db.begin_write()?;
+
+        // Scoped so the table, which borrows the transaction, is dropped before the commit.
+        {
+            let mut statuses_table = write_txn.open_table(STATUSES)?;
+            match status {
+                ItemStatus::Available => {
+                    statuses_table.remove(key.as_slice())?;
+                }
+                other => {
+                    statuses_table.insert(key.as_slice(), encode_status(other).as_slice())?;
+                }
+            }
         }
+
+        write_txn.commit()?;
+
         Ok(())
     }
 
@@ -774,38 +761,19 @@ impl CdxIndex {
     /// This is a blind write, not an atomic check-and-set: it overwrites any existing status, and
     /// checking [`get_status`](Self::get_status) first does not close the race window. Concurrent
     /// claimers must coordinate externally (e.g. behind a mutex).
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn claim(&self, surt: &str, timestamp_secs: i64, duration: Duration) -> Result<(), Error> {
         let timeout = Utc::now() + duration;
         self.set_status(surt, timestamp_secs, &ItemStatus::InProgress { timeout })
     }
 
     /// Mark an item as done.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
     pub fn mark_done(&self, surt: &str, timestamp_secs: i64) -> Result<(), Error> {
         self.set_status(surt, timestamp_secs, &ItemStatus::Done)
     }
 
-    /// Approximate number of items in the index (uses `RocksDB`'s estimate).
-    ///
-    /// # Panics
-    ///
-    /// Panics if a column family handle is unavailable, which cannot happen when the database was
-    /// opened successfully via [`open`](Self::open).
-    pub fn item_count_approximate(&self) -> Result<u64, Error> {
-        let cf = self.cf(CF_ITEMS);
-        Ok(self
-            .db
-            .property_int_value_cf(cf, "rocksdb.estimate-num-keys")?
-            .unwrap_or(0))
+    /// Exact number of items in the index.
+    pub fn item_count(&self) -> Result<u64, Error> {
+        Ok(self.db.begin_read()?.open_table(ITEMS)?.len()?)
     }
 }
 
@@ -837,9 +805,11 @@ mod tests {
         }
     }
 
+    // A redb database is a single file, so the temporary directory is only a place to put it; it is
+    // returned so that it outlives the index.
     fn open_index() -> (tempfile::TempDir, CdxIndex) {
         let dir = tempfile::tempdir().expect("temp dir");
-        let index = CdxIndex::open(dir.path()).expect("open index");
+        let index = CdxIndex::open(dir.path().join("index.redb")).expect("open index");
         (dir, index)
     }
 
@@ -869,6 +839,7 @@ mod tests {
 
         let items: Vec<StoredItem> = index
             .iter_all()
+            .expect("open items iterator")
             .collect::<Result<_, _>>()
             .expect("iterate all");
 
@@ -983,6 +954,7 @@ mod tests {
 
         let items: Vec<StoredItem> = index
             .iter_by_surt_prefix("com,a")
+            .expect("open prefix iterator")
             .collect::<Result<_, _>>()
             .expect("iterate prefix");
 
@@ -1070,6 +1042,7 @@ mod tests {
         let surts = |digest| -> Vec<String> {
             index
                 .iter_by_digest(digest)
+                .expect("open digest iterator")
                 .map(|result| result.map(|item| item.surt))
                 .collect::<Result<_, _>>()
                 .expect("iterate digest")
@@ -1141,10 +1114,10 @@ mod tests {
     }
 
     #[test]
-    fn item_count_approximate_reports_inserted_items() {
+    fn item_count_reports_inserted_items() {
         let (_dir, index) = open_index();
 
-        assert_eq!(index.item_count_approximate().expect("count"), 0);
+        assert_eq!(index.item_count().expect("count"), 0);
 
         index
             .insert_batch([
@@ -1165,10 +1138,7 @@ mod tests {
             ])
             .expect("insert");
 
-        // `rocksdb.estimate-num-keys` is a heuristic (memtable entry counts plus per-SST
-        // estimates), so the assertion is deliberately loose: only nonzero is guaranteed after
-        // inserts, not the exact item count.
-        assert!(index.item_count_approximate().expect("count") > 0);
+        assert_eq!(index.item_count().expect("count"), 2);
     }
 
     #[test]

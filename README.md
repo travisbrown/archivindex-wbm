@@ -107,7 +107,7 @@ The crates:
   withheld by the Internet Archive).
 - `archivindex-wbm-cas`: Content-addressed storage for snapshot bytes, indexed by SHA-1 digest, with
   a `Store` trait covering saving, lookup, digest verification, and copying across backends.
-- `archivindex-wbm-cdx-index`: On-disk index of CDX items and capture metadata, backed by RocksDB.
+- `archivindex-wbm-cdx-index`: On-disk index of CDX items and capture metadata, backed by redb.
 - `archivindex-wbm-downloader`: HTTP downloader for Wayback Machine snapshots.
 
 There are also several command-line tools (not published):

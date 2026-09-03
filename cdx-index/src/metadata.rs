@@ -1,26 +1,32 @@
-//! Digest-keyed capture metadata store backed by `RocksDB` with Zstandard compression.
+//! Digest-keyed capture metadata store backed by [`redb`].
 //!
 //! Maps a fixed-length 20-byte SHA-1 digest to the captures (timestamp and original URL pairs)
-//! known for that content, kept sorted by timestamp. Inserts go through a `RocksDB` merge
-//! operator, so each write enqueues a single-entry operand instead of performing a
-//! read-modify-write; `RocksDB` folds the operands into a sorted, deduplicated list lazily during
-//! reads and compaction.
+//! known for that content, kept sorted by timestamp. redb has no merge operator, so
+//! [`MetadataDb::insert_batch`] groups a batch's captures by digest and folds each group into the
+//! stored value with a single read-modify-write per distinct digest, all in one transaction.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::item::UrlParts;
 use archivindex_wbm::timestamp::Timestamp;
-use rocksdb::{
-    BlockBasedOptions, DB, DBCompressionType, IteratorMode, MergeOperands, Options, WriteBatch,
-};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+
+use crate::from_redb_errors;
+
+/// Captures keyed by their content's 20-byte SHA-1 digest.
+///
+/// The key type is a fixed-width byte array, so redb rejects any key that is not exactly 20 bytes
+/// and orders keys by the same byte-wise comparison as [`Sha1Digest`]'s derived [`Ord`].
+const CAPTURES: TableDefinition<'_, &[u8; 20], &[u8]> = TableDefinition::new("captures");
 
 /// Errors returned by [`MetadataDb`] operations.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The underlying `RocksDB` instance failed to open, merge, read, or iterate.
-    #[error("RocksDB error: {0}")]
-    RocksDb(#[from] rocksdb::Error),
+    /// The underlying redb database failed to open, read, write, or iterate.
+    #[error("redb error: {0}")]
+    Redb(#[from] redb::Error),
     /// A stored URL was not valid UTF-8. URLs are written from a `&str`, so this indicates on-disk
     /// corruption rather than bad input.
     #[error("UTF-8 error: {0}")]
@@ -29,10 +35,6 @@ pub enum Error {
     /// used by the entry encoding.
     #[error("URL too long to encode: {0} bytes")]
     EncodeUrlTooLong(usize),
-    /// A key encountered during [`MetadataDb::iter`] is not exactly the 20 bytes of a SHA-1
-    /// digest.
-    #[error("digest key has wrong byte length: {0}")]
-    DecodeKeyWrongLength(usize),
     /// A stored value ended part-way through an entry, either within its 10-byte header or within
     /// the URL its header announced.
     #[error("truncated capture entry")]
@@ -42,6 +44,8 @@ pub enum Error {
     #[error("invalid Unix timestamp for capture: {0}")]
     DecodeInvalidCaptureSecs(i64),
 }
+
+from_redb_errors!(Error);
 
 /// Bytes preceding the URL in an encoded entry: an 8-byte timestamp plus a 2-byte URL length.
 const ENTRY_HEADER_LEN: usize = 10;
@@ -107,26 +111,17 @@ fn decode_captures(raw: &[u8]) -> Result<Vec<UrlParts<'static>>, Error> {
         .collect()
 }
 
-/// Associative merge operator: fold entry sequences into one sorted, deduplicated sequence.
+/// Fold the entries already encoded in `existing` together with `additions` into one sorted,
+/// deduplicated encoded value.
 ///
-/// Merge operators cannot report recoverable errors, so a corrupt trailing fragment (which cannot
-/// occur through this API) is dropped rather than propagated.
-// The `Option` return type is dictated by the RocksDB merge operator callback signature; `None`
-// would signal an unrecoverable merge failure.
-#[allow(clippy::unnecessary_wraps)]
-fn merge_captures(
-    _key: &[u8],
-    existing: Option<&[u8]>,
-    operands: &MergeOperands,
-) -> Option<Vec<u8>> {
-    let mut entries: Vec<(i64, &[u8])> = Vec::new();
+/// `existing` is the empty slice when the digest has no stored captures yet.
+fn merge_entries(existing: &[u8], additions: &[(i64, &[u8])]) -> Result<Vec<u8>, Error> {
+    let mut entries: Vec<(i64, &[u8])> =
+        RawEntries { bytes: existing }.collect::<Result<_, _>>()?;
+    entries.extend_from_slice(additions);
 
-    for chunk in existing.into_iter().chain(operands) {
-        entries.extend((RawEntries { bytes: chunk }).map_while(Result::ok));
-    }
-
-    // The inputs are concatenated sorted runs, which pattern-defeating quicksort handles in
-    // near-linear time.
+    // The stored entries are already a sorted run with the additions appended, which
+    // pattern-defeating quicksort handles in near-linear time.
     entries.sort_unstable();
     entries.dedup();
 
@@ -138,33 +133,31 @@ fn merge_captures(
     );
 
     for (timestamp_secs, url) in entries {
-        let url_len = u16::try_from(url.len()).expect("decoded URL length fits in u16");
+        // Both sources were length-checked against `u16` before they were encoded.
+        let url_len = u16::try_from(url.len()).map_err(|_| Error::EncodeUrlTooLong(url.len()))?;
         encode_entry(&mut merged, timestamp_secs, url_len, url);
     }
 
-    Some(merged)
+    Ok(merged)
 }
 
 /// On-disk digest-keyed capture metadata store.
 pub struct MetadataDb {
-    db: DB,
+    db: Database,
 }
 
 impl MetadataDb {
-    /// Open (or create) the store at `path`.
+    /// Open (or create) the store file at `path`.
+    ///
+    /// The captures table is created here, so the read paths below can open it unconditionally.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let mut block_opts = BlockBasedOptions::default();
-        block_opts.set_bloom_filter(10.0, false);
+        let db = Database::create(path)?;
 
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.set_compression_type(DBCompressionType::Zstd);
-        opts.set_block_based_table_factory(&block_opts);
-        opts.set_merge_operator_associative("capture-entries-merge", merge_captures);
+        let write_txn = db.begin_write()?;
+        write_txn.open_table(CAPTURES)?;
+        write_txn.commit()?;
 
-        Ok(Self {
-            db: DB::open(&opts, path)?,
-        })
+        Ok(Self { db })
     }
 
     /// Record a capture (timestamp and original URL) for a digest.
@@ -174,8 +167,8 @@ impl MetadataDb {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::EncodeUrlTooLong`] if `original` exceeds `u16::MAX` bytes, or
-    /// [`Error::RocksDb`] if the write fails.
+    /// Returns [`Error::EncodeUrlTooLong`] if `original` exceeds `u16::MAX` bytes, or an error from
+    /// [`insert_batch`](Self::insert_batch) if the write fails.
     pub fn insert(
         &self,
         digest: Sha1Digest,
@@ -186,40 +179,66 @@ impl MetadataDb {
     }
 
     /// Record a batch of `(digest, timestamp, original URL)` captures in a single atomic
-    /// `RocksDB` write.
+    /// transaction.
     ///
-    /// One merge operand is enqueued per capture, so writing a large input costs one `RocksDB`
-    /// write instead of one per capture. As with [`insert`](Self::insert), captures for a digest
+    /// Captures are grouped by digest first, so a digest that appears many times in the batch still
+    /// costs only one read-modify-write. As with [`insert`](Self::insert), captures for a digest
     /// are kept sorted by timestamp (then by URL), and exact duplicates are collapsed.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::EncodeUrlTooLong`] if any URL exceeds `u16::MAX` bytes (in which case
-    /// nothing is written), or [`Error::RocksDb`] if the write fails.
+    /// Returns [`Error::EncodeUrlTooLong`] if any URL exceeds `u16::MAX` bytes,
+    /// [`Error::DecodeTruncatedEntry`] if a stored value being merged into is corrupt, or
+    /// [`Error::Redb`] if the write fails. Nothing is written in any of those cases.
     pub fn insert_batch<'a>(
         &self,
         captures: impl IntoIterator<Item = (Sha1Digest, Timestamp, &'a str)>,
     ) -> Result<(), Error> {
-        let mut batch = WriteBatch::default();
-        // Reused across captures so each entry encoding does not allocate from scratch.
-        let mut entry = Vec::with_capacity(ENTRY_HEADER_LEN);
+        // Grouping up front collapses repeated digests into one read-modify-write each and rejects
+        // an unencodable URL before the transaction is opened. `BTreeMap` also hands the digests to
+        // redb in key order, which is the cheapest insertion order for its B-tree.
+        let mut grouped: BTreeMap<Sha1Digest, Vec<(i64, &'a [u8])>> = BTreeMap::new();
 
         for (digest, timestamp, original) in captures {
-            let url_bytes = original.as_bytes();
-            let url_len = u16::try_from(url_bytes.len())
-                .map_err(|_| Error::EncodeUrlTooLong(url_bytes.len()))?;
+            let url = original.as_bytes();
+            if u16::try_from(url.len()).is_err() {
+                return Err(Error::EncodeUrlTooLong(url.len()));
+            }
 
-            entry.clear();
-            encode_entry(&mut entry, i64::from(timestamp), url_len, url_bytes);
-            batch.merge(digest.0, &entry);
+            grouped
+                .entry(digest)
+                .or_default()
+                .push((i64::from(timestamp), url));
         }
 
-        self.db.write(batch)?;
+        let write_txn = self.db.begin_write()?;
+
+        // Scoped so the table, which borrows the transaction, is dropped before the commit.
+        {
+            let mut table = write_txn.open_table(CAPTURES)?;
+
+            for (digest, additions) in grouped {
+                // The access guard borrows the table immutably, so the merged value has to be
+                // materialized (and the guard dropped) before the insert can borrow it mutably.
+                let merged = {
+                    let existing = table.get(&digest.0)?;
+
+                    merge_entries(
+                        existing.as_ref().map_or(&[], |guard| guard.value()),
+                        &additions,
+                    )?
+                };
+
+                table.insert(&digest.0, merged.as_slice())?;
+            }
+        }
+
+        write_txn.commit()?;
 
         Ok(())
     }
 
-    /// Look up the captures for a batch of digests in a single `MultiGet` call.
+    /// Look up the captures for a batch of digests through a single read transaction.
     ///
     /// The result has the same length and order as `digests`, with `None` for digests that are not
     /// in the store.
@@ -227,26 +246,42 @@ impl MetadataDb {
         &self,
         digests: &[Sha1Digest],
     ) -> Result<Vec<Option<Vec<UrlParts<'static>>>>, Error> {
-        self.db
-            .multi_get(digests.iter().map(|digest| digest.0))
-            .into_iter()
-            .map(|result| result?.as_deref().map(decode_captures).transpose())
+        let table = self.db.begin_read()?.open_table(CAPTURES)?;
+
+        digests
+            .iter()
+            .map(|digest| {
+                table
+                    .get(&digest.0)?
+                    .map(|value| decode_captures(value.value()))
+                    .transpose()
+            })
             .collect()
     }
 
-    /// Iterate every capture in the store as `(digest, capture)` pairs, ordered by digest and
-    /// then by timestamp.
-    pub fn iter(
+    /// Iterate every capture in the store as `(digest, capture)` pairs, ordered by digest and then
+    /// by timestamp.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the read transaction cannot be opened; per-digest decoding errors are
+    /// reported by the returned iterator.
+    pub fn iter_all(
         &self,
-    ) -> impl Iterator<Item = Result<(Sha1Digest, UrlParts<'static>), Error>> + '_ {
-        self.db.iterator(IteratorMode::Start).flat_map(|result| {
-            let decoded = result.map_err(Error::RocksDb).and_then(|(key, value)| {
-                let digest = Sha1Digest(
-                    <[u8; 20]>::try_from(&*key)
-                        .map_err(|_| Error::DecodeKeyWrongLength(key.len()))?,
-                );
+    ) -> Result<impl Iterator<Item = Result<(Sha1Digest, UrlParts<'static>), Error>> + use<>, Error>
+    {
+        // The range keeps its read transaction alive on its own, so the returned iterator borrows
+        // neither the table nor this store.
+        let range = self
+            .db
+            .begin_read()?
+            .open_table(CAPTURES)?
+            .range::<&[u8; 20]>(..)?;
 
-                Ok((digest, decode_captures(&value)?))
+        Ok(range.flat_map(|entry| {
+            let decoded = entry.map_err(Error::from).and_then(|(key, value)| {
+                // The key type is `&[u8; 20]`, so redb has already rejected any other length.
+                Ok((Sha1Digest(*key.value()), decode_captures(value.value())?))
             });
 
             match decoded {
@@ -256,7 +291,7 @@ impl MetadataDb {
                     .collect::<Vec<_>>(),
                 Err(error) => vec![Err(error)],
             }
-        })
+        }))
     }
 }
 
@@ -272,10 +307,17 @@ mod tests {
         UrlParts::new(url.to_string(), timestamp(timestamp_input))
     }
 
+    // A redb database is a single file, so the temporary directory is only a place to put it; it is
+    // returned so that it outlives the store.
+    fn open_db() -> (tempfile::TempDir, MetadataDb) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
+        (dir, db)
+    }
+
     #[test]
     fn insert_sorts_by_timestamp_and_collapses_duplicates() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+        let (_dir, db) = open_db();
         let digest = Sha1Digest([1; 20]);
 
         db.insert(
@@ -310,8 +352,7 @@ mod tests {
 
     #[test]
     fn insert_batch_sorts_and_collapses_duplicates_across_batches() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+        let (_dir, db) = open_db();
         let first = Sha1Digest([6; 20]);
         let second = Sha1Digest([7; 20]);
 
@@ -357,8 +398,7 @@ mod tests {
 
     #[test]
     fn insert_batch_rejects_an_overlong_url_without_writing() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+        let (_dir, db) = open_db();
         let digest = Sha1Digest([8; 20]);
         let url = "a".repeat(usize::from(u16::MAX) + 1);
 
@@ -374,8 +414,7 @@ mod tests {
 
     #[test]
     fn multi_get_preserves_order_and_reports_missing_digests() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+        let (_dir, db) = open_db();
         let present = Sha1Digest([2; 20]);
         let missing = Sha1Digest([3; 20]);
 
@@ -420,26 +459,53 @@ mod tests {
     }
 
     #[test]
-    fn iter_errors_on_wrong_length_digest_key() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+    fn merge_entries_folds_and_deduplicates_against_stored_bytes() {
+        let mut existing = Vec::new();
+        encode_entry(&mut existing, 1_600_000_000, 1, b"a");
+        encode_entry(&mut existing, 1_700_000_000, 1, b"c");
 
-        // Bypass the typed API to plant a key that is not a 20-byte SHA-1 digest; the typed API
-        // cannot write one, so this simulates on-disk corruption.
-        db.db.put([0u8; 19], []).expect("raw put");
+        let merged = merge_entries(
+            &existing,
+            // One duplicate of a stored entry, one that sorts between them.
+            &[(1_600_000_000, b"a"), (1_650_000_000, b"b")],
+        )
+        .expect("merge");
 
-        let results: Vec<Result<(Sha1Digest, UrlParts<'static>), Error>> = db.iter().collect();
+        assert_eq!(
+            RawEntries { bytes: &merged }
+                .collect::<Result<Vec<_>, _>>()
+                .expect("decode merged"),
+            vec![
+                (1_600_000_000, &b"a"[..]),
+                (1_650_000_000, &b"b"[..]),
+                (1_700_000_000, &b"c"[..]),
+            ]
+        );
+    }
+
+    #[test]
+    fn insert_batch_reports_a_corrupt_stored_value() {
+        let (_dir, db) = open_db();
+        let digest = Sha1Digest([9; 20]);
+
+        // Bypass the typed API to plant a value that is not a sequence of whole entries; the typed
+        // API cannot write one, so this simulates on-disk corruption.
+        let write_txn = db.db.begin_write().expect("begin write");
+        {
+            let mut table = write_txn.open_table(CAPTURES).expect("open table");
+            table.insert(&digest.0, &[0u8; 3][..]).expect("raw insert");
+        }
+        write_txn.commit().expect("commit");
 
         assert!(matches!(
-            results.as_slice(),
-            [Err(Error::DecodeKeyWrongLength(19))]
+            db.insert(digest, timestamp("20220601000000"), "http://example.com/"),
+            Err(Error::DecodeTruncatedEntry)
         ));
     }
 
     #[test]
     fn iter_yields_all_captures_in_digest_then_timestamp_order() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let db = MetadataDb::open(dir.path()).expect("open db");
+        let (_dir, db) = open_db();
         let first = Sha1Digest([4; 20]);
         let second = Sha1Digest([5; 20]);
 
@@ -451,7 +517,8 @@ mod tests {
             .expect("insert");
 
         let all = db
-            .iter()
+            .iter_all()
+            .expect("open iterator")
             .collect::<Result<Vec<_>, _>>()
             .expect("iterate all captures");
 

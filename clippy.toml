@@ -1,7 +1,6 @@
 doc-valid-idents = [
   "Base32",
   "JSONL",
-  "RocksDB",
   "SQLite",
   "Wayback",
   "Zstandard",

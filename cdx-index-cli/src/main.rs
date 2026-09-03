@@ -1,4 +1,4 @@
-//! Command-line tool over the `RocksDB` CDX item index.
+//! Command-line tool over the redb-backed CDX item index.
 //!
 //! Fills the index from CDX JSON files, reports statistics, lists items whose digest is absent from
 //! given snapshot or digest files, and builds a digest-keyed capture metadata database.
@@ -29,8 +29,8 @@ fn main() -> Result<(), Error> {
 
         Command::Stats { db } => {
             let index = CdxIndex::open(&db)?;
-            let count = index.item_count_approximate()?;
-            println!("items (approximate): {count}");
+            let count = index.item_count()?;
+            println!("items: {count}");
         }
 
         Command::MissingFrom {
@@ -49,7 +49,7 @@ fn main() -> Result<(), Error> {
             if let Some(order) = sort {
                 // Collect, sort by timestamp, then print.
                 let mut items: Vec<StoredItem> = Vec::new();
-                for result in index.iter_all() {
+                for result in index.iter_all()? {
                     let item = result?;
                     if is_missing(&item, &excluded) {
                         items.push(item);
@@ -66,7 +66,7 @@ fn main() -> Result<(), Error> {
                 }
             } else {
                 // Stream in natural SURT and timestamp order.
-                for result in index.iter_all() {
+                for result in index.iter_all()? {
                     let item = result?;
                     if is_missing(&item, &excluded) {
                         write_item(&mut writer, &item)?;
@@ -177,17 +177,12 @@ fn import_metadata(db: &Path, index: &Path) -> Result<(), Error> {
     let index = CdxIndex::open(index)?;
     let metadata = MetadataDb::open(db)?;
 
-    // The item count is a RocksDB estimate, so the bar length is approximate.
-    let progress = progress_bar(
-        index.item_count_approximate()?,
-        "Importing CDX index",
-        "items",
-    );
+    let progress = progress_bar(index.item_count()?, "Importing CDX index", "items");
 
     let mut inserted = 0u64;
     let mut skipped = 0u64;
 
-    for result in index.iter_all() {
+    for result in index.iter_all()? {
         let item = result?;
         progress.inc(1);
 
@@ -409,7 +404,7 @@ enum Command {
     /// Read directories of CDX JSON files (searched recursively) and insert all items into the
     /// index.
     Fill {
-        /// Path to the `RocksDB` index directory (created if absent).
+        /// Path to the index database file (created if absent).
         #[clap(long)]
         db: PathBuf,
         /// Directory containing CDX JSON response files, searched recursively for `.json` files
@@ -419,7 +414,7 @@ enum Command {
     },
     /// Print index statistics.
     Stats {
-        /// Path to the `RocksDB` index directory.
+        /// Path to the index database file.
         #[clap(long)]
         db: PathBuf,
     },
@@ -427,7 +422,7 @@ enum Command {
     ///
     /// Output is CSV: digest, timestamp (Unix seconds), SURT, original URL.
     MissingFrom {
-        /// Path to the `RocksDB` index directory.
+        /// Path to the index database file.
         #[clap(long)]
         db: PathBuf,
         /// Compact snapshot Zstandard-compressed JSONL file to read digests from (may be
@@ -453,10 +448,10 @@ enum MetadataCommand {
     /// Every index item with a valid digest is recorded as a capture (timestamp and original URL)
     /// under that digest; items with invalid digests are skipped.
     Import {
-        /// Path to the `RocksDB` metadata database directory (created if absent).
+        /// Path to the metadata database file (created if absent).
         #[clap(long)]
         db: PathBuf,
-        /// Path to the `RocksDB` CDX index directory to import from.
+        /// Path to the CDX index database file to import from.
         #[clap(long)]
         index: PathBuf,
     },
@@ -465,7 +460,7 @@ enum MetadataCommand {
     /// Every item with a valid digest is recorded as a capture (timestamp and original URL) under
     /// that digest; items with invalid digests are skipped.
     Fill {
-        /// Path to the `RocksDB` metadata database directory (created if absent).
+        /// Path to the metadata database file (created if absent).
         #[clap(long)]
         db: PathBuf,
         /// Directory containing CDX JSON response files, searched recursively for `.json` files
