@@ -219,6 +219,10 @@ pub struct Database {
     connection: Arc<Mutex<Connection>>,
 }
 
+// Every method here holds the connection guard returned by `lock` for its whole body, since the
+// connection is what the body works with; there is no narrower scope to move the guard into.
+// The attribute sits on the block so that the six methods it covers do not each repeat it.
+#[allow(clippy::significant_drop_tightening)]
 impl Database {
     /// Creates a new database from an existing SQLite connection.
     pub fn new(connection: Connection) -> Result<Self, rusqlite::Error> {
@@ -275,15 +279,9 @@ impl Database {
     /// digest, and actual digest are already recorded. A duplicate keeps its original
     /// observation time.
     ///
-    /// # Arguments
-    ///
-    /// * `entry` - The invalid digest entry containing item info and actual digest
-    /// * `timestamp` - When this invalid digest was observed
-    ///
-    /// # Returns
+    /// # Errors
     ///
     /// Returns an error if the database write fails.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn insert_invalid_digest(
         &self,
         entry: &Entry<'_>,
@@ -305,12 +303,7 @@ impl Database {
     ///
     /// # Errors
     ///
-    /// # Returns
-    ///
-    /// * `Ok(true)` - A new row was inserted
-    /// * `Ok(false)` - This `(url, timestamp)` pair already exists (no insertion)
-    /// * `Err(_)` - Database error occurred
-    #[allow(clippy::significant_drop_tightening)]
+    /// Returns an error if the database write fails.
     pub fn insert_withheld(
         &self,
         url: &str,
@@ -335,7 +328,6 @@ impl Database {
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries observed at or after this
     ///   timestamp are returned. If `None`, all entries are returned.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn invalid_digests(
         &self,
         from: Option<DateTime<Utc>>,
@@ -359,7 +351,6 @@ impl Database {
     ///
     /// * `from` - Optional starting timestamp. If `Some`, only entries observed at or after this
     ///   timestamp are returned. If `None`, all entries are returned.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn withheld_urls(
         &self,
         from: Option<DateTime<Utc>>,
@@ -385,9 +376,7 @@ impl Database {
     ///
     /// # Errors
     ///
-    /// * `Ok(())` - Merge completed successfully
-    /// * `Err(_)` - Database error occurred
-    #[allow(clippy::significant_drop_tightening)]
+    /// Returns an error if reading the source or writing the destination fails.
     pub fn merge(&self, other: &Self) -> Result<(), rusqlite::Error> {
         // Guard against taking the same non-reentrant lock twice, which would deadlock.
         if Arc::ptr_eq(&self.connection, &other.connection) {
@@ -449,7 +438,6 @@ impl Database {
     /// into a fresh database reproduces the original. Importing into a populated database adds the
     /// missing rows, but, unlike [`merge`](Self::merge), leaves the observation timestamps of
     /// existing invalid-digest rows unchanged.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn import(&self, export: &Export) -> Result<(), rusqlite::Error> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
