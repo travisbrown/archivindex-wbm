@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
 const TIMESTAMP_FMT: &str = "%Y%m%d%H%M%S";
@@ -133,22 +133,7 @@ impl FromStr for Timestamp {
 
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct TimestampVisitor;
-
-        impl Visitor<'_> for TimestampVisitor {
-            type Value = Timestamp;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct Timestamp")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                v.parse()
-                    .map_err(|_| serde::de::Error::invalid_value(Unexpected::Str(v), &self))
-            }
-        }
-
-        deserializer.deserialize_str(TimestampVisitor)
+        crate::de::from_str(deserializer, "struct Timestamp")
     }
 }
 

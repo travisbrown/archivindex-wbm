@@ -6,6 +6,7 @@ use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Vi
 
 use crate::cdx::mime_type::MimeType;
 use crate::cdx::status_code::StatusCode;
+use crate::de::BorrowableCow;
 use crate::digest::Digest;
 use crate::surt::Surt;
 use crate::timestamp::Timestamp;
@@ -26,43 +27,6 @@ const ITEM_LIST_HEADER: [&str; 7] = [
     "digest",
     "length",
 ];
-
-/// A `Cow<str>` that borrows from the deserializer input when possible.
-///
-/// Serde's stock `Cow` deserialization always produces `Cow::Owned`; this wrapper implements the
-/// zero-copy path for borrowed input (the common case when parsing a response held in memory).
-struct BorrowableCow<'a>(Cow<'a, str>);
-
-impl<'de> Deserialize<'de> for BorrowableCow<'de> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct BorrowableCowVisitor;
-
-        impl<'de> Visitor<'de> for BorrowableCowVisitor {
-            type Value = BorrowableCow<'de>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a string")
-            }
-
-            fn visit_borrowed_str<E: serde::de::Error>(
-                self,
-                v: &'de str,
-            ) -> Result<Self::Value, E> {
-                Ok(BorrowableCow(Cow::Borrowed(v)))
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                Ok(BorrowableCow(Cow::Owned(v.to_string())))
-            }
-
-            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
-                Ok(BorrowableCow(Cow::Owned(v)))
-            }
-        }
-
-        deserializer.deserialize_str(BorrowableCowVisitor)
-    }
-}
 
 /// The standard seven-field CDX index record.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

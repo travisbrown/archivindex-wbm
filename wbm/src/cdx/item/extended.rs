@@ -4,6 +4,7 @@ use std::borrow::Cow;
 
 use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 
+use crate::de::BorrowableCow;
 use crate::surt::Surt;
 
 const INVALID_LENGTH_MESSAGE: &str = "expected 11 elements";
@@ -60,10 +61,9 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                         let (timestamp, original, mime_type, status_code, digest) =
                             super::read_shared_fields(&mut seq, INVALID_LENGTH_MESSAGE)?;
 
-                        let super::BorrowableCow(redirect_str) =
-                            seq.next_element()?.ok_or_else(|| {
-                                serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
-                            })?;
+                        let BorrowableCow(redirect_str) = seq.next_element()?.ok_or_else(|| {
+                            serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
+                        })?;
 
                         let redirect = if redirect_str == "-" {
                             None
@@ -71,7 +71,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             Some(redirect_str)
                         };
 
-                        let super::BorrowableCow(robot_flags_str) =
+                        let BorrowableCow(robot_flags_str) =
                             seq.next_element()?.ok_or_else(|| {
                                 serde::de::Error::invalid_length(7, &INVALID_LENGTH_MESSAGE)
                             })?;
@@ -98,10 +98,9 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             serde::de::Error::invalid_value(Unexpected::Str(offset_str), &"offset")
                         })?;
 
-                        let super::BorrowableCow(file_name) =
-                            seq.next_element()?.ok_or_else(|| {
-                                serde::de::Error::invalid_length(10, &INVALID_LENGTH_MESSAGE)
-                            })?;
+                        let BorrowableCow(file_name) = seq.next_element()?.ok_or_else(|| {
+                            serde::de::Error::invalid_length(10, &INVALID_LENGTH_MESSAGE)
+                        })?;
 
                         let end: Option<IgnoredAny> = seq.next_element()?;
 

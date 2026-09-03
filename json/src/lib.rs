@@ -32,6 +32,7 @@
 //! File I/O, batch processing, and CDX matching are provided by `archivindex-wbm-json-processing`.
 use std::borrow::Cow;
 
+use archivindex_wbm::de::BorrowableCow;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::timestamp::Timestamp;
 
@@ -50,62 +51,27 @@ use crate::format::FormatInfo;
 /// only generates a borrowing implementation for bare `Cow` fields, not for `Cow` inside
 /// `Option`, so [`Snapshot`]'s optional string fields use this function explicitly (with `borrow`
 /// still supplying the `'de: 'a` bound).
+///
+/// # Arguments
+///
+/// * `deserializer` - The deserializer to read an optional string from
+///
+/// # Returns
+///
+/// The string, borrowed where the input allows it, or `None`
+///
+/// # Errors
+///
+/// Returns the deserializer's own error if the input is neither a string nor null.
 fn deserialize_borrowed_option_str<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<Cow<'de, str>>, D::Error> {
-    /// Visits the string itself, borrowing when the input allows it.
-    struct StrVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for StrVisitor {
-        type Value = Cow<'de, str>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("a string")
-        }
-
-        fn visit_borrowed_str<E: serde::de::Error>(
-            self,
-            value: &'de str,
-        ) -> Result<Self::Value, E> {
-            Ok(Cow::Borrowed(value))
-        }
-
-        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
-            Ok(Cow::Owned(value.to_owned()))
-        }
-
-        fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
-            Ok(Cow::Owned(value))
-        }
-    }
-
-    /// Visits the `Option` layer around the string.
-    struct OptionVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for OptionVisitor {
-        type Value = Option<Cow<'de, str>>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("an optional string")
-        }
-
-        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_some<D: serde::de::Deserializer<'de>>(
-            self,
-            deserializer: D,
-        ) -> Result<Self::Value, D::Error> {
-            deserializer.deserialize_str(StrVisitor).map(Some)
-        }
-    }
-
-    deserializer.deserialize_option(OptionVisitor)
+    // The stock `Option` impl supplies the `null`/`Some` layer, leaving `BorrowableCow` to do the
+    // borrowing that `Cow`'s own impl will not.
+    Ok(
+        <Option<BorrowableCow<'de>> as serde::de::Deserialize>::deserialize(deserializer)?
+            .map(|BorrowableCow(value)| value),
+    )
 }
 
 /// Errors encountered while reading snapshot lines.

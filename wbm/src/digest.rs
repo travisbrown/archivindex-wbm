@@ -9,7 +9,7 @@ use std::io::Read;
 use std::str::FromStr;
 
 use data_encoding::BASE32;
-use serde::de::{Deserialize, Deserializer, Unexpected, Visitor};
+use serde::de::{Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 use sha1::Digest as _;
 
@@ -301,22 +301,7 @@ impl TryFrom<&[u8]> for Sha1Digest {
 
 impl<'de> Deserialize<'de> for Sha1Digest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Sha1DigestVisitor;
-
-        impl Visitor<'_> for Sha1DigestVisitor {
-            type Value = Sha1Digest;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct Sha1Digest")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                v.parse()
-                    .map_err(|_| serde::de::Error::invalid_value(Unexpected::Str(v), &self))
-            }
-        }
-
-        deserializer.deserialize_str(Sha1DigestVisitor)
+        crate::de::from_str(deserializer, "struct Sha1Digest")
     }
 }
 
