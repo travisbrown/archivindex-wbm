@@ -5,10 +5,9 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Context as _;
+use archivindex_cdx::query::Request;
 use archivindex_cli_support::{CommandOutcome, Verbosity};
-use archivindex_wbm_cdx_client::{
-    CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT, Request,
-};
+use archivindex_wbm_cdx_client::{CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT};
 use clap::Parser;
 
 mod extract;
@@ -198,7 +197,7 @@ struct ArchiveOptions {
 mod tests {
     use std::time::Duration;
 
-    use archivindex_wbm_cdx_client::{MatchType, Request};
+    use archivindex_cdx::query::{MatchType, Request};
     use clap::{CommandFactory as _, Parser as _};
 
     use super::{Command, Options};

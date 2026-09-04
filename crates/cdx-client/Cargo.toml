@@ -23,7 +23,7 @@ bundled = ["archivindex-archiver/bundled"]
 
 [dependencies]
 archivindex-archiver.workspace = true
-serde.workspace = true
+archivindex-cdx.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
