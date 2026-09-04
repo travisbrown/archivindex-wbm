@@ -309,7 +309,10 @@ fn earliest_capture<'a>(
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end scenario, whose setup and assertions belong together"
+)]
 fn pack_and_enhance_truthsocial_examples() {
     let dir = tempfile::tempdir().expect("tempdir");
     let invalid_db = dir.path().join("invalid.db");

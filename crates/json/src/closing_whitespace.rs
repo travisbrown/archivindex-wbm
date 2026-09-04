@@ -41,8 +41,10 @@ pub fn deserialize<'de, D: Deserializer<'de>>(
         .map_or(Ok(None), |value| value.map(Some))
 }
 
-// We are constrained by the requirements for attribute modules, so Clippy is wrong here.
-#[allow(clippy::ref_option)]
+#[expect(
+    clippy::ref_option,
+    reason = "the signature is fixed by `serde`'s `with` attribute modules"
+)]
 pub fn serialize<S: Serializer>(
     value: &Option<Vec<char>>,
     serializer: S,

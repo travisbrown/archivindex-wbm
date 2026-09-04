@@ -279,8 +279,10 @@ impl bounded_static::IntoBoundedStatic for Item<'_> {
     }
 }
 
-// Simple internal function, so we don't care what Clippy says.
-#[allow(clippy::option_option)]
+#[expect(
+    clippy::option_option,
+    reason = "the outer option reports a parse failure and the inner one the CDX `-` placeholder"
+)]
 fn parse_length(input: &str) -> Option<Option<i64>> {
     if input == "-" {
         Some(None)

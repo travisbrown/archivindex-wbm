@@ -34,7 +34,7 @@ use serde_json::{Map, Value};
 
 mod go_flate;
 #[cfg(feature = "zlib")]
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "the module wraps the zlib FFI")]
 mod zlib_stream;
 
 /// The codec's format name, stored as `type` inside the snapshot's `format` object.
@@ -196,8 +196,12 @@ impl GzipParams {
     /// out-of-range `level` would panic and stray `flushes` or `extra_flushes` would otherwise be
     /// dropped, yielding an archive that silently differs from the original.
     #[must_use]
-    // Only const without the `zlib` feature, whose arm needs (non-const) slice iterators.
-    #[allow(clippy::missing_const_for_fn)]
+    // `allow` rather than `expect`: with the `zlib` feature the lint does not fire at all.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "only const without the `zlib` feature, whose arm needs (non-const) slice \
+                  iterators"
+    )]
     pub fn is_reproducible(&self) -> bool {
         match self.compressor {
             // The Go-flate port only implements levels 4..=9, and writes a single self-contained
@@ -226,12 +230,15 @@ impl GzipParams {
     /// Whether [`reproduce`](Self::reproduce) supports content of `len` bytes for these parameters.
     ///
     /// The Go port handles any length, while the zlib streaming path is bounded by the C API's
-    /// 32-bit counters (about 2 GiB of content, less for each mid-stream flush marker) and
-    /// requires the `flushes` offsets to fall inside the content; [`codec`] screens with this so
-    /// unsupported content falls back to the unreproduced bytes (a digest mismatch) instead of
-    /// panicking.
-    // Only const without the `zlib` feature, whose arm needs (non-const) slice iterators.
-    #[allow(clippy::missing_const_for_fn)]
+    /// 32-bit counters (about 2 GiB of content, less for each mid-stream flush marker) and requires
+    /// the `flushes` offsets to fall inside the content; [`codec`] screens with this so unsupported
+    /// content falls back to the unreproduced bytes (a digest mismatch) instead of panicking.
+    // `allow` rather than `expect`: with the `zlib` feature the lint does not fire at all.
+    #[allow(
+        clippy::missing_const_for_fn,
+        reason = "only const without the `zlib` feature, whose arm needs (non-const) slice \
+                  iterators"
+    )]
     fn supports_content_len(&self, len: usize) -> bool {
         match self.compressor {
             Compressor::GoFlate => true,
@@ -379,8 +386,10 @@ fn footer(content: &[u8]) -> [u8; FOOTER_LEN] {
 
     let mut bytes = [0u8; FOOTER_LEN];
     bytes[..4].copy_from_slice(&crc.sum().to_le_bytes());
-    // ISIZE is the content length modulo `2 ^ 32`, so truncation is intentional.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "ISIZE is the content length modulo `2 ^ 32`"
+    )]
     bytes[4..].copy_from_slice(&(content.len() as u32).to_le_bytes());
     bytes
 }

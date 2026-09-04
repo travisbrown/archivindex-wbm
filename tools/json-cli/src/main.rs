@@ -45,11 +45,12 @@ async fn main() -> ExitCode {
 ///
 /// # Errors
 ///
-/// Returns an error if an input file cannot be read or parsed, an output file cannot be written,
-/// or CDX metadata resolution fails.
-// `run` is a flat dispatch over many subcommands; each arm is self contained, so a single match
-// reads better than splitting it.
-#[allow(clippy::too_many_lines)]
+/// Returns an error if an input file cannot be read or parsed, an output file cannot be written, or
+/// CDX metadata resolution fails.
+#[expect(
+    clippy::too_many_lines,
+    reason = "keeps subcommand dispatch in one match"
+)]
 async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbosity.init_logging();
@@ -680,7 +681,6 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[arg(long)]
         cdx: Vec<PathBuf>,
-        #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
         #[arg(long)]
         invalid_db: PathBuf,
@@ -709,7 +709,6 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[arg(long)]
         cdx: Vec<PathBuf>,
-        #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
         #[arg(long)]
         invalid_db: PathBuf,
@@ -753,7 +752,6 @@ enum Command {
         /// Directories containing CDX JSON files.
         #[arg(long)]
         cdx: Vec<PathBuf>,
-        #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
         #[arg(long)]
         invalid_db: PathBuf,

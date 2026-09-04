@@ -52,7 +52,10 @@ fn insert_invalid_digest(
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one end-to-end scenario, whose setup and assertions belong together"
+)]
 fn pack_enhance_check_round_trip() {
     let dir = tempfile::tempdir().expect("tempdir");
     let data_dir = dir.path().join("data");

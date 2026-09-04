@@ -278,8 +278,10 @@ fn wxj_urls(input: &Path, include_timestamped: bool) -> Result<(), anyhow::Error
 /// # Errors
 ///
 /// Returns an error if an input cannot be read or parsed, or the output cannot be written.
-// The percentage log casts small counts to `f64`.
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the percentage log casts small counts to `f64`"
+)]
 fn wxj_enhance(options: &WxjEnhanceOptions) -> Result<(), anyhow::Error> {
     let WxjEnhanceOptions {
         data,

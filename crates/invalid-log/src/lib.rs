@@ -219,10 +219,12 @@ pub struct Database {
     connection: Arc<Mutex<Connection>>,
 }
 
-// Every method here holds the connection guard returned by `lock` for its whole body, since the
-// connection is what the body works with; there is no narrower scope to move the guard into.
 // The attribute sits on the block so that the six methods it covers do not each repeat it.
-#[allow(clippy::significant_drop_tightening)]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "every method holds the connection guard returned by `lock` for its whole body, \
+              since the connection is what the body works with"
+)]
 impl Database {
     /// Creates a new database from an existing SQLite connection.
     pub fn new(connection: Connection) -> Result<Self, rusqlite::Error> {
