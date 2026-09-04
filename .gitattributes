@@ -1,0 +1,5 @@
+# These archived responses are content-addressed, including the plain JSON files.
+/crates/json-processing/tests/data/truthsocial/snapshots/* -text
+
+# The end-to-end test compares the exact serialized output, including line terminators.
+/crates/json-processing/tests/data/truthsocial/output/* text eol=lf
