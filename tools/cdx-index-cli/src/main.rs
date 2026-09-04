@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
+use archivindex_cli_support::progress::bar;
 use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::cdx::item::ItemList;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
@@ -19,7 +20,7 @@ use archivindex_wbm_cdx_index::metadata::MetadataDb;
 use archivindex_wbm_cdx_index::{CdxIndex, StoredItem};
 use archivindex_wbm_json::exact::ExactSnapshot;
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
 
 fn main() -> ExitCode {
     archivindex_cli_support::exit_code(run())
@@ -38,7 +39,7 @@ fn main() -> ExitCode {
 /// cannot be read, or a stored timestamp is outside the representable range.
 fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging();
+    opts.verbosity.init_logging();
 
     match opts.command {
         Command::Fill { db, input } => {
@@ -122,7 +123,7 @@ fn for_each_item_list(
     let paths = paths::json_files(input, paths::Depth::Recursive, paths::Order::Path)?;
     let file_count = paths.len();
 
-    let progress = progress_bar(file_count as u64, message, "files");
+    let progress = bar(file_count as u64, message, Some("files"));
 
     let mut skipped = 0usize;
 
@@ -196,7 +197,7 @@ fn import_metadata(db: &Path, index: &Path) -> Result<(), anyhow::Error> {
     let index = open_index(index)?;
     let metadata = open_metadata(db)?;
 
-    let progress = progress_bar(index.item_count()?, "Importing CDX index", "items");
+    let progress = bar(index.item_count()?, "Importing CDX index", Some("items"));
 
     let mut inserted = 0u64;
     let mut skipped = 0u64;
@@ -271,19 +272,6 @@ fn fill_metadata(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
     );
 
     Ok(())
-}
-
-/// Create a progress bar of `len` steps, labelled with `message` and counting units named `unit`.
-fn progress_bar(len: u64, message: &'static str, unit: &str) -> ProgressBar {
-    let progress = ProgressBar::new(len);
-    progress.set_style(
-        ProgressStyle::with_template(&format!(
-            "{{msg}} [{{bar:40}}] {{human_pos}}/{{human_len}} {unit} ({{eta}})"
-        ))
-        .expect("valid progress bar template"),
-    );
-    progress.set_message(message);
-    progress
 }
 
 /// Returns `true` when the item has a valid digest that is absent from `excluded`.
@@ -378,11 +366,11 @@ fn open_metadata(path: &Path) -> Result<MetadataDb, anyhow::Error> {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-cdx-index", version, author)]
+#[command(name = "archivindex-wbm-cdx-index", version, author)]
 struct Opts {
-    #[clap(flatten)]
-    verbose: Verbosity,
-    #[clap(subcommand)]
+    #[command(flatten)]
+    verbosity: Verbosity,
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -400,17 +388,17 @@ enum Command {
     /// index.
     Fill {
         /// Path to the index database file (created if absent).
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
         /// Directory containing CDX JSON response files, searched recursively for `.json` files
         /// (may be repeated).
-        #[clap(long)]
+        #[arg(long)]
         input: Vec<PathBuf>,
     },
     /// Print index statistics.
     Stats {
         /// Path to the index database file.
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
     },
     /// Print index items whose digest is absent from the given snapshot or digest files.
@@ -418,21 +406,21 @@ enum Command {
     /// Output is CSV: digest, timestamp (Unix seconds), SURT, original URL.
     MissingFrom {
         /// Path to the index database file.
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
         /// Compact snapshot Zstandard-compressed JSONL file to read digests from (may be
         /// repeated).
-        #[clap(long)]
+        #[arg(long)]
         snapshot: Vec<PathBuf>,
-        /// Text file with one base32-encoded SHA-1 digest per line (may be repeated).
-        #[clap(long)]
+        /// Text file with one Base32-encoded SHA-1 digest per line (may be repeated).
+        #[arg(long)]
         digest_file: Vec<PathBuf>,
         /// Sort output by capture timestamp.
-        #[clap(long, value_enum)]
+        #[arg(long, value_enum)]
         sort: Option<SortOrder>,
     },
     /// Operate on the digest-keyed capture metadata database.
-    #[clap(subcommand)]
+    #[command(subcommand)]
     Metadata(MetadataCommand),
 }
 
@@ -444,10 +432,10 @@ enum MetadataCommand {
     /// under that digest; items with invalid digests are skipped.
     Import {
         /// Path to the metadata database file (created if absent).
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
         /// Path to the CDX index database file to import from.
-        #[clap(long)]
+        #[arg(long)]
         index: PathBuf,
     },
     /// Fill the metadata database from directories of CDX JSON files (searched recursively).
@@ -456,11 +444,11 @@ enum MetadataCommand {
     /// that digest; items with invalid digests are skipped.
     Fill {
         /// Path to the metadata database file (created if absent).
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
         /// Directory containing CDX JSON response files, searched recursively for `.json` files
         /// (may be repeated).
-        #[clap(long)]
+        #[arg(long)]
         input: Vec<PathBuf>,
     },
 }

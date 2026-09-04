@@ -139,12 +139,12 @@ fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-cdx-client", version, author, about)]
+#[command(name = "archivindex-wbm-cdx-client", version, author, about)]
 struct Options {
-    #[clap(flatten)]
+    #[command(flatten)]
     verbosity: Verbosity,
 
-    #[clap(subcommand)]
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -155,8 +155,7 @@ enum Command {
     /// Extract capture metadata from archived CDX responses as headerless CSV.
     Extract {
         /// WARC files to read, in output order; plain and gzip files are detected automatically.
-        #[clap(
-            long,
+        #[arg(long,
             required = true,
             value_name = "FILE",
             value_hint = clap::ValueHint::FilePath
@@ -168,31 +167,30 @@ enum Command {
 #[derive(Debug, clap::Args)]
 struct ArchiveOptions {
     /// The WARC file to write; an existing file is not overwritten.
-    #[clap(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+    #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     output: PathBuf,
 
     /// The CDX server endpoint.
-    #[clap(long, default_value = DEFAULT_ENDPOINT)]
+    #[arg(long, default_value = DEFAULT_ENDPOINT)]
     endpoint: String,
 
     /// Write independently compressed gzip WARC records.
-    #[clap(long)]
+    #[arg(long)]
     gzip: bool,
 
     /// Follow CDX resumption keys until each query is exhausted.
-    #[clap(long)]
+    #[arg(long)]
     resume: bool,
 
     /// Total attempts for transient failures, including the initial request.
-    #[clap(
-        long,
+    #[arg(long,
         default_value_t = DEFAULT_RETRY_ATTEMPTS,
         value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
     )]
     retry_attempts: usize,
 
     /// Delay between successive requests in the session.
-    #[clap(long, value_name = "DURATION", value_parser = humantime::parse_duration)]
+    #[arg(long, value_name = "DURATION", value_parser = humantime::parse_duration)]
     request_delay: Option<Duration>,
 }
 

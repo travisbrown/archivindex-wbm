@@ -33,7 +33,7 @@ async fn main() -> ExitCode {
 /// be built, a store cannot be read, or an invalid-digest database operation fails.
 async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging();
+    opts.verbosity.init_logging();
 
     match opts.command {
         Command::Download {
@@ -143,11 +143,11 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-downloader", version, author)]
+#[command(name = "archivindex-wbm-downloader", version, author)]
 struct Opts {
-    #[clap(flatten)]
-    verbose: Verbosity,
-    #[clap(subcommand)]
+    #[command(flatten)]
+    verbosity: Verbosity,
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -156,14 +156,13 @@ enum Command {
     /// Download the captures listed as CSV (URL, timestamp, expected digest) on standard input.
     Download {
         /// Output directory for the downloaded captures.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
         /// Path to the database of captures with invalid digests.
-        #[clap(long)]
+        #[arg(long)]
         invalid_db: PathBuf,
         /// Number of concurrent download workers (must be at least one).
-        #[clap(
-            long,
+        #[arg(long,
             default_value = "3",
             value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
         )]
@@ -174,12 +173,12 @@ enum Command {
     /// standard error.
     Verify {
         /// Base directory of the content-addressed store to verify.
-        #[clap(long)]
+        #[arg(long)]
         base: PathBuf,
     },
     /// Operate on an invalid-digest log database.
     InvalidLog {
-        #[clap(subcommand)]
+        #[command(subcommand)]
         command: InvalidLogCommand,
     },
 }
@@ -189,35 +188,35 @@ enum InvalidLogCommand {
     /// Merge the `source` database into the `target` database.
     Merge {
         /// Path to the database to read from (left unchanged).
-        #[clap(long)]
+        #[arg(long)]
         source: PathBuf,
         /// Path to the database to merge into.
-        #[clap(long)]
+        #[arg(long)]
         target: PathBuf,
     },
     /// Export both database tables to CSV files that can be restored with `import`.
     Export {
         /// Path to the database to export.
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
         /// Directory to write the CSV files to.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
     },
     /// Import exported CSV files into `db`, creating it if absent and skipping duplicate records.
     Import {
         /// Directory containing CSV files previously written by `export`.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
-        /// Path for the new database.
-        #[clap(long)]
+        /// Path to the database (created if absent).
+        #[arg(long)]
         db: PathBuf,
     },
     /// Print headerless CSV rows (URL, timestamp, expected digest, actual digest) for every invalid
     /// digest in `db` to standard output.
     ExportInvalidDigests {
         /// Path to the database to read.
-        #[clap(long)]
+        #[arg(long)]
         db: PathBuf,
     },
 }

@@ -52,7 +52,7 @@ async fn main() -> ExitCode {
 #[allow(clippy::too_many_lines)]
 async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging();
+    opts.verbosity.init_logging();
 
     match opts.command {
         Command::Verify { format, input } => {
@@ -599,11 +599,11 @@ enum Format {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-wbm-json", version, author)]
+#[command(name = "archivindex-wbm-json", version, author)]
 struct Opts {
-    #[clap(flatten)]
-    verbose: Verbosity,
-    #[clap(subcommand)]
+    #[command(flatten)]
+    verbosity: Verbosity,
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -614,25 +614,25 @@ enum Command {
     /// Digest and ordering problems are logged and make the command exit with an error.
     /// A read or parsing error stops the command immediately.
     Verify {
-        /// Snapshot format (inferred from the file when omitted).
-        #[clap(long)]
+        /// Snapshot context; only closing whitespace is inferred when omitted.
+        #[arg(long)]
         format: Option<Format>,
         /// Snapshot JSONL Zstandard files.
-        #[clap(long)]
+        #[arg(long)]
         input: Vec<PathBuf>,
     },
     /// Validate a snapshot file with parallel digest computation and print the results.
     ///
     /// Reported validation problems do not change the exit status; I/O errors do.
     StreamingValidate {
-        /// Snapshot format (inferred from the file when omitted).
-        #[clap(long)]
+        /// Snapshot context; only closing whitespace is inferred when omitted.
+        #[arg(long)]
         format: Option<Format>,
         /// Snapshot JSONL Zstandard file.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
         /// Number of concurrent parse and validate tasks.
-        #[clap(long)]
+        #[arg(long)]
         parallelism: usize,
     },
     /// Write the original content bytes for the given digests into a directory, each file named by
@@ -642,131 +642,131 @@ enum Command {
     /// hash to its digest fails with an error.
     Export {
         /// Snapshot JSONL Zstandard file.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
         /// Digest to export (may be repeated).
-        #[clap(long)]
+        #[arg(long)]
         digest: Vec<Sha1Digest>,
         /// Output directory.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
     },
     /// Print the digest of every snapshot that has no CDX metadata.
     Incomplete {
         /// Snapshot JSONL Zstandard files.
-        #[clap(long)]
+        #[arg(long)]
         input: Vec<PathBuf>,
     },
     /// Merge legacy content-addressed snapshot directories into existing flat and data files.
     MergeOld {
         /// Directory containing the existing `flat.jsonl.zst` and `data.jsonl.zst` files.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
         /// Legacy content-addressed snapshot directories.
-        #[clap(long)]
+        #[arg(long)]
         snapshots: Vec<PathBuf>,
         /// Output directory.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
         /// Zstandard compression level.
-        #[clap(long, default_value = "14")]
+        #[arg(long, default_value = "14")]
         compression: u16,
     },
     /// Resolve snapshot digests to CDX metadata (timestamp and URL).
     Resolve {
         /// Directories containing data files (keyed by SHA-1 digest).
-        #[clap(long)]
+        #[arg(long)]
         data: Vec<PathBuf>,
         /// Directories containing CDX JSON files.
-        #[clap(long)]
+        #[arg(long)]
         cdx: Vec<PathBuf>,
         #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
-        #[clap(long)]
+        #[arg(long)]
         invalid_db: PathBuf,
         /// Output path for resolved CSV data.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
         /// Output path for JSONL warnings.
-        #[clap(long)]
+        #[arg(long)]
         warnings: PathBuf,
         /// Output path for missing (unresolved) digests, one per line.
-        #[clap(long)]
+        #[arg(long)]
         missing: PathBuf,
     },
     /// Report file and digest counts for data directories, verifying duplicates.
     DataInfo {
         /// Directories containing data files (keyed by SHA-1 digest).
-        #[clap(long)]
+        #[arg(long)]
         data: Vec<PathBuf>,
     },
     /// Load Twitter data files, resolve CDX metadata, and write enriched snapshots to separate
     /// flat and data Zstandard-compressed JSONL files.
     Compact {
         /// Directories containing data files (keyed by SHA-1 digest).
-        #[clap(long)]
+        #[arg(long)]
         data: Vec<PathBuf>,
         /// Directories containing CDX JSON files.
-        #[clap(long)]
+        #[arg(long)]
         cdx: Vec<PathBuf>,
         #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
-        #[clap(long)]
+        #[arg(long)]
         invalid_db: PathBuf,
         /// Output path for the Zstandard-compressed JSONL file for the flat format.
-        #[clap(long)]
+        #[arg(long)]
         flat_output: PathBuf,
         /// Output path for the Zstandard-compressed JSONL file for the data format.
-        #[clap(long)]
+        #[arg(long)]
         data_output: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         summary_output: PathBuf,
         /// Zstandard compression level.
-        #[clap(long, default_value = "14")]
+        #[arg(long, default_value = "14")]
         compression: u16,
         /// Omit snapshots with no CDX resolution from the output.
-        #[clap(long)]
+        #[arg(long)]
         skip_unresolved: bool,
     },
     /// Merge two digest-ordered snapshot files into one, writing snapshots present in both inputs
     /// only once.
     Merge {
         /// First snapshot JSONL Zstandard file.
-        #[clap(long)]
+        #[arg(long)]
         first: PathBuf,
         /// Second snapshot JSONL Zstandard file.
-        #[clap(long)]
+        #[arg(long)]
         second: PathBuf,
         /// Output path for the merged Zstandard-compressed JSONL file.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
         /// Zstandard compression level.
-        #[clap(long, default_value = "14")]
+        #[arg(long, default_value = "14")]
         compression: u16,
     },
     /// Load Truth Social (WTJ) data files, resolve CDX metadata, and write enriched snapshots to a
     /// Zstandard-compressed JSONL file.
     CompactTs {
         /// Directories containing data files (keyed by SHA-1 digest).
-        #[clap(long)]
+        #[arg(long)]
         data: Vec<PathBuf>,
         /// Directories containing CDX JSON files.
-        #[clap(long)]
+        #[arg(long)]
         cdx: Vec<PathBuf>,
         #[allow(clippy::doc_markdown)]
         /// Path to the invalid digest SQLite database.
-        #[clap(long)]
+        #[arg(long)]
         invalid_db: PathBuf,
         /// Output path for the Zstandard-compressed JSONL file.
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         summary_output: PathBuf,
         /// Zstandard compression level.
-        #[clap(long, default_value = "14")]
+        #[arg(long, default_value = "14")]
         compression: u16,
         /// Omit snapshots with no CDX resolution from the output.
-        #[clap(long)]
+        #[arg(long)]
         skip_unresolved: bool,
     },
 }

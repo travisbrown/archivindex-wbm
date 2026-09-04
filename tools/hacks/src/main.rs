@@ -42,7 +42,7 @@ fn main() -> ExitCode {
 /// Returns an error if an input file cannot be read or parsed, or an output file cannot be written.
 fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
-    opts.verbose.init_logging();
+    opts.verbosity.init_logging();
 
     match opts.command {
         Command::WxjUrls {
@@ -72,11 +72,11 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
 }
 
 #[derive(Debug, Parser)]
-#[clap(name = "archivindex-hacks", version, author)]
+#[command(name = "archivindex-hacks", version, author)]
 struct Opts {
-    #[clap(flatten)]
-    verbose: Verbosity,
-    #[clap(subcommand)]
+    #[command(flatten)]
+    verbosity: Verbosity,
+    #[command(subcommand)]
     command: Command,
 }
 
@@ -85,10 +85,10 @@ enum Command {
     /// Print the digest and inferred canonical URL of every snapshot without a `url` field.
     WxjUrls {
         /// The WXJ snapshot JSONL Zstandard file.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
         /// Also report snapshots that already carry a timestamp or expected digest.
-        #[clap(long)]
+        #[arg(long)]
         include_timestamped: bool,
     },
     /// Add timestamps, expected digests, and URLs from CDX data to a WXJ snapshot file.
@@ -96,37 +96,37 @@ enum Command {
     /// Validate a snapshot file and print counts of valid, invalid, and out-of-order lines.
     ValidatedWxjLines {
         /// The snapshot JSONL file, Zstandard-compressed if the extension is `zst`.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
     },
     /// Check that the SURT computed from each JSON capture's URL matches the one in the CDX data.
     CheckSurts {
         /// Base directory in the `collection/screen-name/data` layout.
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
     },
     /// Print the path of every CDX JSON file under a base directory, newest first.
     CdxList {
         /// Base directory searched for `**/data/*.json` files.
-        #[clap(long)]
+        #[arg(long)]
         base: PathBuf,
     },
     /// Print each CDX JSON file (newest first) marked by whether its digests are all covered by
     /// newer files (`-`), are needed (`+`), or the file is empty (`0`).
     FindUnused {
         /// Directory of CDX JSON files, read recursively (may be repeated).
-        #[clap(long)]
+        #[arg(long)]
         cdx: Vec<PathBuf>,
     },
     CleanFlat {
         /// File containing known SHA-1 digests (one Base32-encoded digest per line)
-        #[clap(long)]
+        #[arg(long)]
         known: PathBuf,
         /// Directory containing archive files, with each file name being a Base32-encoded digest
-        #[clap(long)]
+        #[arg(long)]
         files: PathBuf,
-        /// Dry run (do not actual perform deletions)
-        #[clap(long)]
+        /// Log matching files without deleting them.
+        #[arg(long)]
         dry_run: bool,
     },
     /// Migrate a JSONL Zstandard file from the old snapshot format to the new one.
@@ -135,11 +135,11 @@ enum Command {
     /// optional string. The new format nests both inside a `format` object (with
     /// `closing_whitespace` as a field and the old string as the `type` key).
     Migrate {
-        #[clap(long)]
+        #[arg(long)]
         input: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
-        #[clap(flatten)]
+        #[command(flatten)]
         compression: Compression,
     },
     /// Reconcile a modern snapshot JSONL Zstandard file against a directory of CDX JSON files,
@@ -149,10 +149,10 @@ enum Command {
     /// with the given prefix.
     FilterByPrefix {
         /// Directory whose files are scanned, sorted by name.
-        #[clap(long)]
+        #[arg(long)]
         directory: PathBuf,
         /// Byte prefix to match against the start of each file's contents.
-        #[clap(long)]
+        #[arg(long)]
         prefix: String,
     },
 }
@@ -162,9 +162,9 @@ enum Command {
 #[derive(Debug, clap::Args)]
 struct Compression {
     /// Zstandard compression level for the output.
-    // The name and value placeholder are given explicitly so that flattening this struct leaves
-    // the command line exactly as it was when each command declared the argument itself.
-    #[clap(
+    // The name and value placeholder are given explicitly so that flattening this struct leaves the
+    // command line exactly as it was when each command declared the argument itself.
+    #[arg(
         long = "compression-level",
         value_name = "COMPRESSION_LEVEL",
         default_value = "14"
@@ -176,21 +176,21 @@ struct Compression {
 #[derive(Debug, clap::Args)]
 struct WxjEnhanceOptions {
     /// The WXJ snapshot JSONL Zstandard file to enhance.
-    #[clap(long)]
+    #[arg(long)]
     data: PathBuf,
     /// CSV file mapping digests to canonical URLs (as produced by `wxj-urls`).
-    #[clap(long)]
+    #[arg(long)]
     urls: PathBuf,
     /// Base directory of CDX JSON files (read recursively).
-    #[clap(long)]
+    #[arg(long)]
     cdx: PathBuf,
     /// CSV file of captures whose content did not match the expected digest.
-    #[clap(long)]
+    #[arg(long)]
     invalid_digests: PathBuf,
     /// Output file (JSONL Zstandard) for the enhanced snapshots.
-    #[clap(long)]
+    #[arg(long)]
     output: PathBuf,
-    #[clap(flatten)]
+    #[command(flatten)]
     compression: Compression,
 }
 
@@ -198,23 +198,23 @@ struct WxjEnhanceOptions {
 #[derive(Debug, clap::Args)]
 struct ReconcileCdxOptions {
     /// Directory of CDX JSON files (read recursively).
-    #[clap(long)]
+    #[arg(long)]
     cdx: PathBuf,
     /// The modern snapshot JSONL Zstandard file.
-    #[clap(long)]
+    #[arg(long)]
     input: PathBuf,
     /// The snapshot format, selecting the URL-inference context.
-    #[clap(long, value_enum)]
+    #[arg(long, value_enum)]
     format: SnapshotFormat,
     /// Output directory for the CSV reports.
-    #[clap(long)]
+    #[arg(long)]
     report: PathBuf,
-    /// Optional output file (JSONL Zstandard) for a corrected copy of the input: unnecessary
-    /// `url` / `expected_digest` fields are removed, and a `url` is added where the inferred
-    /// URL disagrees with the CDX URL.
-    #[clap(long)]
+    /// Optional output file (JSONL Zstandard) for a corrected copy of the input: unnecessary `url`
+    /// / `expected_digest` fields are removed, and a `url` is added where the inferred URL
+    /// disagrees with the CDX URL.
+    #[arg(long)]
     corrected: Option<PathBuf>,
-    #[clap(flatten)]
+    #[command(flatten)]
     compression: Compression,
 }
 
