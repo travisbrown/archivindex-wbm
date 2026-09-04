@@ -94,24 +94,23 @@ fn collect(current: &Path, depth: Depth, acc: &mut Vec<PathBuf>) -> Result<(), s
     }
 
     for entry in std::fs::read_dir(current)? {
-        let path = entry?.path();
+        let entry = entry?;
+        // The entry's own file type comes from the directory read itself, so this costs no extra
+        // `stat`. It also does not follow symlinks, which keeps a link back to an ancestor from
+        // sending the walk into a loop.
+        let file_type = entry.file_type()?;
+        let path = entry.path();
 
-        if is_json_file(&path) {
-            acc.push(path);
-        } else if depth == Depth::Recursive && path.is_dir() {
+        if file_type.is_file() {
+            if has_json_extension(&path) {
+                acc.push(path);
+            }
+        } else if file_type.is_dir() && depth == Depth::Recursive {
             collect(&path, depth, acc)?;
         }
     }
 
     Ok(())
-}
-
-/// Whether `path` names a regular file with a `.json` extension.
-///
-/// The extension is checked first, so the walk only pays for a metadata lookup on candidates that
-/// could actually match.
-fn is_json_file(path: &Path) -> bool {
-    has_json_extension(path) && path.is_file()
 }
 
 /// Whether `path` ends in a `.json` extension, without touching the file system.
