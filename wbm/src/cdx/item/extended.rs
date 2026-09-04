@@ -2,9 +2,9 @@
 //! fields to the standard item, with deserialization from the JSON array rows.
 use std::borrow::Cow;
 
+use archivindex_serde::BorrowableStr;
 use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 
-use crate::de::BorrowableCow;
 use crate::surt::Surt;
 
 const INVALID_LENGTH_MESSAGE: &str = "expected 11 elements";
@@ -61,7 +61,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                         let (timestamp, original, mime_type, status_code, digest) =
                             super::read_shared_fields(&mut seq, INVALID_LENGTH_MESSAGE)?;
 
-                        let BorrowableCow(redirect_str) = seq.next_element()?.ok_or_else(|| {
+                        let BorrowableStr(redirect_str) = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(6, &INVALID_LENGTH_MESSAGE)
                         })?;
 
@@ -71,7 +71,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             Some(redirect_str)
                         };
 
-                        let BorrowableCow(robot_flags_str) =
+                        let BorrowableStr(robot_flags_str) =
                             seq.next_element()?.ok_or_else(|| {
                                 serde::de::Error::invalid_length(7, &INVALID_LENGTH_MESSAGE)
                             })?;
@@ -98,7 +98,7 @@ impl<'a, 'de: 'a> Deserialize<'de> for ItemOrEmpty<'a> {
                             serde::de::Error::invalid_value(Unexpected::Str(offset_str), &"offset")
                         })?;
 
-                        let BorrowableCow(file_name) = seq.next_element()?.ok_or_else(|| {
+                        let BorrowableStr(file_name) = seq.next_element()?.ok_or_else(|| {
                             serde::de::Error::invalid_length(10, &INVALID_LENGTH_MESSAGE)
                         })?;
 

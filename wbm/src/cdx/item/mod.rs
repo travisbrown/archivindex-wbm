@@ -2,11 +2,11 @@
 //! the Wayback Machine CDX API returns.
 use std::borrow::Cow;
 
+use archivindex_serde::BorrowableStr;
 use serde::de::{Deserialize, Deserializer, IgnoredAny, SeqAccess, Unexpected, Visitor};
 
 use crate::cdx::mime_type::MimeType;
 use crate::cdx::status_code::StatusCode;
-use crate::de::BorrowableCow;
 use crate::digest::Digest;
 use crate::surt::Surt;
 use crate::timestamp::Timestamp;
@@ -67,7 +67,7 @@ fn read_shared_fields<'de, V: SeqAccess<'de>>(
     let timestamp = seq
         .next_element()?
         .ok_or_else(|| serde::de::Error::invalid_length(1, &invalid_length_message))?;
-    let BorrowableCow(original) = seq
+    let BorrowableStr(original) = seq
         .next_element()?
         .ok_or_else(|| serde::de::Error::invalid_length(2, &invalid_length_message))?;
     let mime_type = seq
@@ -126,7 +126,7 @@ fn visit_item_list<'de, V: SeqAccess<'de>, R: ListRow<'de>>(
                 }
 
                 let resume_key = if expect_resume_key {
-                    let (BorrowableCow(resume_key),) = seq
+                    let (BorrowableStr(resume_key),) = seq
                         .next_element()?
                         .ok_or_else(|| serde::de::Error::invalid_length(0, &"a resume key row"))?;
 

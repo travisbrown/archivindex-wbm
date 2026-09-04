@@ -16,6 +16,7 @@ exclude = ["tests/"]
 workspace = true
 
 [dependencies]
+archivindex-serde = { workspace = true }
 archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
 bounded-static = { workspace = true }
 cel = { workspace = true }

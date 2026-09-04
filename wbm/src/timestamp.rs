@@ -133,7 +133,7 @@ impl FromStr for Timestamp {
 
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        crate::de::from_str(deserializer, "struct Timestamp")
+        archivindex_serde::from_str(deserializer, "struct Timestamp")
     }
 }
 

@@ -114,7 +114,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "archivindex-archiver"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#952cda54befc79c1dd9e6b432381f63612517ca5"
+source = "git+https://github.com/travisbrown/archivindex-warc#da3a125cc180ad1770e464b62f3d287bb99e7035"
 dependencies = [
  "archivindex-warc",
  "archivindex-warc-revisit-index",
@@ -136,8 +136,9 @@ dependencies = [
 [[package]]
 name = "archivindex-cdx"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#e84302c6175b8f81d459304647283defc01a41a3"
+source = "git+https://github.com/travisbrown/archivindex#a77f4d0913f1e1994bdbf9f3b90091822b7af7bb"
 dependencies = [
+ "archivindex-serde",
  "chrono",
  "serde",
  "serde_json",
@@ -147,6 +148,7 @@ dependencies = [
 [[package]]
 name = "archivindex-cli-support"
 version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#a77f4d0913f1e1994bdbf9f3b90091822b7af7bb"
 dependencies = [
  "clap",
  "ctrlc",
@@ -179,9 +181,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "archivindex-serde"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#a77f4d0913f1e1994bdbf9f3b90091822b7af7bb"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "archivindex-surt"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#e84302c6175b8f81d459304647283defc01a41a3"
+source = "git+https://github.com/travisbrown/archivindex#a77f4d0913f1e1994bdbf9f3b90091822b7af7bb"
 dependencies = [
  "bounded-static",
  "thiserror",
@@ -190,6 +200,7 @@ dependencies = [
 [[package]]
 name = "archivindex-test-support"
 version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#a77f4d0913f1e1994bdbf9f3b90091822b7af7bb"
 dependencies = [
  "proptest",
 ]
@@ -197,7 +208,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#952cda54befc79c1dd9e6b432381f63612517ca5"
+source = "git+https://github.com/travisbrown/archivindex-warc#da3a125cc180ad1770e464b62f3d287bb99e7035"
 dependencies = [
  "archivindex-warc-digest",
  "chrono",
@@ -215,7 +226,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#952cda54befc79c1dd9e6b432381f63612517ca5"
+source = "git+https://github.com/travisbrown/archivindex-warc#da3a125cc180ad1770e464b62f3d287bb99e7035"
 dependencies = [
  "data-encoding",
  "md-5",
@@ -228,7 +239,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-revisit-index"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#952cda54befc79c1dd9e6b432381f63612517ca5"
+source = "git+https://github.com/travisbrown/archivindex-warc#da3a125cc180ad1770e464b62f3d287bb99e7035"
 dependencies = [
  "archivindex-warc",
  "fluent-uri",
@@ -241,6 +252,7 @@ name = "archivindex-wbm"
 version = "0.1.0"
 dependencies = [
  "archivindex-cdx",
+ "archivindex-serde",
  "archivindex-surt",
  "bounded-static",
  "chrono",
@@ -387,6 +399,7 @@ dependencies = [
 name = "archivindex-wbm-json"
 version = "0.1.0"
 dependencies = [
+ "archivindex-serde",
  "archivindex-wbm",
  "bounded-static",
  "cel",

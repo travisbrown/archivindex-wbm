@@ -301,7 +301,7 @@ impl TryFrom<&[u8]> for Sha1Digest {
 
 impl<'de> Deserialize<'de> for Sha1Digest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        crate::de::from_str(deserializer, "struct Sha1Digest")
+        archivindex_serde::from_str(deserializer, "struct Sha1Digest")
     }
 }
 

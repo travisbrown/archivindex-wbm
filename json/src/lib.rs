@@ -32,7 +32,6 @@
 //! File I/O, batch processing, and CDX matching are provided by `archivindex-wbm-json-processing`.
 use std::borrow::Cow;
 
-use archivindex_wbm::de::BorrowableCow;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm::timestamp::Timestamp;
 
@@ -43,36 +42,6 @@ pub mod format;
 pub mod validation;
 
 use crate::format::FormatInfo;
-
-/// Deserialize an `Option<Cow<str>>`, borrowing from the input when the deserializer can hand out
-/// a slice that lives as long as the input (e.g. a `serde_json` string with no escapes).
-///
-/// The stock `Deserialize` impl for `Cow` always produces `Cow::Owned`, and `#[serde(borrow)]`
-/// only generates a borrowing implementation for bare `Cow` fields, not for `Cow` inside
-/// `Option`, so [`Snapshot`]'s optional string fields use this function explicitly (with `borrow`
-/// still supplying the `'de: 'a` bound).
-///
-/// # Arguments
-///
-/// * `deserializer` - The deserializer to read an optional string from
-///
-/// # Returns
-///
-/// The string, borrowed where the input allows it, or `None`
-///
-/// # Errors
-///
-/// Returns the deserializer's own error if the input is neither a string nor null.
-fn deserialize_borrowed_option_str<'de, D: serde::de::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Cow<'de, str>>, D::Error> {
-    // The stock `Option` impl supplies the `null`/`Some` layer, leaving `BorrowableCow` to do the
-    // borrowing that `Cow`'s own impl will not.
-    Ok(
-        <Option<BorrowableCow<'de>> as serde::de::Deserialize>::deserialize(deserializer)?
-            .map(|BorrowableCow(value)| value),
-    )
-}
 
 /// Errors encountered while reading snapshot lines.
 ///
@@ -136,7 +105,7 @@ pub struct Snapshot<'a, C> {
     #[serde(
         borrow,
         default,
-        deserialize_with = "crate::deserialize_borrowed_option_str",
+        with = "archivindex_serde::borrowable_str::option",
         skip_serializing_if = "Option::is_none"
     )]
     pub expected_digest: Option<Cow<'a, str>>,
@@ -157,7 +126,7 @@ pub struct Snapshot<'a, C> {
     #[serde(
         borrow,
         default,
-        deserialize_with = "crate::deserialize_borrowed_option_str",
+        with = "archivindex_serde::borrowable_str::option",
         skip_serializing_if = "Option::is_none"
     )]
     pub url: Option<Cow<'a, str>>,
