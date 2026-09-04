@@ -48,6 +48,7 @@ anyhow = "1"
 archivindex-archiver = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex-warc" }
 archivindex-cdx = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-cli-support = { git = "https://github.com/travisbrown/archivindex" }
+archivindex-digest = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-serde = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex", default-features = false }
 # Shared test helpers, used only by dev-dependencies. Declared without a version because the crate

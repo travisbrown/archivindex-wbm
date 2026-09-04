@@ -26,6 +26,7 @@ validation = []
 
 [dependencies]
 archivindex-cdx.workspace = true
+archivindex-digest.workspace = true
 archivindex-serde.workspace = true
 archivindex-surt = { workspace = true, features = ["bounded-static"] }
 bounded-static.workspace = true

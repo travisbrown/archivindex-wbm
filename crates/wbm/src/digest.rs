@@ -8,34 +8,26 @@ use std::fmt::Display;
 use std::io::Read;
 use std::str::FromStr;
 
-use data_encoding::BASE32;
 use serde::de::{Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 use sha1::Digest as _;
 
-/// An error encountered while converting a string or byte sequence into a [`Sha1Digest`].
+/// A byte sequence was not exactly the twenty bytes of a SHA-1 digest.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("invalid SHA-1 digest length: {0:?}")]
+pub struct InvalidByteLength(Vec<u8>);
+
+/// The unpadded uppercase Base32 the Wayback Machine's CDX index writes digests in.
 ///
-/// Note that [`Digest`] parsing never produces one of these; anything that is not a valid
-/// Base32-encoded SHA-1 digest is captured as [`Digest::Invalid`] instead.
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    /// The input was not the thirty-two characters that a Base32-encoded SHA-1 digest occupies.
-    #[error("invalid SHA-1 digest string length: {0}")]
-    InvalidLength(String),
-    /// The input was thirty-two characters of valid Base32 but did not decode to twenty bytes.
-    ///
-    /// This happens when the input is padded (for example twenty-four characters followed by eight
-    /// `=` characters), since padding shortens the decoded output.
-    #[error("invalid SHA-1 digest string input: {0}")]
-    Invalid(String),
-    /// The byte sequence was not exactly the twenty bytes of a SHA-1 digest.
-    #[error("invalid SHA-1 digest length: {0:?}")]
-    InvalidBytesLength(Vec<u8>),
-    /// The input contained characters that are not part of the Base32 alphabet.
-    ///
-    /// The Base32 alphabet is uppercase-only, so a lowercase digest string fails here.
-    #[error("decoding error: {0:?}")]
-    Decoding(data_encoding::DecodePartial),
+/// The alphabet is uppercase-only, so a lowercase digest string does not decode.
+struct Encoding;
+
+impl archivindex_digest::Format for Encoding {
+    const PREFIX: &'static str = "";
+
+    fn encoding() -> data_encoding::Encoding {
+        data_encoding::BASE32
+    }
 }
 
 /// A digest as it appears in the `digest` field of a CDX index record.
@@ -250,7 +242,7 @@ impl Sha1Digest {
 
 impl Display for Sha1Digest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        BASE32.encode(&self.0).fmt(f)
+        archivindex_digest::encode::<Encoding, _>(&self.0, f)
     }
 }
 
@@ -261,23 +253,10 @@ impl From<Sha1Digest> for [u8; 20] {
 }
 
 impl FromStr for Sha1Digest {
-    type Err = Error;
+    type Err = archivindex_digest::ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() == 32 {
-            let mut output = [0; 20];
-            let count = BASE32
-                .decode_mut(s.as_bytes(), &mut output)
-                .map_err(Error::Decoding)?;
-
-            if count == 20 {
-                Ok(Self(output))
-            } else {
-                Err(Self::Err::Invalid(s.to_string()))
-            }
-        } else {
-            Err(Self::Err::InvalidLength(s.to_string()))
-        }
+        archivindex_digest::decode::<Encoding, 20>(s).map(Self)
     }
 }
 
@@ -288,13 +267,13 @@ impl From<[u8; 20]> for Sha1Digest {
 }
 
 impl TryFrom<&[u8]> for Sha1Digest {
-    type Error = Error;
+    type Error = InvalidByteLength;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self(
             value
                 .try_into()
-                .map_err(|_| Error::InvalidBytesLength(value.to_vec()))?,
+                .map_err(|_| InvalidByteLength(value.to_vec()))?,
         ))
     }
 }
