@@ -3,11 +3,9 @@
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
-
-const TIMESTAMP_FMT: &str = "%Y%m%d%H%M%S";
 
 /// An error encountered while parsing or converting a timestamp.
 #[derive(thiserror::Error, Debug)]
@@ -15,9 +13,6 @@ pub enum Error {
     /// The input is not exactly fourteen bytes long.
     #[error("invalid timestamp length: {0}")]
     InvalidLength(String),
-    /// The input does not parse as a `%Y%m%d%H%M%S` date-time.
-    #[error("invalid timestamp input: {0}")]
-    InvalidDateTime(#[from] chrono::format::ParseError),
     /// The integer is out of range for a Unix epoch second timestamp.
     #[error("invalid i64 timestamp: {0}")]
     InvalidTimestampI64(i64),
@@ -95,39 +90,37 @@ impl FromStr for Timestamp {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() == 14 {
-            let date_time = NaiveDateTime::parse_from_str(s, TIMESTAMP_FMT)?.and_utc();
-
-            // chrono parses a leap second (`%S` = 60) as second 59 plus a full second of
-            // nanoseconds; such a value would not survive the second-precision integer round
-            // trips, so it is rejected here. Additionally, chrono's `%Y` zero-pads, so a
-            // fourteen-digit string can name a year below 1000 (as in `"09990101000000"`); such
-            // an instant falls outside the crate's integer bounds and could never be recovered
-            // via `TryFrom<i64>`, so it is rejected to keep the two paths in agreement.
-            if date_time.timestamp_subsec_nanos() != 0
-                || !(MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&date_time.timestamp())
-            {
-                Err(Error::InvalidValue(s.to_string()))
-            } else {
-                let timestamp = Self(archivindex_cdx::timestamp::Timestamp::new(date_time));
-
-                // This validation confirms that the input can be round-tripped through our
-                // representation. I've never seen an input where this fails, and the check is
-                // expensive enough that I think it deserves a feature flag (for example in one
-                // quick test it makes a 13-minute job take over 15 minutes).
-                #[cfg(feature = "validation")]
-                if timestamp.to_string() == s {
-                    Ok(timestamp)
-                } else {
-                    Err(Error::InvalidValue(s.to_string()))
-                }
-
-                #[cfg(not(feature = "validation"))]
-                Ok(timestamp)
-            }
-        } else {
-            Err(Self::Err::InvalidLength(s.to_string()))
+        // `archivindex_cdx` also accepts the seventeen-digit millisecond form, which a Wayback
+        // Machine URL timestamp never uses, so the length is checked before parsing.
+        if s.len() != 14 {
+            return Err(Error::InvalidLength(s.to_string()));
         }
+
+        // The CDX parser rejects a leap second (`%S` = 60), which chrono reads as second 59 plus a
+        // full second of nanoseconds and which would not survive the second-precision integer round
+        // trips.
+        let parsed = archivindex_cdx::timestamp::Timestamp::from_str(s)
+            .map_err(|_| Error::InvalidValue(s.to_string()))?;
+
+        // chrono's `%Y` zero-pads, so a fourteen-digit string can name a year below 1000 (as in
+        // `"09990101000000"`); such an instant falls outside the crate's integer bounds and could
+        // never be recovered via `TryFrom<i64>`, so it is rejected to keep the two paths in
+        // agreement.
+        if !(MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&parsed.datetime().timestamp()) {
+            return Err(Error::InvalidValue(s.to_string()));
+        }
+
+        let timestamp = Self(parsed);
+
+        // The optional check confirms that the input round-trips through our representation.
+        // I've never seen an input where it fails, and it is expensive enough to deserve a
+        // feature flag (in one quick test it took a 13-minute job to over 15 minutes).
+        #[cfg(feature = "validation")]
+        if timestamp.to_string() != s {
+            return Err(Error::InvalidValue(s.to_string()));
+        }
+
+        Ok(timestamp)
     }
 }
 
