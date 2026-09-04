@@ -5,12 +5,15 @@
 
 use std::borrow::Cow;
 use std::fmt::Display;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::str::FromStr;
 
 use serde::de::{Deserialize, Deserializer, Visitor};
 use serde::ser::{Serialize, Serializer};
 use sha1::Digest as _;
+
+/// The read buffer size used when hashing a stream.
+const HASH_BUFFER_SIZE: usize = 128 * 1024;
 
 /// A byte sequence was not exactly the twenty bytes of a SHA-1 digest.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -234,7 +237,11 @@ impl Sha1Digest {
     /// Computes the SHA-1 digest of bytes read from a source.
     pub fn from_reader<R: Read>(input: &mut R) -> std::io::Result<Self> {
         let mut writer = digest_io::IoWrapper(sha1::Sha1::new());
-        std::io::copy(input, &mut writer)?;
+        // `io::copy` reads through a `BufReader`'s own buffer, so this sizes the reads.
+        std::io::copy(
+            &mut BufReader::with_capacity(HASH_BUFFER_SIZE, input),
+            &mut writer,
+        )?;
 
         Ok(Self(writer.0.finalize().into()))
     }
