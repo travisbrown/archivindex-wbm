@@ -5,9 +5,11 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::Context as _;
+use archivindex_archiver::Config;
+use archivindex_archiver::capture::{CaptureControl, CaptureEvent};
 use archivindex_cdx::query::Request;
 use archivindex_cli_support::{CommandOutcome, Verbosity};
-use archivindex_wbm_cdx_client::{CaptureControl, CaptureEvent, Client, Config, DEFAULT_ENDPOINT};
+use archivindex_wbm_cdx_client::{Client, DEFAULT_ENDPOINT};
 use clap::Parser;
 
 mod extract;

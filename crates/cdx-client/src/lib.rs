@@ -8,10 +8,11 @@ use std::borrow::Borrow;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
+use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEventSink};
 use archivindex_archiver::session::{
     Capture, Driver, Inspection, Request as SessionRequest, Session, SessionSummary,
 };
-use archivindex_archiver::{Archiver, Config as ArchiverConfig};
+use archivindex_archiver::{Archiver, Config};
 use archivindex_cdx::query::Request;
 use url::Url;
 
@@ -50,12 +51,12 @@ pub struct Client {
 
 impl Client {
     /// Create a client for the public Internet Archive CDX server.
-    pub fn new(config: ArchiverConfig) -> Result<Self, Error> {
+    pub fn new(config: Config) -> Result<Self, Error> {
         Self::with_endpoint(config, DEFAULT_ENDPOINT)
     }
 
     /// Create a client for a specific CDX endpoint, such as a mirror or test server.
-    pub fn with_endpoint(config: ArchiverConfig, endpoint: &str) -> Result<Self, Error> {
+    pub fn with_endpoint(config: Config, endpoint: &str) -> Result<Self, Error> {
         let endpoint = Url::parse(endpoint)?;
         if !matches!(endpoint.scheme(), "http" | "https") {
             return Err(Error::UnsupportedEndpointScheme(
@@ -292,11 +293,6 @@ fn resume_key(payload: &[u8]) -> Result<Option<String>, String> {
         .map_or_else(String::new, |(key, _)| key.into_owned());
     Ok(Some(decoded))
 }
-
-/// The WARC archiver configuration accepted by [`Client`].
-pub use archivindex_archiver::Config;
-/// Capture lifecycle types used by [`Client::archive_to_path_with_events`].
-pub use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEventSink};
 
 #[cfg(test)]
 mod tests {
