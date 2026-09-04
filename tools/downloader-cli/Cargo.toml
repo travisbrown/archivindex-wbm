@@ -1,11 +1,11 @@
 [package]
 name = "archivindex-wbm-downloader-cli"
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish = false
 
 [lints]
@@ -18,16 +18,16 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-anyhow = { workspace = true }
-archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../../crates/wbm/" }
-archivindex-wbm-cas = { path = "../../crates/cas/" }
-archivindex-wbm-downloader = { path = "../../crates/downloader/" }
-archivindex-wbm-invalid-log = { path = "../../crates/invalid-log/" }
-bounded-static = { workspace = true }
-chrono = { workspace = true }
-clap = { workspace = true }
-csv = { workspace = true }
-log = { workspace = true }
-serde = { workspace = true }
-tokio = { workspace = true }
+anyhow.workspace = true
+archivindex-cli-support.workspace = true
+archivindex-wbm.workspace = true
+archivindex-wbm-cas = { workspace = true, features = ["zstd"] }
+archivindex-wbm-downloader.workspace = true
+archivindex-wbm-invalid-log.workspace = true
+bounded-static.workspace = true
+chrono.workspace = true
+clap.workspace = true
+csv.workspace = true
+log.workspace = true
+serde.workspace = true
+tokio.workspace = true

@@ -3,22 +3,26 @@ name = "archivindex-wbm-cdx-index"
 description = "redb-backed index of Wayback Machine CDX items and capture metadata"
 keywords = ["wayback-machine", "web-archive", "cdx", "redb"]
 categories = ["database"]
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
-readme = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
 
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
-chrono = { workspace = true }
-redb = { workspace = true }
-thiserror = { workspace = true }
+archivindex-wbm.workspace = true
+chrono.workspace = true
+redb.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile.workspace = true

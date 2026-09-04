@@ -3,27 +3,31 @@ name = "archivindex-wbm-test-data"
 description = "Download-once cache of real Wayback Machine snapshot data for tests"
 keywords = ["wayback-machine", "web-archive", "testing"]
 categories = ["development-tools::testing"]
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
 exclude = ["tests/"]
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
-readme = { workspace = true }
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
 
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
-archivindex-wbm-cas = { version = "0.1.0", path = "../cas/", default-features = false }
-archivindex-wbm-downloader = { version = "0.1.0", path = "../downloader/" }
-bytes = { workspace = true }
-log = { workspace = true }
-reqwest = { workspace = true }
+archivindex-wbm.workspace = true
+archivindex-wbm-cas = { workspace = true, default-features = false }
+archivindex-wbm-downloader.workspace = true
+bytes.workspace = true
+log.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
-tokio = { workspace = true }
-wiremock = { workspace = true }
+tempfile.workspace = true
+tokio.workspace = true
+wiremock.workspace = true

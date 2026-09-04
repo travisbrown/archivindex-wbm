@@ -13,16 +13,16 @@ publish = false
 workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
-archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../../crates/wbm/" }
-archivindex-wbm-json = { path = "../../crates/json/" }
-bounded-static = { workspace = true }
-clap = { workspace = true }
-csv = { workspace = true }
-log = { workspace = true }
-serde = { workspace = true }
+anyhow.workspace = true
+archivindex-cli-support.workspace = true
+archivindex-wbm.workspace = true
+archivindex-wbm-json.workspace = true
+bounded-static.workspace = true
+clap.workspace = true
+csv.workspace = true
+log.workspace = true
+serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
-thiserror = { workspace = true }
-toml = { workspace = true }
-zstd = { workspace = true }
+thiserror.workspace = true
+toml.workspace = true
+zstd.workspace = true

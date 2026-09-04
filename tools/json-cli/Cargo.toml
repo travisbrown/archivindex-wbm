@@ -1,11 +1,11 @@
 [package]
 name = "archivindex-wbm-json-cli"
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish = false
 
 [lints]
@@ -18,23 +18,23 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-anyhow = { workspace = true }
-archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../../crates/wbm/" }
-archivindex-wbm-cas = { path = "../../crates/cas/" }
-archivindex-wbm-invalid-log = { path = "../../crates/invalid-log/" }
-archivindex-wbm-json = { path = "../../crates/json/" }
-archivindex-wbm-json-gzip = { path = "../../crates/json-gzip/" }
-archivindex-wbm-json-processing = { path = "../../crates/json-processing/" }
-clap = { workspace = true }
-csv = { workspace = true }
-flate2 = { workspace = true }
-log = { workspace = true }
-serde_json = { workspace = true }
-sha1 = { workspace = true }
-tokio = { workspace = true }
-toml = { workspace = true }
-zstd = { workspace = true }
+anyhow.workspace = true
+archivindex-cli-support.workspace = true
+archivindex-wbm.workspace = true
+archivindex-wbm-cas = { workspace = true, features = ["zstd"] }
+archivindex-wbm-invalid-log.workspace = true
+archivindex-wbm-json.workspace = true
+archivindex-wbm-json-gzip.workspace = true
+archivindex-wbm-json-processing.workspace = true
+clap.workspace = true
+csv.workspace = true
+flate2.workspace = true
+log.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+tokio.workspace = true
+toml.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile.workspace = true

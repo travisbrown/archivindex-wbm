@@ -3,24 +3,28 @@ name = "archivindex-wbm-json"
 description = "Compact JSON snapshot files for JSON content archived by the Wayback Machine"
 keywords = ["wayback-machine", "web-archive", "json"]
 categories = ["parser-implementations", "encoding"]
-authors = { workspace = true }
-repository = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
-readme = { workspace = true }
-version = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+version.workspace = true
 exclude = ["tests/"]
 
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-archivindex-serde = { workspace = true }
-archivindex-wbm = { version = "0.1.0", path = "../wbm/" }
-bounded-static = { workspace = true }
-cel = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sha1 = { workspace = true }
-thiserror = { workspace = true }
+archivindex-serde.workspace = true
+archivindex-wbm.workspace = true
+bounded-static.workspace = true
+cel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+thiserror.workspace = true

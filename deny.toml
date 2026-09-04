@@ -1,5 +1,3 @@
-# The dependency policy, checked in continuous integration by `cargo deny check`.
-
 [graph]
 all-features = true
 

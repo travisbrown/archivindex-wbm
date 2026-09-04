@@ -72,6 +72,23 @@ jobs:
       - name: Test gzip support without default features
         run: cargo test --locked -p archivindex-wbm-json-gzip --no-default-features
 
+  fresh-deps:
+    name: Test with the newest compatible dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # The lockfile keeps the other jobs reproducible; this one deliberately updates it to catch
+      # breakage from semver-compatible dependency releases before a user hits it.
+      - name: Update dependencies
+        run: cargo update
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-features
+
   package:
     name: Package the publishable crates
     runs-on: ubuntu-latest

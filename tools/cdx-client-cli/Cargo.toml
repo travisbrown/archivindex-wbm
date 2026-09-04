@@ -1,12 +1,12 @@
 [package]
 name = "archivindex-wbm-cdx-client-cli"
 description = "Command-line client for archiving Internet Archive CDX server query responses"
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish = false
 
 [lints]
@@ -22,18 +22,18 @@ doc = false
 bundled = ["archivindex-wbm-cdx-client/bundled"]
 
 [dependencies]
-anyhow = { workspace = true }
-archivindex-cdx = { workspace = true }
-archivindex-cli-support = { workspace = true }
+anyhow.workspace = true
+archivindex-cdx.workspace = true
+archivindex-cli-support.workspace = true
 archivindex-warc = { workspace = true, features = ["http"] }
-archivindex-wbm-cdx-client = { path = "../../crates/cdx-client/" }
-clap = { workspace = true }
-csv = { workspace = true }
-humantime = { workspace = true }
-log = { workspace = true }
-thiserror = { workspace = true }
+archivindex-wbm-cdx-client.workspace = true
+clap.workspace = true
+csv.workspace = true
+humantime.workspace = true
+log.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-archivindex-test-support = { workspace = true }
-flate2 = { workspace = true }
-tempfile = { workspace = true }
+archivindex-test-support.workspace = true
+flate2.workspace = true
+tempfile.workspace = true

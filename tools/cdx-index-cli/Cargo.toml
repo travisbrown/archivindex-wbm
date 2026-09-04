@@ -1,11 +1,11 @@
 [package]
 name = "archivindex-wbm-cdx-index-cli"
-authors = { workspace = true }
-repository = { workspace = true }
-version = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 publish = false
 
 [lints]
@@ -18,17 +18,17 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-anyhow = { workspace = true }
-archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../../crates/wbm/" }
-archivindex-wbm-cdx-index = { path = "../../crates/cdx-index/" }
-archivindex-wbm-json = { path = "../../crates/json/" }
-clap = { workspace = true }
-csv = { workspace = true }
-indicatif = { workspace = true }
-log = { workspace = true }
-serde_json = { workspace = true }
-zstd = { workspace = true }
+anyhow.workspace = true
+archivindex-cli-support.workspace = true
+archivindex-wbm.workspace = true
+archivindex-wbm-cdx-index.workspace = true
+archivindex-wbm-json.workspace = true
+clap.workspace = true
+csv.workspace = true
+indicatif.workspace = true
+log.workspace = true
+serde_json.workspace = true
+zstd.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true }
+tempfile.workspace = true

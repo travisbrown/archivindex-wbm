@@ -3,14 +3,14 @@ name = "archivindex-wbm-json-gzip"
 description = "Byte-exact gzip reproduction for archivindex-wbm-json snapshots"
 keywords = ["wayback-machine", "web-archive", "gzip"]
 categories = ["compression"]
-authors = { workspace = true }
-repository = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 # See LICENSE-GO and PATENTS-GO.
 license = "AGPL-3.0-only AND BSD-3-Clause"
-readme = { workspace = true }
-version = { workspace = true }
+readme.workspace = true
+version.workspace = true
 exclude = ["tests/"]
 
 # This crate's FFI modules need narrowly scoped `allow(unsafe_code)` attributes, so its unsafe lint
@@ -26,22 +26,26 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["zlib"]
 zlib = ["dep:libz-sys", "dep:libz-ng-sys"]
 
 [dependencies]
-archivindex-wbm-json = { version = "0.1.0", path = "../json/" }
-flate2 = { workspace = true }
+archivindex-wbm-json.workspace = true
+flate2.workspace = true
 # The `static` feature builds the vendored zlib from source; linking the system zlib would make
 # byte-exact reproduction vary by build host.
 libz-sys = { workspace = true, optional = true, features = ["static"] }
 libz-ng-sys = { workspace = true, optional = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-test-data = { path = "../test-data/" }
-sha1 = { workspace = true }
-tokio = { workspace = true }
+archivindex-wbm.workspace = true
+archivindex-wbm-test-data.workspace = true
+sha1.workspace = true
+tokio.workspace = true
