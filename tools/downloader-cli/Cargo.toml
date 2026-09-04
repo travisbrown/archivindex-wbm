@@ -20,10 +20,10 @@ doc = false
 [dependencies]
 anyhow = { workspace = true }
 archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-cas = { path = "../cas/" }
-archivindex-wbm-downloader = { path = "../downloader/" }
-archivindex-wbm-invalid-log = { path = "../invalid-log/" }
+archivindex-wbm = { path = "../../crates/wbm/" }
+archivindex-wbm-cas = { path = "../../crates/cas/" }
+archivindex-wbm-downloader = { path = "../../crates/downloader/" }
+archivindex-wbm-invalid-log = { path = "../../crates/invalid-log/" }
 bounded-static = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }

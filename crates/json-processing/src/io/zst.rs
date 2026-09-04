@@ -1,9 +1,7 @@
 //! Opening Zstandard-compressed snapshot files.
 //!
 //! Every batch operation in this crate reads and writes the same shape of file: a Zstandard frame
-//! wrapping JSONL text. Constructing one takes two nested fallible calls (open or create the file,
-//! then wrap it in a codec), and the readers additionally need an outer [`BufReader`] before
-//! [`BufRead::lines`] is available. These helpers name that plumbing once.
+//! wrapping JSONL text.
 //!
 //! Use [`reader`] for line-oriented reading, [`decoder`] when the caller supplies its own buffering
 //! (as [`SnapshotReader`](super::read::SnapshotReader) does), and [`encoder`] for writing. For

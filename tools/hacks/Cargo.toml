@@ -1,6 +1,6 @@
 [package]
 name = "archivindex-hacks"
-workspace = ".."
+workspace = "../.."
 version.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -15,8 +15,8 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-json = { path = "../json/" }
+archivindex-wbm = { path = "../../crates/wbm/" }
+archivindex-wbm-json = { path = "../../crates/json/" }
 bounded-static = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }

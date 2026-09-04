@@ -20,9 +20,9 @@ doc = false
 [dependencies]
 anyhow = { workspace = true }
 archivindex-cli-support = { workspace = true }
-archivindex-wbm = { path = "../wbm/" }
-archivindex-wbm-cdx-index = { path = "../cdx-index/" }
-archivindex-wbm-json = { path = "../json/" }
+archivindex-wbm = { path = "../../crates/wbm/" }
+archivindex-wbm-cdx-index = { path = "../../crates/cdx-index/" }
+archivindex-wbm-json = { path = "../../crates/json/" }
 clap = { workspace = true }
 csv = { workspace = true }
 indicatif = { workspace = true }

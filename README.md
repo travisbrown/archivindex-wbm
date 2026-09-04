@@ -1,9 +1,12 @@
-# Archivindex
+# archivindex-wbm
 
-[![build](https://github.com/travisbrown/archivindex/actions/workflows/ci.yml/badge.svg)](https://github.com/travisbrown/archivindex/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/travisbrown/archivindex/branch/main/graph/badge.svg)](https://codecov.io/gh/travisbrown/archivindex)
-[![crates.io](https://img.shields.io/crates/v/archivindex-wbm.svg)](https://crates.io/crates/archivindex-wbm)
-[![docs.rs](https://docs.rs/archivindex-wbm/badge.svg)](https://docs.rs/archivindex-wbm)
+![GitHub last commit][last-commit-badge]
+[![build][build-badge]][build]
+[![codecov][codecov-badge]][codecov]
+[![license][license-badge]][agpl-3.0]
+[![crates.io][crates-version-badge]][crates]
+[![crates.io][crates-downloads-badge]][crates]
+[![API Docs][docs-badge]][docs]
 
 This repository contains a set of Rust libraries for working with data from web archives, including
 primarily the [Internet Archive][internet-archive]'s [Wayback Machine][wayback-machine]. An earlier
@@ -91,7 +94,7 @@ to include the `url` field.
 
 ## Contents
 
-The crates:
+The library crates, in `crates/`:
 
 - `archivindex-wbm-cdx-client`: Queries the Internet Archive CDX server and records the HTTP
   requests and responses in WARC files.
@@ -110,7 +113,7 @@ The crates:
 - `archivindex-wbm-cdx-index`: On-disk index of CDX items and capture metadata, backed by redb.
 - `archivindex-wbm-downloader`: HTTP downloader for Wayback Machine snapshots.
 
-There are also several command-line tools (not published):
+There are also several command-line tools in `tools/` (not published):
 
 - `archivindex-wbm-cdx-client-cli`: Reads CDX request parameters as CSV and archives the query
   responses in a WARC file.
@@ -124,7 +127,8 @@ There are also several command-line tools (not published):
 
 There are two other directories that are not part of the published API:
 
-- `hacks/`: An unpublished workspace member used for scratch and one-off processing tasks.
+- `tools/hacks/`: An unpublished workspace member used for scratch and one-off processing
+  tasks.
 - `minimal/`: A standalone Python verifier for the snapshot format. The `validate_snapshots.py`
   script checks that the `digest` field of each line of a (possibly compressed) JSONL snapshot file
   matches the Base32-encoded SHA-1 hash of the content (including the closing whitespace), for both
@@ -143,10 +147,10 @@ The command-line tools are not published to [crates.io][crates], but they can be
 checkout of this repository:
 
 ```bash
-cargo install --path cdx-client-cli      # Installs the `archivindex-wbm-cdx-client` binary
-cargo install --path json-cli        # Installs the `archivindex-wbm-json` binary
-cargo install --path cdx-index-cli   # Installs the `archivindex-wbm-cdx-index` binary
-cargo install --path downloader-cli  # Installs the `archivindex-wbm-downloader` binary
+cargo install --path tools/cdx-client-cli  # Installs the `archivindex-wbm-cdx-client` binary
+cargo install --path tools/json-cli        # Installs the `archivindex-wbm-json` binary
+cargo install --path tools/cdx-index-cli   # Installs the `archivindex-wbm-cdx-index` binary
+cargo install --path tools/downloader-cli  # Installs the `archivindex-wbm-downloader` binary
 ```
 
 ## Usage
@@ -195,10 +199,21 @@ Each tool provides a `--help` listing of its subcommands and options.
 This project is licensed under the [GNU Affero General Public License, version 3
 only](https://www.gnu.org/licenses/agpl-3.0.html). See [LICENSE](LICENSE) for the full text.
 
+[agpl-3.0]: https://www.gnu.org/licenses/agpl-3.0.html
 [archivindex-prototype-fund]: https://www.prototypefund.de/en/projects/archivindex-builder
+[build]: https://github.com/travisbrown/archivindex-wbm/actions/workflows/ci.yml
+[build-badge]: https://github.com/travisbrown/archivindex-wbm/actions/workflows/ci.yml/badge.svg
 [cdx]: https://github.com/internetarchive/wayback/tree/master/wayback-cdx-server
-[crates]: https://crates.io
+[codecov]: https://codecov.io/gh/travisbrown/archivindex-wbm
+[codecov-badge]: https://codecov.io/gh/travisbrown/archivindex-wbm/branch/main/graph/badge.svg
+[crates]: https://crates.io/crates/archivindex-wbm/
+[crates-downloads-badge]: https://img.shields.io/crates/d/archivindex-wbm
+[crates-version-badge]: https://img.shields.io/crates/v/archivindex-wbm.svg
+[docs]: https://docs.rs/archivindex-wbm/
+[docs-badge]: https://docs.rs/archivindex-wbm/badge.svg
 [internet-archive]: https://archive.org
+[last-commit-badge]: https://img.shields.io/github/last-commit/travisbrown/archivindex-wbm
+[license-badge]: https://img.shields.io/badge/license-AGPL--v3-blue
 [prototype-fund]: https://www.prototypefund.de/en/
 [wayback-machine]: https://web.archive.org
 [wbm-invalid-digests]: https://github.com/travisbrown/wbm-invalid-digests

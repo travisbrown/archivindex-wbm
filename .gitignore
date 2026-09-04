@@ -1,4 +1,4 @@
-/hacks/Cargo.lock
+/tools/hacks/Cargo.lock
 target/
 tmp/
 minimal/__pycache__/
