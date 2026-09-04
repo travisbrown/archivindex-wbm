@@ -30,11 +30,7 @@ allow = [
   "Unlicense",
   "Zlib",
 ]
-exceptions = [
-  { crate = "prefix-file-tree", allow = [
-    "GPL-3.0-only",
-  ] },
-]
+exceptions = [{ crate = "prefix-file-tree", allow = ["GPL-3.0-only"] }]
 
 [sources]
 unknown-registry = "deny"

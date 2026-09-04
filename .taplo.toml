@@ -1,0 +1,7 @@
+# Configuration for `taplo`, which formats and lints the TOML files in continuous integration.
+
+exclude = ["target/**"]
+
+[formatting]
+# Matches the rustfmt default that the Rust sources follow.
+column_width = 100
