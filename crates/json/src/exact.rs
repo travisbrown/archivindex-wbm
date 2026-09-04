@@ -418,7 +418,7 @@ mod tests {
         let context = context();
         let lines =
             include_str!("../tests/data/twitter/data/AAACIPSN7EJQ3B4DR4FLK5YAHHKFHT64.json")
-                .split('\n');
+                .lines();
         for line in lines {
             let parsed = RawSnapshot::parse(line)?;
             assert_eq!(line, parsed.display(&context).to_string());
@@ -441,7 +441,7 @@ mod tests {
     fn deserialize_examples() -> Result<(), Box<dyn std::error::Error>> {
         let lines =
             include_str!("../tests/data/twitter/data/AAACIPSN7EJQ3B4DR4FLK5YAHHKFHT64.json")
-                .split('\n');
+                .lines();
         for line in lines {
             let _snapshot = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
         }
@@ -452,7 +452,7 @@ mod tests {
     fn parse_from_str_match() -> Result<(), Box<dyn std::error::Error>> {
         let lines =
             include_str!("../tests/data/twitter/data/AAACIPSN7EJQ3B4DR4FLK5YAHHKFHT64.json")
-                .split('\n');
+                .lines();
         for line in lines {
             let snapshot_parse = RawSnapshot::parse(line)?;
             let snapshot_from_str = serde_json::from_str::<TypedSnapshot<'_>>(line)?;
