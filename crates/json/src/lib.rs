@@ -45,9 +45,9 @@ use crate::format::FormatInfo;
 
 /// Errors encountered while reading snapshot lines.
 ///
-/// Parsing itself only ever fails with [`InvalidLine`](Error::InvalidLine); the
-/// [`Io`](Error::Io) variant exists so that readers streaming JSONL from a file (such as the
-/// `archivindex-wbm-json-processing` crate's `SnapshotReader`) can report both failure modes
+/// Parsing itself only ever fails with [`InvalidLine`](Error::InvalidLine); the [`Io`](Error::Io)
+/// variant exists so that readers streaming JSONL from a file (such as the
+/// `archivindex-wbm-json-processing` crate's async snapshot streams) can report both failure modes
 /// through one type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

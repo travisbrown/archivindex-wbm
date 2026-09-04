@@ -36,21 +36,6 @@ fn char_whitespace_to_bytes(
 
 const CLOSING_WHITESPACE_CANDIDATES: &[&[char]] = &[&['\n'], &['\r', '\n'], &['\r', '\r', '\n']];
 
-/// Remove the terminator from a line read with [`BufRead::read_line`], exactly as
-/// [`BufRead::lines`] does: one trailing `\n`, then one trailing `\r` if it preceded the `\n`.
-///
-/// Reading with [`BufRead::read_line`] into a reused buffer avoids the fresh `String` that
-/// [`BufRead::lines`] allocates per line, which matters at the crate's 100M+ line scale. Only the
-/// JSONL terminator is affected: any whitespace inside a snapshot line is escaped JSON content.
-fn trim_line_terminator(line: &mut String) {
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
-        }
-    }
-}
-
 /// Returns the first character that is not JSON whitespace (carriage return, line feed, space, or
 /// tab), if any.
 fn invalid_closing_whitespace(mut chars: impl Iterator<Item = char>) -> Option<char> {
@@ -604,30 +589,29 @@ impl Context {
         Ok(codec.encode(&full, &snapshot.format.metadata).into_owned())
     }
 
-    /// Parse and validate every line of a JSONL reader under this context.
+    /// Parse and validate every line of a JSONL reader under this context, with `source` naming the
+    /// reader in any error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the reader fails, or if a line is blank, over-long, or not valid UTF-8.
+    /// These errors stop validation; snapshot parsing, digest, and ordering problems are collected
+    /// in the result.
     pub fn validate_lines<R: BufRead>(
         &self,
-        mut reader: R,
-    ) -> Result<validation::SnapshotLineValidation, std::io::Error> {
+        reader: R,
+        source: impl Into<String>,
+    ) -> Result<validation::SnapshotLineValidation, archivindex_lines::Error> {
+        let mut lines =
+            archivindex_lines::Lines::with_source(reader, source).rejecting_blank_lines();
         let mut validation = validation::SnapshotLineValidation::default();
         let mut hasher = Sha1::default();
         // `None` until the first valid line: an all-zero first digest is in order, so no digest
         // value can serve as a "no previous digest" sentinel.
         let mut last_digest: Option<Sha1Digest> = None;
-        // A single reused buffer avoids one heap allocation per line (see
-        // `trim_line_terminator`).
-        let mut line = String::new();
-        let mut line_number = 0;
 
-        loop {
-            line.clear();
-            if reader.read_line(&mut line)? == 0 {
-                break;
-            }
-            line_number += 1;
-            trim_line_terminator(&mut line);
-
-            match ExactSnapshot::parse(&line) {
+        while let Some((location, line)) = lines.next_content()? {
+            match ExactSnapshot::parse(line) {
                 Ok(snapshot) => match self.verify(&snapshot, &mut hasher) {
                     Ok(()) => {
                         if last_digest.is_none_or(|last| snapshot.digest > last) {
@@ -647,13 +631,13 @@ impl Context {
                     }
                     Err(validation::ValidationError::ClosingWhitespace(_)) => {
                         // A parsed line's own closing whitespace was validated during
-                        // deserialization and this context's default at construction, so this
-                        // arm is defensive: such a line is not in canonical form.
-                        validation.invalid_lines.push(line_number);
+                        // deserialization and this context's default at construction, so this arm
+                        // is defensive: such a line is not in canonical form.
+                        validation.invalid_lines.push(location.line);
                     }
                 },
                 Err(_) => {
-                    validation.invalid_lines.push(line_number);
+                    validation.invalid_lines.push(location.line);
                 }
             }
         }
@@ -677,33 +661,35 @@ impl Context {
     /// # Arguments
     ///
     /// * `reader` - Uncompressed JSONL snapshot lines
+    /// * `source` - A name for the reader, used in any error
     /// * `n` - Minimum number of lines without explicit whitespace required to confirm a candidate
     ///
     /// # Errors
     ///
-    /// Returns `Err` if the reader fails.
-    pub fn infer<R: BufRead>(mut reader: R, n: usize) -> Result<Option<Self>, std::io::Error> {
-        // With no required samples every candidate would pass vacuously, so nothing may be
-        // inferred from zero evidence.
+    /// Returns `Err` if the reader fails, or if a line is over-long or not valid UTF-8. Blank lines
+    /// are skipped rather than rejected: inference samples a file rather than checking it.
+    pub fn infer<R: BufRead>(
+        reader: R,
+        source: impl Into<String>,
+        n: usize,
+    ) -> Result<Option<Self>, archivindex_lines::Error> {
+        // With no required samples every candidate would pass vacuously, so nothing may be inferred
+        // from zero evidence.
         if n == 0 {
             return Ok(None);
         }
 
+        let mut lines = archivindex_lines::Lines::with_source(reader, source);
         // The samples are parsed into owned snapshots as they are read, so each candidate verifies
         // against the parsed snapshots rather than reparsing every line per candidate.
         let mut samples: Vec<ExactSnapshot<'static>> = Vec::with_capacity(n);
-        // A single reused buffer avoids one heap allocation per line (see
-        // `trim_line_terminator`).
-        let mut line = String::new();
 
         while samples.len() < n {
-            line.clear();
-            if reader.read_line(&mut line)? == 0 {
+            let Some((_, line)) = lines.next_content()? else {
                 break;
-            }
-            trim_line_terminator(&mut line);
+            };
 
-            if let Ok(snapshot) = ExactSnapshot::parse(&line)
+            if let Ok(snapshot) = ExactSnapshot::parse(line)
                 && snapshot.format.name.is_utf8()
                 && !snapshot.has_explicit_closing_whitespace()
             {
@@ -914,14 +900,14 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let inferred = Context::infer(std::io::Cursor::new(&lines), 3)
+        let inferred = Context::infer(std::io::Cursor::new(&lines), "test.jsonl", 3)
             .expect("reading succeeds")
             .expect("a candidate verifies");
         assert_eq!(inferred.default_closing_whitespace(), ['\r', '\n']);
 
         // With more samples required than qualifying lines exist, nothing is inferred.
         assert!(
-            Context::infer(std::io::Cursor::new(&lines), 4)
+            Context::infer(std::io::Cursor::new(&lines), "test.jsonl", 4)
                 .expect("reading succeeds")
                 .is_none()
         );
@@ -929,12 +915,12 @@ mod tests {
         // Zero required samples provide no evidence, so nothing may be inferred: not from real
         // lines, and not from empty input (where every candidate would pass vacuously).
         assert!(
-            Context::infer(std::io::Cursor::new(&lines), 0)
+            Context::infer(std::io::Cursor::new(&lines), "test.jsonl", 0)
                 .expect("reading succeeds")
                 .is_none()
         );
         assert!(
-            Context::infer(std::io::Cursor::new(""), 0)
+            Context::infer(std::io::Cursor::new(""), "empty.jsonl", 0)
                 .expect("reading succeeds")
                 .is_none()
         );

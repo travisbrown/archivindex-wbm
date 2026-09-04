@@ -432,7 +432,8 @@ mod tests {
         let reader = std::io::BufReader::new(std::io::Cursor::new(include_bytes!(
             "../tests/data/twitter/data/AAACIPSN7EJQ3B4DR4FLK5YAHHKFHT64.json"
         )));
-        let verification = context().validate_lines(reader)?;
+        let verification =
+            context().validate_lines(reader, "AAACIPSN7EJQ3B4DR4FLK5YAHHKFHT64.json")?;
         assert!(verification.is_successful());
         Ok(())
     }

@@ -455,7 +455,9 @@ fn copy_through<I, W>(
     digest: Sha1Digest,
 ) -> Result<bool, anyhow::Error>
 where
-    I: Iterator<Item = Result<ExactSnapshot<'static>, archivindex_wbm_json::Error>>,
+    I: Iterator<
+        Item = Result<ExactSnapshot<'static>, archivindex_wbm_json_processing::io::read::Error>,
+    >,
     W: Write,
 {
     while let Some(Ok(snapshot)) = input.next_if(|result| {
@@ -479,7 +481,7 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, anyh
     let context = match format {
         Some(Format::Wxj) => wxj::context(),
         Some(Format::Ts) => wts::context(),
-        None => Context::infer(zst::reader(path)?, 10)?.map_or_else(
+        None => Context::infer(zst::reader(path)?, path.display().to_string(), 10)?.map_or_else(
             || {
                 log::warn!("Could not infer closing whitespace; assuming none");
                 Context::default()

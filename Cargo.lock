@@ -114,8 +114,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "archivindex-archiver"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#39498399e5ca226750265c28e006cb23f73871cd"
+source = "git+https://github.com/travisbrown/archivindex-warc#9bbdfd0e250ed5da622154ca04efa19ab4b79635"
 dependencies = [
+ "archivindex-publication",
  "archivindex-warc",
  "archivindex-warc-revisit-index",
  "chrono",
@@ -136,7 +137,7 @@ dependencies = [
 [[package]]
 name = "archivindex-cdx"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "archivindex-serde",
  "chrono",
@@ -148,7 +149,7 @@ dependencies = [
 [[package]]
 name = "archivindex-cli-support"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "clap",
  "ctrlc",
@@ -164,7 +165,7 @@ dependencies = [
 [[package]]
 name = "archivindex-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "data-encoding",
  "thiserror",
@@ -192,15 +193,24 @@ dependencies = [
 [[package]]
 name = "archivindex-lines"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "archivindex-publication"
+version = "0.1.0"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
+dependencies = [
+ "tempfile",
  "thiserror",
 ]
 
 [[package]]
 name = "archivindex-serde"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "serde",
 ]
@@ -208,7 +218,7 @@ dependencies = [
 [[package]]
 name = "archivindex-surt"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "bounded-static",
  "thiserror",
@@ -217,7 +227,7 @@ dependencies = [
 [[package]]
 name = "archivindex-test-support"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#eab7258d2d0455f141ccfb39fea815d599a05f6d"
+source = "git+https://github.com/travisbrown/archivindex#06205f9013c235d05a84963a4a6247ebeff64ead"
 dependencies = [
  "proptest",
 ]
@@ -225,7 +235,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#39498399e5ca226750265c28e006cb23f73871cd"
+source = "git+https://github.com/travisbrown/archivindex-warc#9bbdfd0e250ed5da622154ca04efa19ab4b79635"
 dependencies = [
  "archivindex-warc-digest",
  "chrono",
@@ -243,7 +253,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#39498399e5ca226750265c28e006cb23f73871cd"
+source = "git+https://github.com/travisbrown/archivindex-warc#9bbdfd0e250ed5da622154ca04efa19ab4b79635"
 dependencies = [
  "data-encoding",
  "md-5",
@@ -256,7 +266,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-revisit-index"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#39498399e5ca226750265c28e006cb23f73871cd"
+source = "git+https://github.com/travisbrown/archivindex-warc#9bbdfd0e250ed5da622154ca04efa19ab4b79635"
 dependencies = [
  "archivindex-warc",
  "fluent-uri",
@@ -320,7 +330,6 @@ name = "archivindex-wbm-cdx-client-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "archivindex-archiver",
  "archivindex-cdx",
  "archivindex-cli-support",
  "archivindex-test-support",

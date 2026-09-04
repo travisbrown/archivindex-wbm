@@ -34,9 +34,9 @@ use crate::io::write::{Finish, SnapshotWriter};
 // repeated here.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
-    /// The input could not be parsed as compact snapshot JSONL.
+    /// The input could not be read as compact snapshot JSONL.
     #[error(transparent)]
-    Read(#[from] archivindex_wbm_json::Error),
+    Read(#[from] crate::io::read::Error),
     /// The invalid-digest log could not be read.
     #[error(transparent)]
     InvalidDigestDb(#[from] rusqlite::Error),
@@ -140,7 +140,7 @@ pub fn enhance_into<I, L, E, W, S>(
     mut lookup: L,
 ) -> Result<Summary, Error<E>>
 where
-    I: IntoIterator<Item = Result<ExactSnapshot<'static>, archivindex_wbm_json::Error>>,
+    I: IntoIterator<Item = Result<ExactSnapshot<'static>, crate::io::read::Error>>,
     L: FnMut(&[Sha1Digest]) -> Result<Vec<Option<Vec<UrlParts<'static>>>>, E>,
     E: std::error::Error + 'static,
     W: Finish,

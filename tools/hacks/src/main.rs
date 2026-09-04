@@ -385,10 +385,14 @@ fn validated_wxj_lines(input: &Path) -> Result<(), anyhow::Error> {
         .extension()
         .is_some_and(|extension| extension == "zst");
 
+    let source = input.display().to_string();
     let validation = if is_compressed {
-        context.validate_lines(BufReader::new(zstd::Decoder::new(File::open(input)?)?))
+        context.validate_lines(
+            BufReader::new(zstd::Decoder::new(File::open(input)?)?),
+            source,
+        )
     } else {
-        context.validate_lines(BufReader::new(File::open(input)?))
+        context.validate_lines(BufReader::new(File::open(input)?), source)
     }?;
 
     println!("Successful: {}", validation.valid_count);

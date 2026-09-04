@@ -20,6 +20,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+archivindex-lines.workspace = true
 archivindex-serde.workspace = true
 archivindex-wbm.workspace = true
 bounded-static.workspace = true
