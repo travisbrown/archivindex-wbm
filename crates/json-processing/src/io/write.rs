@@ -5,16 +5,16 @@
 //! used to omit redundant fields. Consecutive values with the same digest are skipped.
 //!
 //! Output targets whose data is complete only after a consuming finalization step implement
-//! [`Finish`]. File-backed output composes two such layers: [`DurableFile`] reserves the final
-//! path with `create_new`, writes to a same-directory temporary sibling, and on finish syncs the
-//! data to disk before renaming it over the reserved path — so a file only ever appears under its
-//! final name once its contents are complete and durable — and [`DurableEncoder`] adds Zstandard
-//! compression on top.
+//! [`Finish`]. File-backed output composes [`DurableFile`], which publishes a completed file
+//! without overwriting existing output, with [`DurableEncoder`], which finalizes Zstandard first.
+//! Temporary files are owned by the shared publication primitive and removed on ordinary drop. The
+//! final path stays absent until publication; it is never an empty reservation placeholder.
 
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use archivindex_publication::{Policy, Publication};
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::{Context, SnapshotError};
 use archivindex_wbm_json::exact::ExactSnapshot;
@@ -149,16 +149,11 @@ impl<W: Finish> SnapshotWriter<W> {
 impl SnapshotWriter<DurableEncoder> {
     /// Create a new Zstandard-compressed JSONL output file.
     ///
-    /// The final path is reserved with an empty placeholder (via [`File::create_new`], so an
-    /// accidental rerun cannot clobber an earlier result) while the data is written to a
-    /// same-directory `.tmp` sibling; [`finish`](Self::finish) syncs that sibling to disk and
-    /// renames it over the placeholder, so the final name never carries a torn file. See
-    /// [`DurableEncoder::create`].
-    ///
-    /// A dropped writer leaves its frame unterminated, its buffered data unwritten, and only the
-    /// empty placeholder under the final name, so [`finish`](Self::finish) must be called for the
-    /// output to be readable. Callers that finish after a processing failure still get their
-    /// partial (but readable) result under the final name.
+    /// Writes to an exclusively created temporary sibling. The final path remains absent until the
+    /// encoder is finished and the shared publication primitive publishes it without overwrite. A
+    /// concurrent creator may win publication; finishing then returns `AlreadyExists`. Dropping an
+    /// unfinished writer cleans up its temporary file. Callers that finish after a processing
+    /// failure intentionally publish their partial (but readable) result.
     ///
     /// # Errors
     ///
@@ -176,138 +171,65 @@ impl SnapshotWriter<DurableEncoder> {
     }
 }
 
-/// A file whose contents only appear under their final name once complete.
+/// A file published without overwrite only after its contents are complete.
 ///
-/// [`create`](Self::create) reserves the final path with an empty placeholder ([`File::create_new`],
-/// so an accidental rerun cannot clobber an earlier result) and writes to a same-directory `.tmp`
-/// sibling. [`Finish::finish`] syncs the sibling to disk and renames it over the placeholder. A
-/// crash or power loss before that rename leaves the empty placeholder (never a torn file) under
-/// the final name.
+/// [`create`](Self::create) opens a unique temporary sibling and rejects an already occupied output
+/// path, but does not reserve the destination. Competing writers are resolved at finish. Ordinary
+/// drop removes the temporary file; a process crash may leave it behind. File data is synced before
+/// publication and the parent directory is synced afterward on Unix.
 pub struct DurableFile {
-    file: File,
-    /// The reserved output path, occupied by an empty placeholder until finished.
-    final_path: PathBuf,
-    /// The same-directory sibling the data is written to.
-    temp_path: PathBuf,
+    publication: Publication,
 }
 
 impl DurableFile {
-    /// Reserve `output` and open its temporary sibling for writing.
-    ///
-    /// The sibling lives in the same directory (its name is the output's file name with `.tmp`
-    /// appended), so the final rename cannot cross file systems. A stale sibling left by a crashed
-    /// run whose placeholder was removed by hand is truncated and reused: the reservation of the
-    /// final path is what guards against concurrent or repeated runs.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `output` already exists or if it or the sibling cannot be created; the
-    /// placeholder is removed again before returning.
-    ///
-    /// # Panics
-    ///
-    /// Panics if an internal invariant is violated (a path at which a file was just created having
-    /// no final component), which cannot happen.
-    pub fn create<P: AsRef<Path>>(output: P) -> Result<Self, std::io::Error> {
-        let final_path = output.as_ref().to_path_buf();
-
-        // Reserve the final path first, preserving `create_new` rerun protection. The handle
-        // itself is not needed: the placeholder only occupies the name.
-        drop(File::create_new(&final_path)?);
-
-        // `create_new` just created a file at this path, so it necessarily has a final component.
-        let mut temp_name = final_path
-            .file_name()
-            .expect("a created file path has a file name (programming error)")
-            .to_owned();
-        temp_name.push(".tmp");
-        let temp_path = final_path.with_file_name(temp_name);
-
-        let file = File::create(&temp_path).inspect_err(|_| remove_or_warn(&final_path))?;
-
+    /// Open a unique temporary sibling without truncating an existing output or temporary file.
+    pub fn create(output: impl AsRef<Path>) -> Result<Self, std::io::Error> {
         Ok(Self {
-            file,
-            final_path,
-            temp_path,
+            publication: Publication::new(output, Policy::CreateNew)?,
         })
     }
 }
 
 impl Write for DurableFile {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.file.write(buf)
+        self.publication.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.file.flush()
+        self.publication.flush()
     }
 }
 
 impl Finish for DurableFile {
     type Output = File;
 
-    /// Sync the temporary sibling to disk and rename it over the reserved final path, returning
-    /// the (renamed) file.
+    /// Publish the completed file. A directory-sync failure retains the published output.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the data cannot be synced or renamed. On such an error nothing valid
-    /// was produced, so both the sibling and the placeholder are removed, leaving the output path
-    /// free for a rerun.
+    /// Publication errors retain an [`archivindex_publication::Error`] inside the I/O error, so
+    /// callers can distinguish failure before publication from unconfirmed durability afterward.
     fn finish(self) -> Result<File, std::io::Error> {
-        let Self {
-            file,
-            final_path,
-            temp_path,
-        } = self;
-
-        file.sync_all()
-            .and_then(|()| std::fs::rename(&temp_path, &final_path))
-            .map(|()| file)
-            .inspect_err(|_| {
-                remove_or_warn(&temp_path);
-                remove_or_warn(&final_path);
-            })
+        self.publication.publish().map_err(Into::into)
     }
 }
 
-/// A Zstandard encoder over a [`DurableFile`]: compressed output that only appears under its final
-/// name once its frame is terminated and its bytes are synced.
+/// A Zstandard encoder that publishes only after successful frame finalization.
 ///
-/// A dropped encoder leaves its frame unterminated, its buffered data unwritten, and only the
-/// empty placeholder under the final name, so [`Finish::finish`] must be called for the output to
-/// be readable.
+/// Dropping the encoder, or failing to finalize it, cleans up its owned temporary file. See
+/// [`DurableFile`] for concurrency and durability guarantees.
 pub struct DurableEncoder {
     encoder: zstd::Encoder<'static, DurableFile>,
 }
 
 impl DurableEncoder {
-    /// Reserve `output` (see [`DurableFile::create`]) and open a Zstandard encoder writing to its
-    /// temporary sibling.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `output` already exists or if it or the sibling cannot be created;
-    /// whatever this call had already created is removed again before returning.
+    /// Prepare a Zstandard encoder over a uniquely named temporary sibling.
     pub fn create<P: AsRef<Path>>(
         output: P,
         compression_level: u16,
     ) -> Result<Self, std::io::Error> {
         let durable = DurableFile::create(output)?;
-
-        // The encoder consumes the file even when its construction fails, so the paths needed for
-        // cleanup are cloned first.
-        let final_path = durable.final_path.clone();
-        let temp_path = durable.temp_path.clone();
-
-        match zstd::Encoder::new(durable, i32::from(compression_level)) {
-            Ok(encoder) => Ok(Self { encoder }),
-            Err(error) => {
-                remove_or_warn(&temp_path);
-                remove_or_warn(&final_path);
-                Err(error)
-            }
-        }
+        Ok(Self {
+            encoder: zstd::Encoder::new(durable, i32::from(compression_level))?,
+        })
     }
 }
 
@@ -324,39 +246,10 @@ impl Write for DurableEncoder {
 impl Finish for DurableEncoder {
     type Output = File;
 
-    /// Terminate the Zstandard frame, then sync and rename the file (see [`Finish::finish`] on
-    /// [`DurableFile`]), returning the (renamed) file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the remaining buffered data cannot be written, synced, or renamed. On
-    /// such an error nothing valid was produced, so both the sibling and the placeholder are
-    /// removed, leaving the output path free for a rerun.
+    /// Terminate the frame before publication, retaining published output on directory-sync
+    /// failure.
     fn finish(self) -> Result<File, std::io::Error> {
-        // Frame termination consumes the encoder even on failure, so the paths needed for cleanup
-        // are cloned first.
-        let final_path = self.encoder.get_ref().final_path.clone();
-        let temp_path = self.encoder.get_ref().temp_path.clone();
-
-        match self.encoder.finish() {
-            Ok(durable) => durable.finish(),
-            Err(error) => {
-                remove_or_warn(&temp_path);
-                remove_or_warn(&final_path);
-                Err(error)
-            }
-        }
-    }
-}
-
-/// Remove a file created earlier on this same failure path, logging (rather than masking the
-/// original error with) any removal failure.
-fn remove_or_warn(path: &Path) {
-    if let Err(error) = std::fs::remove_file(path) {
-        log::warn!(
-            "Error removing {} while cleaning up a failed write: {error}",
-            path.as_os_str().to_string_lossy()
-        );
+        self.encoder.finish()?.finish()
     }
 }
 
@@ -382,12 +275,12 @@ mod tests {
         let digest = Sha1Digest::compute(bytes);
 
         let mut writer = SnapshotWriter::create(&output, 1, context).expect("create writer");
-        // Until `finish`, the final name holds only the empty placeholder.
-        assert_eq!(std::fs::metadata(&output).expect("placeholder").len(), 0);
+        // No output is visible before the frame is finalized and published.
+        assert!(!output.exists());
         assert!(writer.write(digest, bytes).expect("write snapshot"));
         writer.finish().expect("finish writer");
 
-        assert!(!dir.path().join("out.jsonl.zst.tmp").exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         let snapshots = crate::io::read::SnapshotReader::open(&output)
             .expect("open output")
             .collect::<Result<Vec<_>, _>>()
@@ -397,22 +290,26 @@ mod tests {
         assert_eq!(snapshots[0].content.as_str(), r#"{"id":1}"#);
     }
 
-    /// The reserved final path preserves rerun protection: a second `create` at the same path
-    /// fails, and the first writer still finishes normally afterward.
+    /// Concurrent encoders may prepare output, but only one can publish it.
     #[test]
     fn create_still_refuses_an_existing_output() {
         let dir = tempfile::tempdir().expect("tempdir");
         let output = dir.path().join("out.jsonl.zst");
 
         let first = DurableEncoder::create(&output, 1).expect("create first encoder");
-        assert!(DurableEncoder::create(&output, 1).is_err());
+        let second = DurableEncoder::create(&output, 1).expect("prepare competitor");
         first.finish().expect("finish first encoder");
-        assert!(!dir.path().join("out.jsonl.zst.tmp").exists());
+        assert_eq!(
+            second.finish().expect_err("occupied output").kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert!(DurableEncoder::create(&output, 1).is_err());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     /// An uncompressed durable file behaves like the encoder minus the compression: the final name
-    /// holds only the placeholder until `finish`, after which it carries the written bytes verbatim
-    /// and no sibling remains.
+    /// remains absent until `finish`, after which it carries the written bytes verbatim and no
+    /// sibling remains.
     #[test]
     fn durable_file_appears_complete_under_the_final_name() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -420,10 +317,10 @@ mod tests {
 
         let mut file = DurableFile::create(&output).expect("create durable file");
         file.write_all(b"{\"id\":1}\n").expect("write bytes");
-        assert_eq!(std::fs::metadata(&output).expect("placeholder").len(), 0);
+        assert!(!output.exists());
         file.finish().expect("finish durable file");
 
-        assert!(!dir.path().join("out.jsonl.tmp").exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         assert_eq!(
             std::fs::read(&output).expect("read output"),
             b"{\"id\":1}\n"
@@ -442,6 +339,22 @@ mod tests {
             std::fs::read(&output).expect("read output"),
             b"pre-existing"
         );
+    }
+
+    #[test]
+    fn dropping_unfinished_output_preserves_old_temporary_names()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let output = dir.path().join("out.jsonl.zst");
+        let old_temporary = dir.path().join("out.jsonl.zst.tmp");
+        std::fs::write(&old_temporary, b"unrelated contents")?;
+        let mut writer = DurableEncoder::create(&output, 1)?;
+        writer.write_all(b"unfinished frame")?;
+        drop(writer);
+        assert!(!output.exists());
+        assert_eq!(std::fs::read(old_temporary)?, b"unrelated contents");
+        assert_eq!(std::fs::read_dir(dir.path())?.count(), 1);
+        Ok(())
     }
 
     /// Writing a consecutive duplicate digest is skipped and reported as such.

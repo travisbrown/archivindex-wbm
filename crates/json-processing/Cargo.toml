@@ -21,6 +21,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 archivindex-lines.workspace = true
+archivindex-publication.workspace = true
 archivindex-wbm.workspace = true
 archivindex-wbm-invalid-log.workspace = true
 archivindex-wbm-json.workspace = true

@@ -5,8 +5,8 @@ use std::io::Write;
 #[cfg(feature = "zstd")]
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
+use archivindex_publication::{Policy, Publication};
 use archivindex_wbm::digest::Sha1Digest;
 use prefix_file_tree::Tree;
 use prefix_file_tree::scheme::Case;
@@ -19,7 +19,7 @@ pub mod entry;
 /// Digests are 20 bytes, stored as their Base32 encoding.
 type Scheme = Base32<20>;
 
-/// Extension of the unique sibling temporary files used for atomic writes (see [`temp_path`]).
+/// Extension of the unique sibling temporary files used for atomic writes.
 ///
 /// A crash between creating a temporary file and renaming it into place can leave one behind, so
 /// iteration skips files with this extension instead of failing on them.
@@ -93,25 +93,6 @@ impl<C> Store<C> {
     }
 }
 
-/// Returns a unique sibling temporary path for an atomic write to `path`.
-///
-/// The process id and a process-wide counter keep concurrent writers of the same digest from
-/// colliding on the temporary name.
-fn temp_path(path: &Path) -> PathBuf {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    let mut name = path
-        .file_name()
-        .map_or_else(std::ffi::OsString::new, ToOwned::to_owned);
-    name.push(format!(
-        ".{}.{}.{TEMP_EXTENSION}",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-
-    path.with_file_name(name)
-}
-
 /// Saves `bytes` under `path`, verifying the digest when requested and writing through a unique
 /// temporary file renamed into place, so a failed or interrupted write cannot leave a partial file
 /// at the content-addressed path.
@@ -138,19 +119,25 @@ fn save_atomically(
         std::fs::create_dir_all(parent)?;
     }
 
-    let temp = temp_path(path);
-    let result = File::create_new(&temp).and_then(|file| {
-        let file = write(file, bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, path)
-    });
-
-    if result.is_err() {
-        // Best-effort cleanup; the write error is the one worth reporting.
-        let _ = std::fs::remove_file(&temp);
+    let publication = match Publication::new(path, Policy::CreateNew) {
+        Ok(publication) => publication,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Ok(SaveSummary::AlreadyPresent);
+        }
+        Err(error) => return Err(error),
+    };
+    // The encoder must be finished successfully before the completed bytes become visible.
+    drop(write(publication.reopen()?, bytes)?);
+    match publication.publish() {
+        Ok(_) => Ok(SaveSummary::Success),
+        Err(error)
+            if !error.is_published()
+                && error.io_error().kind() == std::io::ErrorKind::AlreadyExists =>
+        {
+            Ok(SaveSummary::AlreadyPresent)
+        }
+        Err(error) => Err(error.into()),
     }
-
-    result.map(|()| SaveSummary::Success)
 }
 
 impl Store<entry::Buffered> {
@@ -353,6 +340,53 @@ mod tests {
     use crate::Store as _;
 
     #[test]
+    fn failed_encoding_leaves_no_published_or_temporary_file()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write as _;
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("entry");
+        let bytes = b"content";
+        let error = super::save_atomically(
+            &output,
+            Sha1Digest::compute(bytes),
+            bytes,
+            true,
+            |mut file, bytes| {
+                file.write_all(bytes)?;
+                Err(std::io::Error::other("injected encoder finish failure"))
+            },
+        )
+        .expect_err("failed finalization");
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
+        assert!(!output.exists());
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn a_competing_save_wins_without_being_overwritten() -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write as _;
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("entry");
+        let bytes = b"content";
+        let summary = super::save_atomically(
+            &output,
+            Sha1Digest::compute(bytes),
+            bytes,
+            true,
+            |mut file, bytes| {
+                file.write_all(bytes)?;
+                std::fs::write(&output, b"concurrent value")?;
+                Ok(file)
+            },
+        )?;
+        assert_eq!(summary, crate::SaveSummary::AlreadyPresent);
+        assert_eq!(std::fs::read(&output)?, b"concurrent value");
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn iteration_skips_stale_temporary_files() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::TempDir::new()?;
         let store = super::Store::<super::entry::Buffered>::new(&dir, &[2, 2])?;
@@ -371,6 +405,10 @@ mod tests {
             .path(digest)
             .with_file_name(format!("{digest}.12345.0.tmp"));
         std::fs::write(&stale, b"partial write")?;
+        std::fs::write(
+            stale.with_file_name(".archivindex-leftover.tmp"),
+            b"partial",
+        )?;
 
         let digests = store
             .iter()
@@ -417,6 +455,10 @@ mod tests {
             .path(digest)
             .with_file_name(format!("{digest}.zst.12345.0.tmp"));
         std::fs::write(&stale, b"partial write")?;
+        std::fs::write(
+            stale.with_file_name(".archivindex-leftover.tmp"),
+            b"partial",
+        )?;
 
         let digests = store
             .iter()

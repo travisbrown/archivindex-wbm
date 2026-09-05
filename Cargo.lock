@@ -303,6 +303,7 @@ dependencies = [
 name = "archivindex-wbm-cas"
 version = "0.1.0"
 dependencies = [
+ "archivindex-publication",
  "archivindex-wbm",
  "bytes",
  "flate2",
@@ -330,6 +331,7 @@ name = "archivindex-wbm-cdx-client-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "archivindex-archiver",
  "archivindex-cdx",
  "archivindex-cli-support",
  "archivindex-test-support",
@@ -483,6 +485,7 @@ name = "archivindex-wbm-json-processing"
 version = "0.1.0"
 dependencies = [
  "archivindex-lines",
+ "archivindex-publication",
  "archivindex-wbm",
  "archivindex-wbm-invalid-log",
  "archivindex-wbm-json",

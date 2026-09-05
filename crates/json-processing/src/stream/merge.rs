@@ -224,6 +224,8 @@ impl PeekedStream {
 
 /// A command sent to a blocking writer thread.
 enum WriteCommand {
+    /// Discard an output whose operation never started.
+    Abort,
     /// An existing parsed snapshot to pass through.
     Existing(ExactSnapshot<'static>),
     /// A new snapshot to create from raw file content.
@@ -277,6 +279,7 @@ impl AsyncSnapshotSink {
 
             while let Some(command) = rx.blocking_recv() {
                 let result = match command {
+                    WriteCommand::Abort => return Ok(()),
                     WriteCommand::Existing(snapshot) => writer
                         .write_snapshot(&snapshot)
                         .map(|_written| ())
@@ -321,6 +324,12 @@ impl AsyncSnapshotSink {
             .send(WriteCommand::New { digest, content })
             .await
             .map_err(|_| Error::WriterChannelClosed)
+    }
+
+    /// Discard the unpublished writer without finishing or removing any destination path.
+    async fn abort(self) -> Result<(), Error> {
+        let _ = self.tx.send(WriteCommand::Abort).await;
+        self.finish().await
     }
 
     /// Drop the sender and wait for the writer thread to flush and close.
@@ -382,7 +391,6 @@ where
         Source::Second,
     );
 
-    let first_output = config.first_output.clone();
     let compression_level = config.compression_level;
     let first_sink = AsyncSnapshotSink::create({
         let path = config.first_output;
@@ -399,20 +407,11 @@ where
     {
         Ok(sink) => sink,
         Err(error) => {
-            // The first sink's detached writer thread would otherwise finish a valid empty file at
-            // `first_output`, blocking reruns and indistinguishable from a legitimately empty
-            // merge. Tear the sink down and remove the file. Removal is safe: the sink's
-            // `create_new` succeeded, so the file at this path was created by this call, never a
-            // pre-existing one. The creation error is the informative one, so teardown failures
-            // are only logged.
-            if let Err(finish_error) = first_sink.finish().await {
+            // No merge data has been sent. Drop the first writer's owned temporary file instead of
+            // publishing an empty output and unlinking a destination we no longer own.
+            if let Err(abort_error) = first_sink.abort().await {
                 log::warn!(
-                    "Error closing first output after second output failure: {finish_error}"
-                );
-            }
-            if let Err(remove_error) = std::fs::remove_file(&first_output) {
-                log::warn!(
-                    "Error removing first output after second output failure: {remove_error}"
+                    "Error discarding first output after second output failure: {abort_error}"
                 );
             }
             return Err(error);
@@ -592,4 +591,24 @@ async fn drain_rest(
         *count += 1;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn abort_preserves_a_concurrent_output() -> Result<(), Box<dyn std::error::Error>> {
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("output.zst");
+        let path = output.clone();
+        let context = Context::from_static(&['\n'])?;
+        let sink =
+            AsyncSnapshotSink::create(move || SnapshotWriter::create(path, 1, context)).await?;
+        std::fs::write(&output, b"other writer")?;
+        sink.abort().await?;
+        assert_eq!(std::fs::read(output)?, b"other writer");
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 1);
+        Ok(())
+    }
 }

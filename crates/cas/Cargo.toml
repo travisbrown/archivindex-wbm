@@ -24,6 +24,7 @@ default = ["zstd"]
 zstd = ["dep:zstd"]
 
 [dependencies]
+archivindex-publication.workspace = true
 archivindex-wbm.workspace = true
 bytes.workspace = true
 flate2.workspace = true
