@@ -384,8 +384,7 @@ enum SortOrder {
 
 #[derive(Debug, Parser)]
 enum Command {
-    /// Read directories of CDX JSON files (searched recursively) and insert all items into the
-    /// index.
+    /// Read CDX JSON files recursively and insert encodable items into the index.
     Fill {
         /// Path to the index database file (created if absent).
         #[arg(long)]
@@ -440,8 +439,8 @@ enum MetadataCommand {
     },
     /// Fill the metadata database from directories of CDX JSON files (searched recursively).
     ///
-    /// Every item with a valid digest is recorded as a capture (timestamp and original URL) under
-    /// that digest; items with invalid digests are skipped.
+    /// Records captures (timestamp and original URL) under their digest. Items with invalid digests
+    /// or URLs too long for the database are skipped.
     Fill {
         /// Path to the metadata database file (created if absent).
         #[arg(long)]

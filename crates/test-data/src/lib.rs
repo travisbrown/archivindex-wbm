@@ -211,9 +211,8 @@ impl Cache {
             return Ok(None);
         }
 
-        // Already verified just above, so the save can skip recomputing the digest. The write is
-        // atomic, and a file that appeared concurrently holds the same content-addressed bytes, so
-        // both save outcomes are successes here.
+        // The downloaded bytes are already verified. Saving publishes them atomically or skips
+        // an existing file; a concurrent creator's bytes are not checked here.
         self.store.save(expected_digest, &download.bytes, false)?;
 
         Ok(Some(download.bytes))

@@ -1,9 +1,8 @@
 //! Digest-keyed capture metadata store backed by [`redb`].
 //!
 //! Maps a fixed-length 20-byte SHA-1 digest to the captures (timestamp and original URL pairs)
-//! known for that content, kept sorted by timestamp. redb has no merge operator, so
-//! [`MetadataDb::insert_batch`] groups a batch's captures by digest and folds each group into the
-//! stored value with a single read-modify-write per distinct digest, all in one transaction.
+//! known for that content, sorted by timestamp and then URL, with exact duplicates removed.
+//! [`MetadataDb::insert_batch`] records a batch in one transaction.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -52,7 +51,7 @@ const ENTRY_HEADER_LEN: usize = 10;
 
 /// Append one encoded entry to `buffer`.
 ///
-/// Layout: `big-endian u64 unix seconds || little-endian u16 URL length || URL bytes`.
+/// Layout: `big-endian i64 Unix seconds || little-endian u16 URL length || URL bytes`.
 fn encode_entry(buffer: &mut Vec<u8>, timestamp_secs: i64, url_len: u16, url: &[u8]) {
     buffer.extend_from_slice(&timestamp_secs.cast_unsigned().to_be_bytes());
     buffer.extend_from_slice(&url_len.to_le_bytes());
@@ -120,8 +119,7 @@ fn merge_entries(existing: &[u8], additions: &[(i64, &[u8])]) -> Result<Vec<u8>,
         RawEntries { bytes: existing }.collect::<Result<_, _>>()?;
     entries.extend_from_slice(additions);
 
-    // The stored entries are already a sorted run with the additions appended, which
-    // pattern-defeating quicksort handles in near-linear time.
+    // Sort by signed timestamp and then URL before removing duplicates.
     entries.sort_unstable();
     entries.dedup();
 
@@ -195,8 +193,8 @@ impl MetadataDb {
         captures: impl IntoIterator<Item = (Sha1Digest, Timestamp, &'a str)>,
     ) -> Result<(), Error> {
         // Grouping up front collapses repeated digests into one read-modify-write each and rejects
-        // an unencodable URL before the transaction is opened. `BTreeMap` also hands the digests to
-        // redb in key order, which is the cheapest insertion order for its B-tree.
+        // an unencodable URL before the transaction is opened. `BTreeMap` also supplies the digests
+        // in key order.
         let mut grouped: BTreeMap<Sha1Digest, Vec<(i64, &'a [u8])>> = BTreeMap::new();
 
         for (digest, timestamp, original) in captures {

@@ -7,7 +7,7 @@ version = 2
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# A path dependency on a package that is never published cannot carry a version requirement.
+# Allow versionless path dependencies on unpublished workspace packages.
 allow-wildcard-paths = true
 
 [licenses]

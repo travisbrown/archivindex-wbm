@@ -5,8 +5,7 @@
 //!
 //! 1. **Invalid digests**: URLs where the downloaded content's SHA-1 digest doesn't match the
 //!    expected digest from the CDX index.
-//! 2. **Withheld URLs**: URLs that are blocked or unavailable due to content being withheld from
-//!    the archive.
+//! 2. **Withheld URLs**: URLs whose snapshots the archive refuses to serve with HTTP status `403`.
 //!
 //! # Database Schema
 //!
@@ -322,14 +321,9 @@ impl Database {
 
     /// Reads all invalid digest entries from the database.
     ///
-    /// Returns tuples of `(timestamp, entry)` where the timestamp indicates when the invalid digest
-    /// was observed, ordered by observation timestamp in ascending order. All rows are read (and
-    /// the connection lock released) before this method returns.
-    ///
-    /// # Arguments
-    ///
-    /// * `from` - Optional starting timestamp. If `Some`, only entries observed at or after this
-    ///   timestamp are returned. If `None`, all entries are returned.
+    /// Returns `(observation timestamp, entry)` pairs in ascending observation-time order.
+    /// If `from` is given, only observations at or after it are included. All rows are read and
+    /// the connection lock is released before returning.
     pub fn invalid_digests(
         &self,
         from: Option<DateTime<Utc>>,
@@ -345,14 +339,9 @@ impl Database {
 
     /// Reads all withheld URL entries from the database.
     ///
-    /// Returns tuples of `(timestamp, url)` where the timestamp indicates when the withheld status
-    /// was observed, ordered by observation timestamp in ascending order. All rows are read (and
-    /// the connection lock released) before this method returns.
-    ///
-    /// # Arguments
-    ///
-    /// * `from` - Optional starting timestamp. If `Some`, only entries observed at or after this
-    ///   timestamp are returned. If `None`, all entries are returned.
+    /// Returns `(observation timestamp, url)` pairs in ascending observation-time order.
+    /// If `from` is given, only observations at or after it are included. All rows are read and
+    /// the connection lock is released before returning.
     pub fn withheld_urls(
         &self,
         from: Option<DateTime<Utc>>,

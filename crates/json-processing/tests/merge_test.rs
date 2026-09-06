@@ -321,16 +321,15 @@ async fn merge_rejects_out_of_order_input_stream() {
     );
 }
 
-/// If the second output already exists, the merge fails and the first output file — created
-/// moments earlier by the same call — is removed again, so a rerun is not blocked by a
-/// valid-but-empty leftover (regression for the leaked first sink).
+/// If the second output already exists, the merge fails and removes the first writer's temporary
+/// file without publishing it. No empty output is left to block a rerun.
 #[tokio::test]
 async fn merge_removes_first_output_when_second_output_creation_fails() {
     let tmp = tempfile::tempdir().unwrap();
     write_input(&tmp.path().join("first.jsonl.zst"), &[], &BTreeSet::new());
     write_input(&tmp.path().join("second.jsonl.zst"), &[], &BTreeSet::new());
 
-    // The second output path is already occupied, so its `create_new` must fail.
+    // The second output path is already occupied, so writer creation must fail.
     let second_output = tmp.path().join("second_output.jsonl.zst");
     std::fs::write(&second_output, b"pre-existing").unwrap();
 

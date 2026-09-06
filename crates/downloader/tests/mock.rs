@@ -57,7 +57,7 @@ fn manager_configuration(
     }
 }
 
-/// Drains `manager`'s result channel, closes it, and returns every reported result.
+/// Drains `manager`'s result channel, waits for its workers, and returns every reported result.
 async fn run_to_completion(mut manager: Manager) -> Vec<DownloadResult> {
     let mut receiver = manager.take_receiver().expect("Receiver is already taken");
     let mut results = Vec::new();

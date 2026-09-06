@@ -554,7 +554,7 @@ fn export_snapshot(
 struct VerificationCounts {
     /// Snapshots whose content hashed to their recorded digest.
     verified: u64,
-    /// Snapshots whose content did not hash to their recorded digest.
+    /// Snapshots that failed verification, including those with unsupported formats.
     invalid: u64,
     /// Snapshots whose digest was not strictly greater than the previous line's.
     out_of_order: u64,
@@ -654,7 +654,7 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Print the digest of every snapshot that has no CDX metadata.
+    /// Print the digest of every snapshot with no capture timestamp.
     Incomplete {
         /// Snapshot JSONL Zstandard files.
         #[arg(long)]

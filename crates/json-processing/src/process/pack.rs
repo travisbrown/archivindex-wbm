@@ -92,9 +92,8 @@ where
 /// writer's [`Context`], and its [`metadata`](FormatInfo::metadata) is attached to the snapshot),
 /// while `None` selects the default UTF-8 format. The snapshot carries only its digest, the
 /// expected digest recorded in `expected_digests` (when present; see [`pack`]'s `invalid_db`), its
-/// format (when non-default), and its content; snapshots are written in digest-sorted order. The
-/// per-file reading, hashing, and decoding runs on the Rayon pool a bounded chunk at a time; only
-/// the digest-ordered writes are sequential, and the summary is identical to a serial run's.
+/// format (when non-default), and its content. Files are read, hashed, and decoded in parallel
+/// batches; snapshots are written in digest order.
 ///
 /// Once processing begins, the writer is finished (see [`Finish`]) even if processing fails.
 /// Successful finalization publishes readable partial output. A directory-scan failure drops the

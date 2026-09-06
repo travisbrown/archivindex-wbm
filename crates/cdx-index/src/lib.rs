@@ -88,9 +88,9 @@ pub struct StoredItem {
     pub timestamp_secs: i64,
     /// Original captured URL.
     pub original: String,
-    /// MIME type as a string (the stringified projection of the `MimeType` from `archivindex-wbm`).
+    /// MIME type as reported by the CDX record.
     pub mime_type: String,
-    /// HTTP status code (the raw `u16` projection of the `StatusCode` from `archivindex-wbm`).
+    /// HTTP status code; zero represents the CDX `-` value.
     pub status_code: u16,
     /// Decoded 20-byte SHA-1 digest; `None` for items with an invalid digest.
     pub digest: Option<Sha1Digest>,
@@ -218,12 +218,9 @@ from_redb_errors!(Error);
 
 /// Check whether an item can be encoded before inserting it, without touching any database.
 ///
-/// The SURT must not contain a NUL byte (NUL terminates the SURT portion of the encoded key), the
-/// capture timestamp must not be before the Unix epoch (keys encode it as a big-endian `u64`, so a
-/// negative value would sort after every post-epoch capture), and the original URL, MIME type, and
-/// any unparseable digest string must each fit the two-byte length prefix used by the value
-/// encoding. This lets callers filter invalid items cheaply instead of aborting a whole
-/// [`CdxIndex::insert_batch`], where one invalid item aborts the batch.
+/// Rejects NUL bytes in the SURT, timestamps before the Unix epoch, and URLs, MIME types, or
+/// unparseable digest strings longer than `u16::MAX` bytes. Use this to filter invalid items before
+/// calling [`CdxIndex::insert_batch`], where one invalid item aborts the whole batch.
 ///
 /// # Errors
 ///
@@ -518,9 +515,7 @@ fn prefix_bounds<'a>(
 impl CdxIndex {
     /// Open (or create) the index file at `path`.
     ///
-    /// Every table is created here, so the read paths below can open them unconditionally. Opening
-    /// a table in a redb write transaction creates it if it is absent, and committing an empty
-    /// transaction over an existing index is a no-op beyond the commit itself.
+    /// Creates any missing tables.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         let db = Database::create(path)?;
 
@@ -539,8 +534,7 @@ impl CdxIndex {
     /// write wins). A digest-index entry from an earlier insert with a different digest is not
     /// removed, but such stale entries are skipped by [`iter_by_digest`](Self::iter_by_digest).
     ///
-    /// An unencodable item aborts the whole batch: returning through `?` drops the uncommitted
-    /// transaction, so none of its items are written.
+    /// An unencodable item aborts the whole batch; none of its items are written.
     pub fn insert_batch<'a>(
         &self,
         items: impl IntoIterator<Item = &'a Item<'a>>,
@@ -617,8 +611,7 @@ impl CdxIndex {
     /// Iterate all items with the given valid digest.
     ///
     /// The digest index is scanned lazily and each referenced item is looked up as the iterator
-    /// advances. Both tables are read through one transaction, so the two views are consistent with
-    /// each other and the lookups walk B-tree pages the scan has already warmed.
+    /// advances. Both tables are read through one transaction, giving a consistent view of the index.
     ///
     /// Digest-index entries whose item has since been re-inserted with a different digest are stale
     /// and are skipped rather than returned under the wrong digest.

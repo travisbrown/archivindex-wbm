@@ -10,12 +10,12 @@
 //! This crate supports two compression families found in the project's snapshots:
 //!
 //! - **Go**: Go's `compress/flate` at levels 4–9, with `OS = 255` and mtime 0. Reproduced by
-//!   the `go_flate` port, since no C or Rust deflate library matches Go's output.
+//!   the Rust port in `go_flate`.
 //! - **zlib** / **zlib-ng**: a streaming gzip wrapper (`deflate`, `Z_SYNC_FLUSH`, and `Z_FINISH`),
 //!   as emitted by, for example, a web server gzipping an HTTP response (possibly flushing
 //!   mid-response, which leaves interior sync markers at content offsets recorded in
 //!   [`GzipParams::flushes`]). Reproduced via FFI to the vendored C libraries (see `zlib_stream`),
-//!   since `miniz_oxide` and pure-Rust ports diverge.
+//!   to match the output of those implementations.
 //!
 //! # Usage
 //!
@@ -188,13 +188,10 @@ impl GzipParams {
             .or_else(|| infer_zlib(content, archive))
     }
 
-    /// Whether [`reproduce`](Self::reproduce) can honour these parameters: the `level` is in the
-    /// supported range for the `compressor`, and the `compressor` has a path for the flush fields.
+    /// Whether this build supports the compressor, level, and flush settings.
     ///
-    /// [`infer`](Self::infer) only ever produces reproducible parameters; this guards against
-    /// values taken from untrusted metadata (e.g. a snapshot's `format` object), where an
-    /// out-of-range `level` would panic and stray `flushes` or `extra_flushes` would otherwise be
-    /// dropped, yielding an archive that silently differs from the original.
+    /// This does not check content length or the Go header fields. Go reproduction always uses
+    /// mtime 0 and OS 255. See [`reproduce`](Self::reproduce) for content length and flush limits.
     #[must_use]
     // `allow` rather than `expect`: with the `zlib` feature the lint does not fire at all.
     #[allow(
@@ -318,10 +315,8 @@ impl GzipParams {
 
 /// The largest decompressed content [`decompress`] will produce, in bytes (256 MiB).
 ///
-/// The archives here hold single JSONL snapshot lines (at most a few MiB), so the cap is generous
-/// for the domain while keeping [`decompress`], [`detect`], [`GzipParams::infer`], and the
-/// [`codec`] decode path from exhausting memory on a maliciously crafted gzip bomb (a few-KiB
-/// archive can otherwise expand to many GiB).
+/// Bounds decompression in [`decompress`], [`detect`], [`GzipParams::infer`], and the [`codec`]
+/// decode path to limit memory use for highly compressed input.
 pub const MAX_DECOMPRESSED_LEN: usize = 256 << 20;
 
 // `GzipParams::infer` feeds `decompress` output straight back into the zlib reproduction functions
@@ -424,11 +419,8 @@ fn find_go_level(content: &[u8], archive: &[u8]) -> Option<u8> {
 
 /// Tries zlib parameter inference. Returns `None` when the `zlib` feature is disabled.
 ///
-/// Deliberately narrower than [`GzipParams::is_reproducible`], which accepts zlib levels `0..=9`:
-/// inference only tries levels `1..=9`. A genuine level-0 archive carries `XFL = 4` (zlib writes 4
-/// for any level below 2), so the [`xfl_for_level`] filter leaves only level 1 as a candidate,
-/// whose deflate output does not reproduce the level-0 stored-block body, and inference returns
-/// `None`. Level 0 is thus accepted for reproduction but never inferred.
+/// Tries levels `1..=9`, although [`GzipParams::reproduce`] also accepts level 0. The inferred
+/// level is the first candidate that reproduces the bytes, which need not be the original level.
 #[cfg(feature = "zlib")]
 fn infer_zlib(content: &[u8], archive: &[u8]) -> Option<GzipParams> {
     // The zlib path reuses the archive's own header, so read the fields back out of it: the mtime
@@ -476,11 +468,9 @@ const fn infer_zlib(_content: &[u8], _archive: &[u8]) -> Option<GzipParams> {
 /// cleanly or the markers describe a layout the parameters cannot represent (an empty mid-stream
 /// flush, or one at offset 0).
 ///
-/// Marker detection is a heuristic: compressed output can coincidentally contain the marker bytes
-/// (roughly one occurrence per 4 GiB of body, since the pattern is four bytes). Inference always
-/// checks the reproduced bytes, so a mistaken boundary means reproduction fails to match the
-/// archive and [`GzipParams::infer`] returns `None` for an otherwise reproducible archive: a
-/// graceful false negative, not corruption.
+/// Compressed output can coincidentally contain the marker bytes. Inference checks the reproduced
+/// bytes, so a mistaken boundary can reject an otherwise reproducible archive but cannot cause a
+/// false match.
 #[cfg(feature = "zlib")]
 fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8)> {
     let body = archive.get(HEADER_LEN..archive.len().checked_sub(FOOTER_LEN)?)?;
@@ -541,9 +531,8 @@ fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8)> {
 /// Builds the gzip [`Codec`]: *decode* decompresses an archive to its text; *encode* reproduces the
 /// exact archive bytes from the snapshot's content and its metadata map ([`GzipParams`]).
 ///
-/// Decode enforces [`MAX_DECOMPRESSED_LEN`]. If the metadata is missing or unparseable, or the
-/// content is too long for the zlib reproduction path, encode returns the content bytes unchanged,
-/// which fails digest verification (the correct outcome when an archive cannot be reproduced).
+/// Decode enforces [`MAX_DECOMPRESSED_LEN`]. If the metadata or content length is unsupported,
+/// encode returns the content bytes unchanged. Those bytes will not match the original gzip digest.
 #[must_use]
 pub fn codec() -> Codec {
     Codec::new(
