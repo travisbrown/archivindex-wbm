@@ -1,9 +1,8 @@
 //! Types and parsing for Wayback Machine JSON snapshots.
 //!
 //! Stores archived JSON content and metadata as newline-delimited JSON (JSONL), preserving the
-//! bytes needed to verify CDX digests. Content must have no internal line breaks: the format
-//! provides no way to escape them, since over 100 million processed snapshots from the sites of
-//! interest here contain no such example.
+//! bytes needed to verify CDX digests. Content must have no internal line breaks; escaping them
+//! would change the bytes used for verification.
 //!
 //! # Representation versus interpretation
 //!
@@ -67,10 +66,8 @@ pub enum Error {
 /// In the canonical JSONL form, fields appear in declaration order. Only `digest` and `content`
 /// are required. The final field holds the archived JSON value with its internal whitespace and
 /// escaping preserved. Trailing JSON whitespace is stored separately or supplied by a
-/// [`Context`](context::Context), so each snapshot fits on one line. A site usually closes its
-/// snapshots with one fixed sequence, which the context supplies as the default; only the
-/// exceptions need an explicit `closing_whitespace` (`twitter.com` snapshots, for example, end with
-/// `\r\r\n`, except in a fraction of a percent of cases that end with `\r\n`).
+/// [`Context`](context::Context), so each snapshot fits on one line. Only whitespace that differs
+/// from the context's default needs an explicit `closing_whitespace` field.
 ///
 /// The digest is the uppercase Base32-encoded SHA-1 of the original bytes. For plain UTF-8 content,
 /// those bytes are the content followed by its trailing whitespace. Other formats, such as gzip,

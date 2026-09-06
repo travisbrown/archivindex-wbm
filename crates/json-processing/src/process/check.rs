@@ -43,7 +43,7 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// Returns `true` if every line parses, every digest validates, the file is strictly
+    /// Returns `true` if every non-empty line parses, every digest validates, the file is strictly
     /// digest-sorted, and no metadata is in an invalid or redundant state. (Missing timestamps are
     /// reported but do not make a file unsuccessful: a packed file is valid before enhancement.)
     #[must_use]
@@ -77,7 +77,8 @@ pub fn check(input: &Path, context: &Context) -> Result<Summary, std::io::Error>
 ///
 /// The generic core of [`check`]: reads (uncompressed) JSONL lines from `reader` and accumulates a
 /// [`Summary`] of schema errors, digest mismatches, missing or inconsistent metadata, and ordering
-/// problems.
+/// problems. Empty lines are skipped; line numbers still count them. The raw content is checked
+/// against its digest but is not parsed as JSON.
 ///
 /// # Errors
 ///

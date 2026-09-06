@@ -650,19 +650,11 @@ impl Context {
     /// Collects `n` parseable UTF-8 snapshots without explicit closing whitespace, then tests each
     /// candidate sequence in order. The first candidate that verifies all sampled lines is returned
     /// as a [`Context`]. Returns `None` when fewer than `n` qualifying lines are found or when no
-    /// candidate verifies all samples. When `n` is zero, `Ok(None)` is returned immediately: zero
-    /// samples provide no evidence, so no candidate can be confirmed.
+    /// candidate verifies all samples. Returns `Ok(None)` when `n` is zero.
     ///
     /// Candidates tried in order: `['\n']`, `['\r', '\n']`, `['\r', '\r', '\n']`.
     ///
-    /// The caller provides the decoded lines; for a Zstandard-compressed snapshot file, wrap the
-    /// decoder in a [`std::io::BufReader`] (as the `archivindex-wbm-json-cli` crate does).
-    ///
-    /// # Arguments
-    ///
-    /// * `reader` - Uncompressed JSONL snapshot lines
-    /// * `source` - A name for the reader, used in any error
-    /// * `n` - Minimum number of lines without explicit whitespace required to confirm a candidate
+    /// The reader must supply uncompressed JSONL text. `source` names it in errors.
     ///
     /// # Errors
     ///

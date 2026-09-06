@@ -1,7 +1,7 @@
 """Validate JSONL snapshot files (optionally compressed).
 
 Each line is a JSON wrapper whose ``digest`` field must match the Base32-encoding of the SHA-1 hash
-of the content (including the closing whitespace, which by default is "\r\r\n").
+of the content, including closing whitespace (two carriage returns and a line feed by default).
 
 Both snapshot layouts are supported:
 
@@ -11,7 +11,8 @@ Both snapshot layouts are supported:
 Only the implicit UTF-8 format is checked. A declared ``type`` is reproduced through a codec this
 minimal tool does not implement, so any snapshot whose ``format`` contains a ``type`` key is
 reported and skipped, including an explicit ``"utf8"`` type. Input must use the compact field order
-described by ``extract_raw_content``.
+described by ``extract_raw_content``, with 32-character digests and URLs containing no JSON escapes.
+Reading ``.zst`` files requires the ``zstandard`` package listed in ``requirements.txt``.
 
 Usage::
 
@@ -214,9 +215,7 @@ def validate_file(
             # object; the old layout put closing_whitespace at the top level.
             fmt = parsed.get("format")
 
-            # A declared format type is reproduced through a codec this minimal tool does not
-            # implement, so its digest cannot be checked here; every explicit type is skipped,
-            # including "utf8".
+            # This verifier skips every explicit format type, including "utf8".
             if isinstance(fmt, dict) and "type" in fmt:
                 print(
                     f"line {line_no}: {digest}: unsupported format {fmt['type']!r}, skipped",

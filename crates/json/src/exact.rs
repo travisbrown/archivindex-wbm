@@ -19,11 +19,7 @@ use crate::format::FormatInfo;
 /// parsed JSON value. [`ExactSnapshot::parse`] produces it for digest verification and
 /// serialization.
 ///
-/// It is a distinct newtype around [`Cow<str>`] on purpose. A bare `Snapshot<'_, Cow<'_, str>>`
-/// would be ambiguous, since a `Cow<str>` content also arises from deserializing a snapshot whose
-/// content is a JSON *string value*. Keeping `ExactContent` separate ensures the exact-bytes
-/// representation (the only one for which `parse` and verification are meaningful) cannot be
-/// confused with such a value.
+/// Wraps [`Cow<str>`] to distinguish raw JSON from a deserialized JSON string value.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactContent<'a>(Cow<'a, str>);
 
@@ -108,8 +104,9 @@ impl<'a> ExactSnapshot<'a> {
     /// Parse a single JSONL line into a snapshot.
     ///
     /// Borrows from `line` and requires the canonical field order and delimiters. The content is
-    /// preserved as [`ExactContent`] without checking that it is valid JSON. Digest verification
-    /// is a separate operation; see [`Context::verify`].
+    /// preserved as [`ExactContent`] without checking that it is valid JSON. An `expected_digest`
+    /// must be exactly 32 bytes, and a `url` must contain no JSON escapes. Digest verification is a
+    /// separate operation; see [`Context::verify`].
     pub fn parse(line: &'a str) -> Result<Self, crate::Error> {
         // Every slice goes through `slice`, `rest`, and `expect`, which map an out-of-range or
         // non-character-boundary index (or a delimiter mismatch) to `InvalidLine` rather than

@@ -160,10 +160,7 @@ type Encode = Box<dyn for<'a> Fn(&'a str, &Map<String, Value>) -> Cow<'a, [u8]> 
 /// The two halves are inverses: [`decode`](Codec::decode) reconstructs the content string from a
 /// stored file's bytes (for example by decompressing), and [`encode`](Codec::encode) reproduces the
 /// exact bytes that were hashed (for example by re-compressing), so a snapshot's digest can be
-/// verified. Both bounds are `Send + Sync` so a [`Context`](crate::context::Context) can be shared
-/// across threads.
-///
-/// `Codec` does not implement `Clone`; contexts share codecs through `Arc`.
+/// verified. Contexts share codecs across threads.
 pub struct Codec {
     decode: Decode,
     encode: Encode,

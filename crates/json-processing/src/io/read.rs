@@ -1,6 +1,6 @@
-//! Synchronous JSONL reading of snapshots from Zstandard files.
+//! Synchronous JSONL reading of snapshots from streams or Zstandard files.
 //!
-//! [`SnapshotReader`] decompresses a Zstandard file and yields one raw [`ExactSnapshot`] per line.
+//! [`SnapshotReader`] yields one raw [`ExactSnapshot`] per line.
 //! Parsing keeps the content as raw JSON and needs no configuration; interpret the results with a
 //! [`Context`](archivindex_wbm_json::context::Context) when verification is needed.
 
@@ -35,9 +35,7 @@ pub enum Error {
 /// JSON. Interpret the results with a [`Context`](archivindex_wbm_json::context::Context) when
 /// verification is needed.
 ///
-/// Blank lines are rejected rather than skipped: a snapshot file is written by
-/// [`SnapshotWriter`](crate::io::write::SnapshotWriter) and holds one snapshot per line, so a blank
-/// line means the file is not the one that was written.
+/// Blank lines are rejected; each line must contain a snapshot.
 pub struct SnapshotReader<R> {
     lines: archivindex_lines::Lines<BufReader<R>>,
 }

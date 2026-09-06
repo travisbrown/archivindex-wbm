@@ -94,9 +94,9 @@ impl Data {
         self.paths.is_empty()
     }
 
-    /// Iterate file paths by digest and return with the digest.
+    /// Iterate `(digest, path)` pairs in digest order.
     ///
-    /// In the case of duplicate digests, simply chooses the first.
+    /// For duplicate digests, chooses the first path in sorted path order.
     ///
     /// # Panics
     ///

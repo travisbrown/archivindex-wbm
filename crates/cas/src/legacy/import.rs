@@ -147,8 +147,8 @@ impl File {
 /// Recursively list item files given a base directory.
 ///
 /// Directories are descended into as they are encountered, so the iteration order is unspecified.
-/// Symlinks are never followed: each one is reported as [`File::Skipped`], so a link to an ancestor
-/// cannot loop the walk and a link into a foreign tree cannot pull in its files.
+/// Symlinks encountered inside the tree are reported as [`File::Skipped`] and never followed.
+/// The base directory itself may be reached through a symlink.
 pub struct Importer {
     state: State,
 }

@@ -34,9 +34,7 @@ pub enum Error {
 /// A writer whose output is complete only after a consuming finalization step.
 ///
 /// Call [`finish`](Self::finish) to finalize compression or publish a temporary file and report any
-/// errors. [`Write::flush`] cannot express such steps, since they consume the writer. The Rust
-/// ecosystem has no shared trait for this convention (`zstd`, `flate2`, and `zip` each define
-/// their own inherent `finish`), so this trait names it for the operations in this crate.
+/// errors. Unlike [`Write::flush`], this consumes the writer.
 pub trait Finish: Write {
     /// What finishing yields (e.g. the underlying [`File`]).
     type Output;

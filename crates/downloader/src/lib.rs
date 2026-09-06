@@ -34,7 +34,7 @@ pub enum Error {
 /// The outcome of a single queued snapshot, as reported on a [`Manager`]'s result channel.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DownloadResult {
-    /// The snapshot was downloaded and written to the output directory.
+    /// The snapshot was downloaded and saved, or its output file already existed.
     Success {
         /// The archived URL.
         url: String,

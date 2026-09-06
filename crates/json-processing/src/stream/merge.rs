@@ -48,8 +48,7 @@ pub enum Error {
     /// An output line could not be written.
     #[error(transparent)]
     Write(#[from] crate::io::write::Error),
-    /// An input digest was not strictly greater than the preceding one from the same input. (The
-    /// field is named `input` rather than `source`, which `thiserror` reads as the error source.)
+    /// An input digest was not strictly greater than the preceding one from the same input.
     #[error("out-of-order digest {digest} at {input} position {position}")]
     Order {
         /// The merge input the digest came from.
@@ -120,7 +119,7 @@ pub struct DualConfig<F> {
     pub first_output: PathBuf,
     /// Path for the second Zstandard-compressed JSONL output file.
     pub second_output: PathBuf,
-    /// Zstandard compression level for output files (0-22, where 0 selects the library default).
+    /// Zstandard compression level for output files; 0 selects the library default.
     pub compression_level: u16,
     /// Number of concurrent parse tasks for input streams (1 = sequential).
     pub parallelism: usize,

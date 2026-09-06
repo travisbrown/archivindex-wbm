@@ -112,9 +112,8 @@ impl FromStr for Timestamp {
 
         let timestamp = Self(parsed);
 
-        // The optional check confirms that the input round-trips through our representation.
-        // I've never seen an input where it fails, and it is expensive enough to deserve a
-        // feature flag (in one quick test it took a 13-minute job to over 15 minutes).
+        // The optional check confirms that formatting reproduces the input. It is feature-gated
+        // because formatting every parsed timestamp adds overhead.
         #[cfg(feature = "validation")]
         if timestamp.to_string() != s {
             return Err(Error::InvalidValue(s.to_string()));

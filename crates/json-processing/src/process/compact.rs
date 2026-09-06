@@ -214,9 +214,8 @@ where
 /// [`metadata`](FormatInfo::metadata) is attached to the result, which is then enriched with the
 /// resolution's `timestamp`, `url`, and (when applicable) `expected_digest`, and written to that
 /// partition's writer. (The format's closing whitespace is computed from the content, so the
-/// discriminator need not supply it.) Snapshots are written in digest-sorted order. The per-file
-/// reading, hashing, and decoding runs on the Rayon pool a bounded chunk at a time; only the
-/// digest-ordered writes are sequential, and the summary is identical to a serial run's.
+/// discriminator need not supply it.) Files are read, hashed, and decoded in parallel batches;
+/// snapshots are written in digest order.
 ///
 /// A file whose selected partition is absent from `partitions` is recorded in
 /// [`Skipped::no_partition`]. Once processing begins, every writer is finished (see [`Finish`])

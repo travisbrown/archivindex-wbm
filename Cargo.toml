@@ -53,8 +53,8 @@ archivindex-lines = { version = "0.1.0", git = "https://github.com/travisbrown/a
 archivindex-publication = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-serde = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-surt = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex", default-features = false }
-# Shared test helpers, used only by dev-dependencies. Declared without a version because the crate
-# is `publish = false`, so `cargo package` strips it from the crates that depend on it.
+# Versionless dev-dependencies are omitted from published packages, so these unpublished test
+# helpers do not need a registry release.
 archivindex-test-support = { git = "https://github.com/travisbrown/archivindex" }
 archivindex-warc = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex-warc" }
 archivindex-wbm = { version = "0.1.0", path = "crates/wbm" }

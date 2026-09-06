@@ -23,14 +23,15 @@ pub enum Order {
     Path,
     /// Most recently modified first, which puts the newest CDX data first.
     ///
-    /// This costs one metadata lookup per file; [`Order::Path`] performs none.
+    /// Requires each file's modification time; [`Order::Path`] does not.
     NewestFirst,
 }
 
 /// Collect every `.json` file at or under `roots`.
 ///
 /// A root that names a file rather than a directory is included directly if it has a `.json`
-/// extension, which lets callers accept a mixture of files and directories.
+/// extension, which lets callers accept a mixture of files and directories. Symlinks inside a
+/// directory are skipped; explicitly supplied roots may be symlinks.
 ///
 /// # Arguments
 ///
@@ -95,9 +96,8 @@ fn collect(current: &Path, depth: Depth, acc: &mut Vec<PathBuf>) -> Result<(), s
 
     for entry in std::fs::read_dir(current)? {
         let entry = entry?;
-        // The entry's own file type comes from the directory read itself, so this costs no extra
-        // `stat`. It also does not follow symlinks, which keeps a link back to an ancestor from
-        // sending the walk into a loop.
+        // `file_type` usually uses cached directory-entry metadata and does not follow symlinks,
+        // so a link back to an ancestor cannot send the walk into a loop.
         let file_type = entry.file_type()?;
         let path = entry.path();
 

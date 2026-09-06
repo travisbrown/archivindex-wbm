@@ -23,7 +23,7 @@ pub enum Error {
     Join(#[from] tokio::task::JoinError),
 }
 
-/// A download whose content digest has been verified against the expected digest.
+/// A download whose content digest has been checked against the expected digest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedDownload<'a> {
     /// The snapshot bytes and the redirects followed to reach them.
