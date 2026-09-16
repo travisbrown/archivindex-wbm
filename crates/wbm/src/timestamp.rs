@@ -158,7 +158,7 @@ impl rusqlite::ToSql for Timestamp {
 mod tests {
     use chrono::{SubsecRound, Utc};
     use proptest::prelude::*;
-    use test_strategy::proptest;
+    use proptest::property_test;
 
     use super::Timestamp;
 
@@ -233,23 +233,23 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[proptest]
-    fn prop_timestamp_display_parse_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
+    #[property_test]
+    fn prop_timestamp_display_parse_round_trip(#[strategy = arb_timestamp()] timestamp: Timestamp) {
         let s = timestamp.to_string();
         let parsed: Result<Timestamp, _> = s.parse();
         prop_assert_eq!(parsed.ok(), Some(timestamp));
     }
 
-    #[proptest]
-    fn prop_timestamp_i64_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
+    #[property_test]
+    fn prop_timestamp_i64_round_trip(#[strategy = arb_timestamp()] timestamp: Timestamp) {
         let timestamp_s: i64 = timestamp.into();
         let reconstructed = Timestamp::try_from(timestamp_s);
         prop_assert_eq!(reconstructed.ok(), Some(timestamp));
     }
 
     #[cfg(feature = "sqlite")]
-    #[proptest]
-    fn prop_timestamp_sql_round_trip(#[strategy(arb_timestamp())] timestamp: Timestamp) {
+    #[property_test]
+    fn prop_timestamp_sql_round_trip(#[strategy = arb_timestamp()] timestamp: Timestamp) {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute(
             "CREATE TABLE test (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL)",

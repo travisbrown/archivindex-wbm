@@ -315,7 +315,7 @@ impl rusqlite::types::FromSql for Sha1Digest {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use test_strategy::proptest;
+    use proptest::property_test;
 
     fn arb_sha1_digest() -> impl Strategy<Value = super::Sha1Digest> {
         any::<[u8; 20]>().prop_map(super::Sha1Digest)
@@ -456,25 +456,27 @@ mod tests {
         assert_eq!(original, retrieved);
     }
 
-    #[proptest]
+    #[property_test]
     fn prop_sha1_digest_display_parse_round_trip(
-        #[strategy(arb_sha1_digest())] digest: super::Sha1Digest,
+        #[strategy = arb_sha1_digest()] digest: super::Sha1Digest,
     ) {
         let s = digest.to_string();
         let parsed: Result<super::Sha1Digest, _> = s.parse();
         prop_assert_eq!(parsed.ok(), Some(digest));
     }
 
-    #[proptest]
-    fn prop_sha1_digest_bytes_round_trip(#[strategy(arb_sha1_digest())] digest: super::Sha1Digest) {
+    #[property_test]
+    fn prop_sha1_digest_bytes_round_trip(
+        #[strategy = arb_sha1_digest()] digest: super::Sha1Digest,
+    ) {
         let bytes: [u8; 20] = digest.into();
         let reconstructed = super::Sha1Digest::from(bytes);
         prop_assert_eq!(reconstructed, digest);
     }
 
     #[cfg(feature = "sqlite")]
-    #[proptest]
-    fn prop_sha1_digest_sql_round_trip(#[strategy(arb_sha1_digest())] digest: super::Sha1Digest) {
+    #[property_test]
+    fn prop_sha1_digest_sql_round_trip(#[strategy = arb_sha1_digest()] digest: super::Sha1Digest) {
         use rusqlite::Connection;
 
         let conn = Connection::open_in_memory().unwrap();
@@ -495,8 +497,8 @@ mod tests {
     }
 
     #[cfg(feature = "sqlite")]
-    #[proptest]
-    fn prop_digest_sql_round_trip(#[strategy(arb_digest())] digest: super::Digest<'static>) {
+    #[property_test]
+    fn prop_digest_sql_round_trip(#[strategy = arb_digest()] digest: super::Digest<'static>) {
         use rusqlite::Connection;
 
         let conn = Connection::open_in_memory().unwrap();

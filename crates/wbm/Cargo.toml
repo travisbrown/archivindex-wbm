@@ -45,4 +45,3 @@ url.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-test-strategy.workspace = true
