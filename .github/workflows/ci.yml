@@ -27,6 +27,17 @@ jobs:
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
 
+  markdown:
+    name: Markdown formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: rumdl@0.2.73
+      - name: Check formatting
+        run: rumdl check .
+
   toml:
     name: TOML formatting and lint
     runs-on: ubuntu-latest
@@ -41,6 +52,20 @@ jobs:
       # Validates the Cargo manifests and other configuration against their published schemas.
       - name: Lint
         run: taplo lint
+
+  policy:
+    name: Check the manifest policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the policy checker
+        run: >-
+          cargo install --locked --git https://github.com/travisbrown/archivindex
+          --rev f6e131cb8255090c5384f6cdcb099348247ad1ff cargo-archivindex-build
+      - name: Check the workspace
+        run: cargo archivindex-build check
 
   build:
     name: Build, test, lint, and document

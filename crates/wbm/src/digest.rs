@@ -28,9 +28,7 @@ struct Encoding;
 impl archivindex_digest::Format for Encoding {
     const PREFIX: &'static str = "";
 
-    fn encoding() -> data_encoding::Encoding {
-        data_encoding::BASE32
-    }
+    const ENCODING: data_encoding::Encoding = data_encoding::BASE32;
 }
 
 /// A digest as it appears in the `digest` field of a CDX index record.
@@ -260,7 +258,7 @@ impl From<Sha1Digest> for [u8; 20] {
 }
 
 impl FromStr for Sha1Digest {
-    type Err = archivindex_digest::ParseError;
+    type Err = archivindex_digest::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         archivindex_digest::decode::<Encoding, 20>(s).map(Self)

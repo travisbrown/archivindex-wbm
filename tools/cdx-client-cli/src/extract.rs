@@ -162,9 +162,10 @@ mod tests {
     );
 
     /// A WARC response record holding the HTTP response a CDX query would have produced.
-    fn response_warc(status: &str, body: &str) -> Vec<u8> {
+    fn response_warc(status: u16, body: &str) -> Vec<u8> {
         let http = http::response(status, &[("content-type", "text/plain")], body);
         // Both helpers derive their own `Content-Length`, so only the payload is spelled out here.
+        let http = http::response_bytes(http).expect("wiremock response");
         let http = String::from_utf8(http).expect("the response is UTF-8");
 
         warc::render(
@@ -186,7 +187,7 @@ mod tests {
     fn extracts_requested_fields_without_a_header() -> Result<(), Error> {
         let directory = tempfile::tempdir()?;
         let input = directory.path().join("queries.warc");
-        std::fs::write(&input, response_warc("200 OK", CDX_BODY))?;
+        std::fs::write(&input, response_warc(200, CDX_BODY))?;
         let mut output = Vec::new();
 
         extract(&[input], &mut output)?;
@@ -207,7 +208,7 @@ mod tests {
         // The extension deliberately does not indicate compression.
         let input = directory.path().join("queries.warc");
         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(&response_warc("200 OK", CDX_BODY))?;
+        encoder.write_all(&response_warc(200, CDX_BODY))?;
         std::fs::write(&input, encoder.finish()?)?;
         let mut output = Vec::new();
 
@@ -227,7 +228,7 @@ mod tests {
     fn ignores_recorded_unsuccessful_attempts() -> Result<(), Error> {
         let directory = tempfile::tempdir()?;
         let input = directory.path().join("queries.warc");
-        std::fs::write(&input, response_warc("429 Too Many Requests", "try later"))?;
+        std::fs::write(&input, response_warc(429, "try later"))?;
         let mut output = Vec::new();
 
         extract(&[input], &mut output)?;
@@ -242,7 +243,7 @@ mod tests {
         let input = directory.path().join("queries.warc");
         let body =
             "com,example)/ 20200102030405 https://example.com/ - - - - - 10 20 data.warc.gz\n";
-        std::fs::write(&input, response_warc("200 OK", body))?;
+        std::fs::write(&input, response_warc(200, body))?;
         let mut output = Vec::new();
 
         extract(&[input], &mut output)?;

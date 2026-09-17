@@ -610,8 +610,8 @@ impl Context {
         // value can serve as a "no previous digest" sentinel.
         let mut last_digest: Option<Sha1Digest> = None;
 
-        while let Some((location, line)) = lines.next_content()? {
-            match ExactSnapshot::parse(line) {
+        while let Some(location) = lines.next_content()? {
+            match ExactSnapshot::parse(location.content) {
                 Ok(snapshot) => match self.verify(&snapshot, &mut hasher) {
                     Ok(()) => {
                         if last_digest.is_none_or(|last| snapshot.digest > last) {
@@ -677,11 +677,11 @@ impl Context {
         let mut samples: Vec<ExactSnapshot<'static>> = Vec::with_capacity(n);
 
         while samples.len() < n {
-            let Some((_, line)) = lines.next_content()? else {
+            let Some(line) = lines.next_content()? else {
                 break;
             };
 
-            if let Ok(snapshot) = ExactSnapshot::parse(line)
+            if let Ok(snapshot) = ExactSnapshot::parse(line.content)
                 && snapshot.format.name.is_utf8()
                 && !snapshot.has_explicit_closing_whitespace()
             {
