@@ -8,7 +8,7 @@ use std::borrow::Borrow;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
-use archivindex_archiver::capture::{CaptureControl, CaptureEvent, CaptureEventSink};
+use archivindex_archiver::capture::{ProgressEvent, ProgressSink};
 use archivindex_archiver::session::{
     Capture, Driver, Inspection, Request as SessionRequest, Session, SessionSummary,
 };
@@ -119,11 +119,11 @@ impl Client {
     }
 
     /// Query the server in a session, atomically publishing a WARC and reporting capture events.
-    pub fn archive_to_path_with_events<P, I, R>(
+    pub fn archive_to_path_with_progress<P, I, R>(
         &self,
         requests: I,
         path: P,
-        events: &mut impl CaptureEventSink,
+        events: &mut impl ProgressSink,
     ) -> Result<SessionSummary, Error>
     where
         P: AsRef<Path>,
@@ -135,7 +135,7 @@ impl Client {
             requests.into_iter().map(|request| request.borrow().clone()),
             self.follow_resumption_keys,
         );
-        let events = BorrowedEventSink(events);
+        let progress = |event: ProgressEvent<'_>| events.event(event);
 
         Ok(Session::new(
             self.archiver.clone(),
@@ -143,16 +143,8 @@ impl Client {
             driver,
             path.as_ref().to_path_buf(),
         )?
-        .events(events)
+        .progress(progress)
         .run()?)
-    }
-}
-
-struct BorrowedEventSink<'a, E: ?Sized>(&'a mut E);
-
-impl<E: CaptureEventSink + ?Sized> CaptureEventSink for BorrowedEventSink<'_, E> {
-    fn event(&mut self, event: CaptureEvent<'_>) -> CaptureControl {
-        self.0.event(event)
     }
 }
 
@@ -296,12 +288,10 @@ fn resume_key(payload: &[u8]) -> Result<Option<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use std::thread::JoinHandle;
-
     use archivindex_archiver::config::SessionConfig;
     use archivindex_archiver::session::RetryConfig;
     use archivindex_cdx::query::MatchType;
-    use archivindex_test_support::http;
+    use archivindex_test_support::http::{self, RequestExt as _};
 
     use super::*;
 
@@ -314,19 +304,21 @@ mod tests {
     ///
     /// Returns the endpoint to point a client at, and a handle that yields the request target of
     /// every answered request once the server has finished.
-    fn serve(bodies: &[&str]) -> std::io::Result<(String, JoinHandle<Vec<String>>)> {
+    fn serve(bodies: &[&str]) -> std::io::Result<(String, http::Server<String>)> {
         let replies = bodies
             .iter()
-            .map(|body| http::response("200 OK", &[("content-type", "text/plain")], body))
+            .map(|body| http::response(200, &[("content-type", "text/plain")], body))
             .collect::<Vec<_>>();
-        // The client queries sequentially, so connections never overlap and the index the server
-        // passes the script is the position of the request in the scripted series.
-        let (port, server) =
-            http::serve_concurrently_with(replies.len(), move |index, request| {
-                (replies[index].clone(), request.path().to_owned())
-            })?;
+        let mut replies = replies.into_iter();
+        let count = replies.len();
+        let server = http::serve_with(count, move |request| {
+            (
+                replies.next().expect("scripted response"),
+                request.path().to_owned(),
+            )
+        })?;
 
-        Ok((endpoint(port), server))
+        Ok((endpoint(server.port()), server))
     }
 
     /// A configuration that gives up on a query after one attempt.
@@ -402,7 +394,7 @@ mod tests {
         let output = directory.path().join("queries.warc");
 
         let summary = client.archive_to_path(&requests, &output)?;
-        let targets = server.join().expect("server thread");
+        let targets = server.finish();
         let warc = std::fs::read(&output)?;
 
         assert!(summary.is_complete());
@@ -450,7 +442,7 @@ mod tests {
         let output = directory.path().join("queries.warc");
 
         let summary = client.archive_to_path(&requests, &output)?;
-        let targets = server.join().expect("server thread");
+        let targets = server.finish();
         let warc = std::fs::read(&output)?;
 
         assert!(summary.is_complete());
@@ -509,7 +501,7 @@ mod tests {
             &[Request::new("archive.org", MatchType::Domain, false, None)],
             &output,
         )?;
-        let targets = server.join().expect("server thread");
+        let targets = server.finish();
 
         assert!(!summary.is_complete());
         assert_eq!(summary.failures.len(), 1);

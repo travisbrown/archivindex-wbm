@@ -181,6 +181,13 @@ archivindex-wbm-json export --input snapshots/flat.jsonl.zst \
 
 Each tool provides a `--help` listing of its subcommands and options.
 
+## Offline and live tests
+
+Ordinary test runs use local fixtures and loopback servers. Tests that download snapshots from the
+Wayback Machine are ignored by default, even when they can reuse a local cache. Run them explicitly
+with `cargo test --locked --workspace --all-features -- --ignored`. These tests may contact the
+archive, and report unavailable snapshots as skipped through their existing warning messages.
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License, version 3

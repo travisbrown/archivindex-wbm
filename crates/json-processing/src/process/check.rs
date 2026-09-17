@@ -9,6 +9,7 @@
 use std::io::BufRead;
 use std::path::Path;
 
+use archivindex_lines::Lines;
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::validation::ValidationError;
@@ -70,7 +71,10 @@ impl Summary {
 /// Returns an error if the file cannot be opened or read; individual line problems are recorded in
 /// the summary rather than returned as errors.
 pub fn check(input: &Path, context: &Context) -> Result<Summary, std::io::Error> {
-    check_lines(crate::io::zst::reader(input)?, context)
+    check_source(
+        Lines::with_source(crate::io::zst::reader(input)?, input.display().to_string()),
+        context,
+    )
 }
 
 /// Check compact snapshot JSONL lines against the given context.
@@ -78,29 +82,30 @@ pub fn check(input: &Path, context: &Context) -> Result<Summary, std::io::Error>
 /// The generic core of [`check`]: reads (uncompressed) JSONL lines from `reader` and accumulates a
 /// [`Summary`] of schema errors, digest mismatches, missing or inconsistent metadata, and ordering
 /// problems. Empty lines are skipped; line numbers still count them. The raw content is checked
-/// against its digest but is not parsed as JSON.
+/// against its digest but is not parsed as JSON. Lines are bounded by
+/// the default limit of [`Lines`], using the same reusable buffer as other JSONL readers.
 ///
 /// # Errors
 ///
 /// Returns an error if the reader fails; individual line problems are recorded in the summary
 /// rather than returned as errors.
 pub fn check_lines<R: BufRead>(reader: R, context: &Context) -> Result<Summary, std::io::Error> {
+    check_source(Lines::with_source(reader, "<stream>"), context)
+}
+
+fn check_source<R: BufRead>(
+    mut lines: Lines<R>,
+    context: &Context,
+) -> Result<Summary, std::io::Error> {
     let mut summary = Summary::default();
     let mut hasher = Sha1::default();
     let mut last_digest: Option<Sha1Digest> = None;
-    let mut line_number = 0u64;
-
-    for line in reader.lines() {
-        let line = line?;
-        line_number += 1;
-
-        if line.is_empty() {
-            continue;
-        }
-
+    while let Some(location) = lines.next_content()? {
+        let line_number = location.line as u64;
         summary.line_count += 1;
 
-        let Ok(snapshot) = archivindex_wbm_json::exact::ExactSnapshot::parse(&line) else {
+        let Ok(snapshot) = archivindex_wbm_json::exact::ExactSnapshot::parse(location.content)
+        else {
             summary.schema_errors.push(line_number);
             continue;
         };
@@ -154,10 +159,11 @@ pub fn check_lines<R: BufRead>(reader: R, context: &Context) -> Result<Summary, 
 
 #[cfg(test)]
 mod tests {
+    use archivindex_lines::Lines;
     use archivindex_wbm_json::context::Context;
     use archivindex_wbm_json::format::Format;
 
-    use super::check_lines;
+    use super::{check_lines, check_source};
 
     /// Lines are checked from any in-memory source: a valid line verifies, an unparseable line is
     /// recorded as a schema error, and the summary reflects both.
@@ -169,13 +175,22 @@ mod tests {
             .expect("snapshot from bytes")
             .display(&context)
             .to_string();
-        let input = format!("{line}\nnot a snapshot\n");
+        let input = format!("\n{line}\r\n\nnot a snapshot\n");
 
         let summary = check_lines(input.as_bytes(), &context).expect("check succeeds");
 
         assert_eq!(summary.line_count, 2);
         assert_eq!(summary.valid_digest_count, 1);
-        assert_eq!(summary.schema_errors, vec![2]);
+        assert_eq!(summary.schema_errors, vec![4]);
         assert!(!summary.is_successful());
+    }
+
+    #[test]
+    fn oversized_lines_report_their_source_without_buffering_the_whole_stream() {
+        let context = Context::from_static(&['\n']).unwrap();
+        let lines = Lines::with_source(&b"too long\n"[..], "<stream>").with_max_line_bytes(4);
+        let error = check_source(lines, &context).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("<stream>:1"));
     }
 }

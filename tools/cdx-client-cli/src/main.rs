@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use archivindex_archiver::Config;
-use archivindex_archiver::capture::{CaptureControl, CaptureEvent};
+use archivindex_archiver::capture::{ProgressControl, ProgressEvent};
 use archivindex_cdx::query::Request;
 use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm_cdx_client::{Client, DEFAULT_ENDPOINT};
@@ -65,12 +65,12 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
     let config = archiver_config(options);
     let client =
         Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
-    let mut events = |event: CaptureEvent<'_>| {
+    let mut events = |event: ProgressEvent<'_>| {
         match event {
-            CaptureEvent::Started { url, attempt } => {
+            ProgressEvent::Started { url, attempt } => {
                 log::info!("Requesting {url} (attempt {attempt})");
             }
-            CaptureEvent::Retrying {
+            ProgressEvent::Retrying {
                 url,
                 attempt,
                 delay,
@@ -79,9 +79,9 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
             }
             _ => {}
         }
-        CaptureControl::Continue
+        ProgressControl::Continue
     };
-    let summary = client.archive_to_path_with_events(&requests, &options.output, &mut events)?;
+    let summary = client.archive_to_path_with_progress(&requests, &options.output, &mut events)?;
 
     for failure in &summary.failures {
         log::warn!("Failed to archive {}: {}", failure.url, failure.error);

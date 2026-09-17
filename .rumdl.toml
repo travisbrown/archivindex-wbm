@@ -1,0 +1,15 @@
+[global]
+enable = ["MD013", "MD060"]
+
+[MD013]
+line-length = 100
+code-blocks = false
+tables = false
+stern = true
+ignore-link-urls = false
+reflow = true
+
+[MD060]
+max-width = 0
+style = "aligned"
+enabled = true

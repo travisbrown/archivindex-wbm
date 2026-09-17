@@ -80,8 +80,8 @@ impl<R: Read> Iterator for SnapshotReader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.lines.next_content() {
             Ok(None) => None,
-            Ok(Some((context, line))) => Some(
-                ExactSnapshot::parse(line)
+            Ok(Some(context)) => Some(
+                ExactSnapshot::parse(context.content)
                     .map(bounded_static::IntoBoundedStatic::into_static)
                     .map_err(|_| Error::InvalidLine {
                         context: context.into_owned(),

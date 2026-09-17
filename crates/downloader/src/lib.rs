@@ -2,11 +2,11 @@
 //!
 //! Provides a worker-pool [`Manager`] that pulls items off a queue, fetches each snapshot, verifies
 //! its digest, and writes the bytes into a content-addressed store on disk.
-use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use archivindex_publication::{Policy, Publication};
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm::timestamp::Timestamp;
@@ -142,37 +142,27 @@ pub struct Manager {
 
 /// Write a downloaded snapshot to `dir/name` without blocking the async reactor.
 ///
-/// Writes and syncs a temporary file on the blocking thread pool, then renames it into place.
-/// An existing destination is skipped without verification. The existence check does not reserve
-/// the destination; a concurrent creator may be overwritten where the platform allows it.
-/// Temporary names distinguish writes within this manager using `worker_id` and `count`, but are
-/// not unique across managers. Failed writes attempt to remove their temporary file.
-async fn write_snapshot_file(
-    dir: PathBuf,
-    name: String,
-    worker_id: usize,
-    count: usize,
-    bytes: bytes::Bytes,
-) -> Result<(), Error> {
+/// Publishes a uniquely named temporary sibling without replacing an existing destination.
+/// Concurrent creators keep whichever complete file is published first. Existing files are not
+/// verified. File and directory synchronization follow [`Publication`]'s durability guarantees.
+async fn write_snapshot_file(dir: PathBuf, name: String, bytes: bytes::Bytes) -> Result<(), Error> {
     tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        let path = dir.join(&name);
-        if path.try_exists()? {
-            return Ok(());
+        let mut publication = match Publication::new(dir.join(name), Policy::CreateNew) {
+            Ok(publication) => publication,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        publication.write_all(&bytes)?;
+        match publication.publish() {
+            Ok(_) => Ok(()),
+            Err(error)
+                if !error.is_published()
+                    && error.io_error().kind() == std::io::ErrorKind::AlreadyExists =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
         }
-
-        let temp = dir.join(format!("{name}.{worker_id}.{count}.tmp"));
-        let result = File::create(&temp).and_then(|mut file| {
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            std::fs::rename(&temp, &path)
-        });
-
-        if result.is_err() {
-            // Best-effort cleanup; the write error is the one worth reporting.
-            let _ = std::fs::remove_file(&temp);
-        }
-
-        result
     })
     .await??;
 
@@ -223,7 +213,7 @@ impl Manager {
         let (sender, receiver) = tokio::sync::mpsc::channel(buffer);
         let mut tasks = Vec::with_capacity(worker_count);
 
-        for worker_id in 0..worker_count {
+        for _ in 0..worker_count {
             let task = tokio::task::spawn({
                 let output_path = output_path.clone();
                 let todo_queue = todo_queue.clone();
@@ -275,8 +265,6 @@ impl Manager {
                                 write_snapshot_file(
                                     output_path.clone(),
                                     name,
-                                    worker_id,
-                                    count,
                                     verified.download.bytes,
                                 )
                                 .await?;
@@ -459,5 +447,66 @@ mod tests {
             DownloadErrorType::from(&downloader::Error::Join(join_error)),
             DownloadErrorType::Join
         );
+    }
+
+    #[tokio::test]
+    async fn concurrent_snapshot_writers_publish_one_complete_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut writers = Vec::new();
+        for byte in 0..16 {
+            writers.push(tokio::spawn(super::write_snapshot_file(
+                directory.path().to_owned(),
+                "snapshot".to_owned(),
+                bytes::Bytes::from(vec![byte; 128 * 1024]),
+            )));
+        }
+        for writer in writers {
+            writer.await.unwrap().unwrap();
+        }
+        let content = std::fs::read(directory.path().join("snapshot")).unwrap();
+        assert_eq!(content.len(), 128 * 1024);
+        assert!(content.iter().all(|byte| *byte == content[0]));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn snapshot_writers_leave_existing_files_and_temporary_names_alone() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("snapshot");
+        let old_temporary = directory.path().join("snapshot.0.0.tmp");
+        std::fs::write(&old_temporary, b"another writer").unwrap();
+        super::write_snapshot_file(
+            directory.path().to_owned(),
+            "snapshot".to_owned(),
+            bytes::Bytes::from_static(b"first"),
+        )
+        .await
+        .unwrap();
+        super::write_snapshot_file(
+            directory.path().to_owned(),
+            "snapshot".to_owned(),
+            bytes::Bytes::from_static(b"second"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"first");
+        assert_eq!(std::fs::read(old_temporary).unwrap(), b"another writer");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_writers_preserve_dangling_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("snapshot");
+        std::os::unix::fs::symlink("missing", &path).unwrap();
+        super::write_snapshot_file(
+            directory.path().to_owned(),
+            "snapshot".to_owned(),
+            bytes::Bytes::from_static(b"content"),
+        )
+        .await
+        .unwrap();
+        assert!(path.is_symlink());
+        assert!(!directory.path().join("missing").exists());
     }
 }

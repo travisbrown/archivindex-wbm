@@ -427,6 +427,7 @@ mod tests {
     /// cache directory. By design this cannot fail without network access: the snapshot is simply
     /// reported as unavailable, and the next run tries again.
     #[tokio::test]
+    #[ignore = "requires live Wayback Machine access"]
     async fn live_snapshot_round_trip() {
         const LIVE_URL: &str = "https://truthsocial.com/api/v1/accounts/107834825870339843/statuses?exclude_replies=true&with_muted=true";
         const LIVE_TIMESTAMP: &str = "20221212003808";

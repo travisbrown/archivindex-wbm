@@ -50,7 +50,7 @@ impl TryFrom<DateTime<Utc>> for Timestamp {
         // leap-second nanoseconds: chrono represents a leap second as second 59 plus a full second
         // of nanoseconds, and such an instant would break the second-precision integer round trips.
         if value.timestamp_subsec_nanos() == 0 {
-            Ok(Self(archivindex_cdx::timestamp::Timestamp::new(value)))
+            Self::try_from(value.timestamp())
         } else {
             Err(Error::SubsecondDateTime(value))
         }
@@ -71,9 +71,11 @@ impl TryFrom<i64> for Timestamp {
     type Error = Error;
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         if (MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&value) {
-            Ok(Self(archivindex_cdx::timestamp::Timestamp::new(
+            archivindex_cdx::timestamp::Timestamp::new(
                 DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
-            )))
+            )
+            .map(Self)
+            .map_err(|_| Error::InvalidTimestampI64(value))
         } else {
             Err(Error::InvalidTimestampI64(value))
         }
@@ -168,9 +170,9 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(
-            Utc::now().trunc_subsecs(0),
-        ));
+        let timestamp = Timestamp(
+            archivindex_cdx::timestamp::Timestamp::new(Utc::now().trunc_subsecs(0)).unwrap(),
+        );
 
         let timestamp_str = timestamp.to_string();
         let timestamp_parsed = timestamp_str.parse().unwrap();
@@ -196,7 +198,7 @@ mod tests {
         )?;
 
         let now = Utc::now();
-        let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(now));
+        let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(now).unwrap());
 
         // Test `ToSql` implementation.
         conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
@@ -321,5 +323,21 @@ mod tests {
         // rather than accepted silently.
         assert!(super::Timestamp::try_from(super::MIN_TIMESTAMP_SECS - 1).is_err());
         assert!(super::Timestamp::try_from(super::MAX_TIMESTAMP_SECS + 1).is_err());
+    }
+
+    #[test]
+    fn datetime_conversion_obeys_the_same_bounds_as_integer_conversion() {
+        for seconds in [
+            super::MIN_TIMESTAMP_SECS - 1,
+            super::MIN_TIMESTAMP_SECS,
+            super::MAX_TIMESTAMP_SECS,
+            super::MAX_TIMESTAMP_SECS + 1,
+        ] {
+            let datetime = chrono::DateTime::from_timestamp(seconds, 0).unwrap();
+            assert_eq!(
+                Timestamp::try_from(datetime).ok(),
+                Timestamp::try_from(seconds).ok()
+            );
+        }
     }
 }

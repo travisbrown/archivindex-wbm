@@ -34,7 +34,6 @@ chrono.workspace = true
 data-encoding.workspace = true
 digest-io.workspace = true
 http.workspace = true
-regex.workspace = true
 rusqlite = { workspace = true, optional = true }
 serde.workspace = true
 sha1.workspace = true

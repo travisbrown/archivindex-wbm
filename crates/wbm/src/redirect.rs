@@ -1,9 +1,7 @@
 //! Construction and parsing of the small HTML redirect pages that the Wayback Machine stores for a
 //! capture listed as a 302 redirect.
-use std::sync::LazyLock;
-
-const REDIRECT_HTML_PATTERN: &str =
-    r#"^<html><body>You are being <a href="([^"]+)">redirected</a>\.</body></html>$"#;
+const PREFIX: &str = "<html><body>You are being <a href=\"";
+const SUFFIX: &str = "\">redirected</a>.</body></html>";
 
 /// Attempts to guess the contents of a redirect page stored by the Wayback Machine.
 ///
@@ -16,7 +14,7 @@ const REDIRECT_HTML_PATTERN: &str =
 /// [`parse_redirect_html`] cannot parse back.
 #[must_use]
 pub fn make_redirect_html(url: &str) -> String {
-    format!("<html><body>You are being <a href=\"{url}\">redirected</a>.</body></html>")
+    format!("{PREFIX}{url}{SUFFIX}")
 }
 
 /// Extracts the target URL from a redirect page in the format produced by [`make_redirect_html`],
@@ -27,14 +25,8 @@ pub fn make_redirect_html(url: &str) -> String {
 /// longer has the expected shape, and `None` is returned rather than a truncated URL.
 #[must_use]
 pub fn parse_redirect_html(content: &str) -> Option<&str> {
-    static REDIRECT_HTML_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(REDIRECT_HTML_PATTERN).expect("redirect page pattern is valid")
-    });
-
-    REDIRECT_HTML_RE
-        .captures(content)
-        .and_then(|groups| groups.get(1))
-        .map(|m| m.as_str())
+    let url = content.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
+    (!url.is_empty() && !url.contains('"')).then_some(url)
 }
 
 #[cfg(test)]
@@ -68,10 +60,23 @@ mod tests {
     #[test]
     fn round_trip_fails_for_url_containing_quote() {
         // The URL cannot be escaped without breaking digest reproduction, so a `"` in the URL ends
-        // the `href` attribute value early; the parse regex's `[^"]+` cannot cross the quote, so
+        // the `href` attribute value early, so
         // the malformed page is rejected outright rather than yielding a truncated URL.
         let html = super::make_redirect_html(r#"https://example.com/a"b"#);
 
         assert_eq!(super::parse_redirect_html(&html), None);
+    }
+
+    #[test]
+    fn only_the_exact_nonempty_page_shape_is_accepted() {
+        let page = super::make_redirect_html("https://example.com/");
+        for malformed in [
+            super::make_redirect_html(""),
+            format!("{page}\n"),
+            format!(" {page}"),
+            page.replace("redirected", "Redirected"),
+        ] {
+            assert_eq!(super::parse_redirect_html(&malformed), None);
+        }
     }
 }

@@ -18,6 +18,7 @@ const DIGEST: &str = "J3O6LXGYKPM2YA6S2W7FNRDAYBAM6BFB";
 const CACHE_DIRECTORY: &str = "tests/data/.cache";
 
 #[tokio::test]
+#[ignore = "requires live Wayback Machine access"]
 async fn round_trips_downloaded_truthsocial_example() {
     let cache =
         archivindex_wbm_test_data::Cache::new(CACHE_DIRECTORY).expect("Cannot build HTTP client");

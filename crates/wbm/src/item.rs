@@ -2,15 +2,9 @@
 //! conversions to and from the `web.archive.org` URL form.
 use std::borrow::Cow;
 use std::str::FromStr;
-use std::sync::LazyLock;
 
 use crate::digest::Digest;
 use crate::timestamp::Timestamp;
-
-// The optional flag after the timestamp selects a rendering (`id_` for original bytes, and `im_`,
-// `js_`, `cs_`, `if_`, etc. for media, scripts, stylesheets, and frames).
-const WAYBACK_URL_PATTERN: &str =
-    r"^https?://web\.archive\.org/web/(?P<timestamp>\d{14})(?:[a-z]{2}_)?/(?P<url>.+)$";
 
 /// An error encountered while parsing a Wayback Machine snapshot URL.
 #[derive(thiserror::Error, Debug)]
@@ -73,25 +67,25 @@ impl<'a> UrlParts<'a> {
     /// Returns [`Error::InvalidUrl`] if the input is not a Wayback Machine snapshot URL, and
     /// [`Error::InvalidTimestamp`] if its fourteen digits are not a valid timestamp.
     pub fn parse_str(input: &'a str) -> Result<Self, Error> {
-        static WAYBACK_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-            regex::Regex::new(WAYBACK_URL_PATTERN).expect("Wayback URL pattern is valid")
-        });
-
-        let captures = WAYBACK_URL_RE
-            .captures(input)
-            .ok_or_else(|| Error::InvalidUrl(input.to_string()))?;
-
-        // `Captures::name` is used instead of indexing because indexing ties the borrow to the
-        // local `captures` value, while `name` yields a match borrowing from the input (`'a`). Both
-        // groups are non-optional in the pattern, so they are always present in a match; the error
-        // arm is unreachable but preferable to a panic path.
-        match (captures.name("timestamp"), captures.name("url")) {
-            (Some(timestamp), Some(url)) => Ok(Self::new(
-                url.as_str(),
-                timestamp.as_str().parse::<Timestamp>()?,
-            )),
-            (None, _) | (_, None) => Err(Error::InvalidUrl(input.to_string())),
+        let invalid = || Error::InvalidUrl(input.to_owned());
+        let path = input
+            .strip_prefix("https://web.archive.org/web/")
+            .or_else(|| input.strip_prefix("http://web.archive.org/web/"))
+            .ok_or_else(invalid)?;
+        let (capture, url) = path.split_once('/').ok_or_else(invalid)?;
+        let timestamp = capture.get(..14).ok_or_else(invalid)?;
+        let flag = &capture.as_bytes()[14..];
+        // Rendering flags are two lowercase letters followed by an underscore (`id_`, `im_`, etc.).
+        let valid_flag = flag.is_empty()
+            || matches!(flag, [first, second, b'_'] if first.is_ascii_lowercase() && second.is_ascii_lowercase());
+        if !timestamp.bytes().all(|byte| byte.is_ascii_digit())
+            || !valid_flag
+            || url.is_empty()
+            || url.contains('\n')
+        {
+            return Err(invalid());
         }
+        Ok(Self::new(url, timestamp.parse()?))
     }
 
     /// Renders the `web.archive.org` snapshot URL, selecting the scheme and rendering.
@@ -237,5 +231,25 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn rejects_non_snapshot_shapes_without_slicing_utf8() {
+        for path in [
+            "",
+            "20160508215503/",
+            "20160508215503ID_/https://example.com/",
+            "20160508215503abc_/https://example.com/",
+            "２０１６０５０８２１５５０３/https://example.com/",
+            "20160508215503/https://example.com/\ntrailing",
+        ] {
+            assert!(UrlParts::parse_str(&format!("https://web.archive.org/web/{path}")).is_err());
+        }
+        assert!(
+            UrlParts::parse_str(
+                "https://web.archive.org.evil/web/20160508215503/https://example.com/"
+            )
+            .is_err()
+        );
     }
 }
