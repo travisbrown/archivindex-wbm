@@ -412,8 +412,10 @@ dependencies = [
  "clap",
  "csv",
  "log",
+ "reqwest",
  "serde",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]
