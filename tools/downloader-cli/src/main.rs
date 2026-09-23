@@ -1,7 +1,9 @@
 //! Command-line tool to download Wayback Machine captures, verify a content-addressed store, and
 //! manage the invalid digest log database (merge, import, export, and dump operations).
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use anyhow::Context as _;
 use archivindex_cli_support::{CommandOutcome, Verbosity};
@@ -30,7 +32,8 @@ async fn main() -> ExitCode {
 /// # Errors
 ///
 /// Returns an error if the download queue cannot be read, the downloader or its HTTP client cannot
-/// be built, a store cannot be read, or an invalid-digest database operation fails.
+/// be built, the requested public IP lookup fails, a store cannot be read, or an invalid-digest
+/// database operation fails.
 async fn run() -> Result<CommandOutcome, anyhow::Error> {
     let opts: Opts = Opts::parse();
     opts.verbosity.init_logging();
@@ -41,8 +44,9 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             invalid_db,
             workers,
             proxy,
+            show_ip,
         } => {
-            download(output, invalid_db, workers, proxy).await?;
+            download(output, invalid_db, workers, proxy, show_ip).await?;
         }
         Command::Verify { base } => {
             let store = archivindex_wbm_cas::file::Store::<
@@ -92,7 +96,13 @@ async fn download(
     invalid_db: PathBuf,
     workers: usize,
     proxy: Option<String>,
+    show_ip: bool,
 ) -> Result<(), anyhow::Error> {
+    if show_ip {
+        let ip = public_ip(proxy.as_deref(), "https://api.ipify.org").await?;
+        log::warn!("Public IP address: {ip}");
+    }
+
     let items = csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(std::io::stdin())
@@ -157,6 +167,28 @@ async fn download(
     Ok(())
 }
 
+/// Looks up the public IP address through the same proxy settings as the downloads.
+async fn public_ip(proxy: Option<&str>, endpoint: &str) -> Result<IpAddr, anyhow::Error> {
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(reqwest::Proxy::all(proxy).context("invalid proxy URI")?);
+    }
+    let response = builder
+        .build()
+        .context("failed to build the public IP lookup client")?
+        .get(endpoint)
+        .send()
+        .await
+        .context("failed to look up the public IP address")?
+        .error_for_status()
+        .context("public IP lookup returned an unsuccessful status")?
+        .text()
+        .await
+        .context("failed to read the public IP address")?;
+
+    response.trim().parse().context("invalid public IP address")
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "archivindex-wbm-downloader", version, author)]
 struct Opts {
@@ -185,6 +217,10 @@ enum Command {
         /// Proxy URI for all requests (use socks5h://host:port for DNS through the proxy).
         #[arg(long, value_name = "URI")]
         proxy: Option<String>,
+        /// Log the public IP address from ipify at warn level before downloading, using --proxy
+        /// when set. A failed lookup stops the command.
+        #[arg(long)]
+        show_ip: bool,
     },
     /// Verify a content-addressed store, printing a headerless CSV row (expected digest, actual
     /// digest, path) to standard output for each mismatched entry; the summary counts are logged to
@@ -248,34 +284,4 @@ struct TodoItem {
 }
 
 #[cfg(test)]
-mod tests {
-    use clap::Parser;
-
-    use super::{Command, Opts};
-
-    #[test]
-    fn download_proxy_is_optional() {
-        let args = [
-            "downloader",
-            "download",
-            "--output",
-            "snapshots",
-            "--invalid-db",
-            "invalid.db",
-        ];
-        for proxy in [None, Some("socks5h://127.0.0.1:1080")] {
-            let mut args = args.to_vec();
-            if let Some(proxy) = proxy {
-                args.extend(["--proxy", proxy]);
-            }
-            let Opts {
-                command: Command::Download { proxy: actual, .. },
-                ..
-            } = Opts::try_parse_from(args).unwrap()
-            else {
-                panic!("Expected download command");
-            };
-            assert_eq!(actual.as_deref(), proxy);
-        }
-    }
-}
+mod tests;

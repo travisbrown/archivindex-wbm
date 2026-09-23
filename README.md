@@ -154,6 +154,10 @@ The CSV input has no header and contains `URL,timestamp,expected digest` rows. A
 overrides system proxy settings and bypass lists. Omitting `--proxy` preserves the default proxy
 behavior. Library callers can set `client::Configuration::proxy` to the same URI.
 
+Add `--show-ip` to query `https://api.ipify.org` at startup and log the public IP address at warn
+level, before reading the input or downloading captures. The lookup uses `--proxy` when set. A
+failed lookup stops the command.
+
 The CDX client's `archive` command reads CSV rows from standard input in
 `URL,matchType,fastLatest,limit` order, without a header. `matchType` accepts `exact`, `prefix`,
 `host`, or `domain`; a negative `limit` requests the last N results. The `limit` field is optional

@@ -29,5 +29,9 @@ chrono.workspace = true
 clap.workspace = true
 csv.workspace = true
 log.workspace = true
+reqwest = { workspace = true, features = ["socks"] }
 serde.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
