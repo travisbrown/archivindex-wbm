@@ -40,65 +40,9 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             output,
             invalid_db,
             workers,
+            proxy,
         } => {
-            let items = csv::ReaderBuilder::new()
-                .has_headers(false)
-                .from_reader(std::io::stdin())
-                .deserialize::<TodoItem>()
-                .map(|result| {
-                    result.map(|item| {
-                        ItemInfo::new(
-                            UrlParts::new(item.url, item.timestamp),
-                            item.expected_digest.into(),
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .context("failed to read the download queue as CSV")?;
-
-            let mut manager = archivindex_wbm_downloader::Manager::new(
-                archivindex_wbm_downloader::ManagerConfiguration {
-                    output_path: output,
-                    invalid_log_path: invalid_db,
-                    client_configuration:
-                        archivindex_wbm_downloader::client::Configuration::default(),
-                    worker_count: workers,
-                    buffer: DOWNLOAD_RESULT_BUFFER,
-                },
-                items,
-            )
-            .context("failed to start the downloader")?;
-
-            if let Some(mut receiver) = manager.take_receiver() {
-                while let Some(result) = receiver.recv().await {
-                    match result {
-                        DownloadResult::Success {
-                            url,
-                            actual_digest: Some(actual_digest),
-                            ..
-                        } => {
-                            log::warn!("Downloaded {url} (invalid digest: {actual_digest})");
-                        }
-                        DownloadResult::Success {
-                            url,
-                            actual_digest: None,
-                            ..
-                        } => {
-                            log::info!("Downloaded {url}");
-                        }
-                        DownloadResult::NotFound { url, .. } => {
-                            log::warn!("Missing or withheld: {url}");
-                        }
-                        DownloadResult::Error {
-                            url, error_type, ..
-                        } => {
-                            log::error!("Error: {url} ({error_type:?})");
-                        }
-                    }
-                }
-            }
-
-            manager.close().await?;
+            download(output, invalid_db, workers, proxy).await?;
         }
         Command::Verify { base } => {
             let store = archivindex_wbm_cas::file::Store::<
@@ -142,6 +86,77 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
     Ok(CommandOutcome::Success)
 }
 
+/// Downloads the captures read from standard input and logs each result.
+async fn download(
+    output: PathBuf,
+    invalid_db: PathBuf,
+    workers: usize,
+    proxy: Option<String>,
+) -> Result<(), anyhow::Error> {
+    let items = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(std::io::stdin())
+        .deserialize::<TodoItem>()
+        .map(|result| {
+            result.map(|item| {
+                ItemInfo::new(
+                    UrlParts::new(item.url, item.timestamp),
+                    item.expected_digest.into(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the download queue as CSV")?;
+
+    let mut manager = archivindex_wbm_downloader::Manager::new(
+        archivindex_wbm_downloader::ManagerConfiguration {
+            output_path: output,
+            invalid_log_path: invalid_db,
+            client_configuration: archivindex_wbm_downloader::client::Configuration {
+                proxy,
+                ..Default::default()
+            },
+            worker_count: workers,
+            buffer: DOWNLOAD_RESULT_BUFFER,
+        },
+        items,
+    )
+    .context("failed to start the downloader")?;
+
+    if let Some(mut receiver) = manager.take_receiver() {
+        while let Some(result) = receiver.recv().await {
+            match result {
+                DownloadResult::Success {
+                    url,
+                    actual_digest: Some(actual_digest),
+                    ..
+                } => {
+                    log::warn!("Downloaded {url} (invalid digest: {actual_digest})");
+                }
+                DownloadResult::Success {
+                    url,
+                    actual_digest: None,
+                    ..
+                } => {
+                    log::info!("Downloaded {url}");
+                }
+                DownloadResult::NotFound { url, .. } => {
+                    log::warn!("Missing or withheld: {url}");
+                }
+                DownloadResult::Error {
+                    url, error_type, ..
+                } => {
+                    log::error!("Error: {url} ({error_type:?})");
+                }
+            }
+        }
+    }
+
+    manager.close().await?;
+
+    Ok(())
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "archivindex-wbm-downloader", version, author)]
 struct Opts {
@@ -167,6 +182,9 @@ enum Command {
             value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..)
         )]
         workers: usize,
+        /// Proxy URI for all requests (use socks5h://host:port for DNS through the proxy).
+        #[arg(long, value_name = "URI")]
+        proxy: Option<String>,
     },
     /// Verify a content-addressed store, printing a headerless CSV row (expected digest, actual
     /// digest, path) to standard output for each mismatched entry; the summary counts are logged to
@@ -227,4 +245,37 @@ struct TodoItem {
     url: String,
     timestamp: archivindex_wbm::timestamp::Timestamp,
     expected_digest: archivindex_wbm::digest::Sha1Digest,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Command, Opts};
+
+    #[test]
+    fn download_proxy_is_optional() {
+        let args = [
+            "downloader",
+            "download",
+            "--output",
+            "snapshots",
+            "--invalid-db",
+            "invalid.db",
+        ];
+        for proxy in [None, Some("socks5h://127.0.0.1:1080")] {
+            let mut args = args.to_vec();
+            if let Some(proxy) = proxy {
+                args.extend(["--proxy", proxy]);
+            }
+            let Opts {
+                command: Command::Download { proxy: actual, .. },
+                ..
+            } = Opts::try_parse_from(args).unwrap()
+            else {
+                panic!("Expected download command");
+            };
+            assert_eq!(actual.as_deref(), proxy);
+        }
+    }
 }
