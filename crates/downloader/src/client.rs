@@ -33,6 +33,10 @@ pub struct Configuration {
     /// slash (e.g. `https://web.archive.org`). Point this at a mirror or a test server to avoid the
     /// public Wayback Machine. Trailing slashes are stripped by [`Client::new`].
     pub base_url: Cow<'static, str>,
+    /// Proxy URI for all requests, including retries and redirects. Use `socks5h://host:port` to
+    /// resolve destination hostnames through a SOCKS5 proxy. An explicit proxy overrides system
+    /// proxy settings and bypass lists; `None` preserves reqwest's default proxy behavior.
+    pub proxy: Option<String>,
     /// Idle time before TCP keepalive probes begin.
     pub tcp_keepalive: Duration,
     /// Deadline for a single request, from sending the headers to receiving the full body.
@@ -56,6 +60,7 @@ impl Default for Configuration {
     fn default() -> Self {
         Self {
             base_url: Cow::Borrowed(DEFAULT_BASE_URL),
+            proxy: None,
             tcp_keepalive: DEFAULT_TCP_KEEPALIVE_DURATION,
             request_timeout: DEFAULT_REQUEST_TIMEOUT_DURATION,
             max_retries: DEFAULT_MAX_RETRIES,
@@ -195,6 +200,8 @@ impl Client {
     ///
     /// Any trailing slashes on [`Configuration::base_url`] are stripped here, so that request URLs
     /// can be built by plain concatenation.
+    ///
+    /// Returns an error if the proxy URI cannot be parsed or the HTTP client cannot be built.
     pub fn new(mut configuration: Configuration) -> Result<Self, reqwest::Error> {
         let trimmed = configuration.base_url.trim_end_matches('/');
 
@@ -202,14 +209,19 @@ impl Client {
             configuration.base_url = Cow::Owned(trimmed.to_string());
         }
 
+        let mut builder = reqwest::Client::builder()
+            .timeout(configuration.request_timeout)
+            .tcp_keepalive(configuration.tcp_keepalive)
+            // Redirects are followed by hand, since each hop identifies a distinct snapshot
+            // that the caller is told about.
+            .redirect(reqwest::redirect::Policy::none());
+
+        if let Some(proxy) = &configuration.proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+
         Ok(Self {
-            underlying: reqwest::Client::builder()
-                .timeout(configuration.request_timeout)
-                .tcp_keepalive(configuration.tcp_keepalive)
-                // Redirects are followed by hand, since each hop identifies a distinct snapshot
-                // that the caller is told about.
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
+            underlying: builder.build()?,
             configuration,
         })
     }

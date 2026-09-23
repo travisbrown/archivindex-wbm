@@ -28,7 +28,7 @@ bytes.workspace = true
 chrono.workspace = true
 http.workspace = true
 log.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["socks"] }
 rusqlite.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -36,6 +36,6 @@ tokio-retry.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-# The `time` feature provides `tokio::time::timeout`, used to bound the deadlock regression test.
-tokio = { workspace = true, features = ["time"] }
+# Network and I/O features support the local SOCKS proxy tests.
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
 wiremock.workspace = true

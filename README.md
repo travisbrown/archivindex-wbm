@@ -142,6 +142,18 @@ cargo install --path tools/downloader-cli  # Installs the `archivindex-wbm-downl
 
 ## Usage
 
+The downloader's `download` command accepts `--proxy URI` to send all requests through a proxy.
+Use a `socks5h` URI to resolve destination hostnames through the proxy as well:
+
+```bash
+archivindex-wbm-downloader download --output snapshots --invalid-db invalid.db \
+  --proxy socks5h://127.0.0.1:1080 < captures.csv
+```
+
+The CSV input has no header and contains `URL,timestamp,expected digest` rows. An explicit proxy
+overrides system proxy settings and bypass lists. Omitting `--proxy` preserves the default proxy
+behavior. Library callers can set `client::Configuration::proxy` to the same URI.
+
 The CDX client's `archive` command reads CSV rows from standard input in
 `URL,matchType,fastLatest,limit` order, without a header. `matchType` accepts `exact`, `prefix`,
 `host`, or `domain`; a negative `limit` requests the last N results. The `limit` field is optional
