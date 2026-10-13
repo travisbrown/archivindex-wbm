@@ -399,7 +399,7 @@ mod tests {
 
         assert!(summary.is_complete());
         assert_eq!(summary.seed_captures.len(), 2);
-        assert!(summary.extra_captures.is_empty());
+        assert_eq!(summary.extra_captures, []);
         assert_eq!(
             warc.windows(b"WARC-Type: warcinfo".len())
                 .filter(|part| *part == b"WARC-Type: warcinfo")
@@ -480,7 +480,7 @@ mod tests {
 
         assert!(!summary.is_complete());
         assert_eq!(summary.failures.len(), 1);
-        assert!(summary.seed_captures.is_empty());
+        assert_eq!(summary.seed_captures, []);
         Ok(())
     }
 
@@ -506,7 +506,7 @@ mod tests {
         assert!(!summary.is_complete());
         assert_eq!(summary.failures.len(), 1);
         assert_eq!(summary.seed_captures.len(), 1);
-        assert!(summary.extra_captures.is_empty());
+        assert_eq!(summary.extra_captures, []);
         assert_eq!(targets.len(), 2);
         assert!(targets[1].contains(&format!("resumeKey={ENCODED_KEY}")));
         Ok(())

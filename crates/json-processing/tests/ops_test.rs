@@ -280,7 +280,7 @@ fn check_reports_problems() {
     assert_eq!(summary.digest_mismatches.len(), 2);
     // Line 3 has an explicit URL but no timestamp (and the URL differs from the inferred one).
     assert_eq!(summary.url_without_timestamp, vec![good_digest]);
-    assert!(summary.redundant_url.is_empty());
+    assert_eq!(summary.redundant_url, []);
     // Line 4's digest sorts before line 3's or equals line 1's; either way it is a problem.
     assert_eq!(
         summary.out_of_order.len() + summary.duplicates.len(),

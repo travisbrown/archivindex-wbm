@@ -1098,12 +1098,7 @@ mod tests {
                 ),
             ]
         );
-        assert!(
-            index
-                .captures_by_digest(absent)
-                .expect("captures")
-                .is_empty()
-        );
+        assert_eq!(index.captures_by_digest(absent).expect("captures"), []);
     }
 
     #[test]

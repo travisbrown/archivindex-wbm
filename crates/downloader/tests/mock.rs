@@ -137,7 +137,7 @@ async fn download_success() {
         .expect("Unexpected 403 or 404");
 
     assert_eq!(download.bytes.as_ref(), BODY);
-    assert!(download.redirects.is_empty());
+    assert_eq!(download.redirects, []);
 }
 
 #[tokio::test]
@@ -457,11 +457,11 @@ async fn downloader_accepts_matching_digest() {
         .expect("Unexpected 403 or 404");
 
     assert!(result.actual_digest.is_none());
-    assert!(
+    assert_eq!(
         database
             .invalid_digests(None)
-            .expect("Unexpected database error")
-            .is_empty()
+            .expect("Unexpected database error"),
+        []
     );
 }
 

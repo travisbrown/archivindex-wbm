@@ -212,10 +212,9 @@ mod tests {
         assert_eq!(digests.len(), 2);
 
         // Every file's contents hash to the digest it is named by.
-        assert!(
-            data.verify_duplicates()
-                .expect("verify succeeds")
-                .is_empty()
+        assert_eq!(
+            data.verify_duplicates().expect("verify succeeds"),
+            Vec::<std::path::PathBuf>::new()
         );
     }
 

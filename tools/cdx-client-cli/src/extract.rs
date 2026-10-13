@@ -232,7 +232,7 @@ mod tests {
 
         extract(&[input], &mut output)?;
 
-        assert!(output.is_empty());
+        assert_eq!(output, Vec::<u8>::new());
         Ok(())
     }
 

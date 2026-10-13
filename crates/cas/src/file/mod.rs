@@ -418,7 +418,7 @@ mod tests {
 
         let summary = store.verify()?;
         assert_eq!(summary.verified_count, 1);
-        assert!(summary.errors.is_empty());
+        assert_eq!(summary.errors, []);
 
         let target_dir = tempfile::TempDir::new()?;
         let target = super::Store::<super::entry::Buffered>::new(&target_dir, &[2, 2])?;
@@ -468,7 +468,7 @@ mod tests {
 
         let summary = store.verify()?;
         assert_eq!(summary.verified_count, 1);
-        assert!(summary.errors.is_empty());
+        assert_eq!(summary.errors, []);
 
         Ok(())
     }
