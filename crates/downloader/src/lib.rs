@@ -157,7 +157,7 @@ async fn write_snapshot_file(dir: PathBuf, name: String, bytes: bytes::Bytes) ->
             Ok(_) => Ok(()),
             Err(error)
                 if !error.is_published()
-                    && error.io_error().kind() == std::io::ErrorKind::AlreadyExists =>
+                    && error.source.kind() == std::io::ErrorKind::AlreadyExists =>
             {
                 Ok(())
             }

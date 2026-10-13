@@ -69,7 +69,7 @@ impl<R: Read> SnapshotReader<R> {
     pub fn with_source(reader: R, source: impl Into<String>) -> Self {
         Self {
             lines: archivindex_lines::Lines::with_source(BufReader::new(reader), source)
-                .rejecting_blank_lines(),
+                .reject_blank_lines(),
         }
     }
 }

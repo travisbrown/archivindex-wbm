@@ -5,10 +5,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use archivindex_cdx::format::classic;
+use archivindex_http::message::ResponseMetadata;
 use archivindex_warc::io::read::WarcReader;
 use archivindex_warc::record::Record;
 use archivindex_warc::record::extension::NoExtension;
-use archivindex_warc::record::http::ResponseMetadata;
 
 /// Extract CDX rows from every WARC in `inputs` into one headerless CSV stream.
 pub fn extract<W: Write>(inputs: &[PathBuf], output: W) -> Result<(), Error> {
@@ -79,14 +79,13 @@ fn extract_payload<W: Write>(payload: &[u8], writer: &mut csv::Writer<W>) -> Res
                 });
             }
         };
-        let record = header.parse_record(line).map_err(|source| Error::Cdx {
-            line: index + 1,
-            source,
-        })?;
-        let capture = header.capture(&record).map_err(|source| Error::Cdx {
-            line: index + 1,
-            source,
-        })?;
+        let capture = header
+            .parse_entry(line)
+            .and_then(|entry| header.decode(&entry))
+            .map_err(|source| Error::Cdx {
+                line: index + 1,
+                source,
+            })?;
         let timestamp = capture.timestamp.to_string();
         let status = capture
             .status
@@ -118,7 +117,7 @@ pub enum Error {
     MalformedHttpResponse,
     /// A response's HTTP entity body could not be decoded.
     #[error("cannot decode the archived HTTP response body")]
-    Payload(#[from] archivindex_warc::record::payload::Error),
+    Payload(#[from] archivindex_http::body::Error),
     /// A CDX response is not UTF-8.
     #[error("CDX response is not UTF-8")]
     Utf8(#[from] std::str::Utf8Error),

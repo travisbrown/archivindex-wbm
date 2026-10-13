@@ -26,7 +26,8 @@ anyhow.workspace = true
 archivindex-archiver.workspace = true
 archivindex-cdx.workspace = true
 archivindex-cli-support.workspace = true
-archivindex-warc = { workspace = true, features = ["http"] }
+archivindex-http.workspace = true
+archivindex-warc.workspace = true
 archivindex-wbm-cdx-client.workspace = true
 clap.workspace = true
 csv.workspace = true

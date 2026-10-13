@@ -38,7 +38,7 @@ default-members = [
 authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
 repository = "https://github.com/travisbrown/archivindex-wbm"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.98"
 license = "AGPL-3.0-only"
 readme = "README.md"
 version = "0.1.0"
@@ -49,6 +49,7 @@ archivindex-archiver = { version = "0.1.0", git = "https://github.com/travisbrow
 archivindex-cdx = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-cli-support = { git = "https://github.com/travisbrown/archivindex" }
 archivindex-digest = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
+archivindex-http = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-lines = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-publication = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
 archivindex-serde = { version = "0.1.0", git = "https://github.com/travisbrown/archivindex" }
@@ -70,7 +71,7 @@ archivindex-wbm-json-processing = { version = "0.1.0", path = "crates/json-proce
 archivindex-wbm-test-data = { version = "0.1.0", path = "crates/test-data" }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
-cel = "0.14"
+cel = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 csv = "1"

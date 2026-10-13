@@ -63,7 +63,7 @@ jobs:
       - name: Install the policy checker
         run: >-
           cargo install --locked --git https://github.com/travisbrown/archivindex
-          --rev f6e131cb8255090c5384f6cdcb099348247ad1ff cargo-archivindex-build
+          --rev 527867ddf5b1eaaff23413a0a40da4a62d8e360e cargo-archivindex-build
       - name: Check the workspace
         run: cargo archivindex-build check
 
@@ -158,13 +158,13 @@ jobs:
         run: cargo test --locked --workspace --all-features
 
   msrv:
-    name: Rust 1.91 compatibility
+    name: Rust 1.98 compatibility
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.91.0
+          toolchain: 1.98.0
       - uses: Swatinem/rust-cache@v2
       - name: Check workspace
         run: cargo check --locked --workspace --all-targets --all-features

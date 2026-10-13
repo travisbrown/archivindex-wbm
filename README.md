@@ -124,7 +124,7 @@ The repository also includes:
 
 ## Building and installation
 
-The workspace requires Rust 1.91 or later:
+The workspace requires Rust 1.98 or later:
 
 ```bash
 cargo build --release

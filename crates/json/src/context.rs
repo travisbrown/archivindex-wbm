@@ -602,8 +602,7 @@ impl Context {
         reader: R,
         source: impl Into<String>,
     ) -> Result<validation::SnapshotLineValidation, archivindex_lines::Error> {
-        let mut lines =
-            archivindex_lines::Lines::with_source(reader, source).rejecting_blank_lines();
+        let mut lines = archivindex_lines::Lines::with_source(reader, source).reject_blank_lines();
         let mut validation = validation::SnapshotLineValidation::default();
         let mut hasher = Sha1::default();
         // `None` until the first valid line: an all-zero first digest is in order, so no digest

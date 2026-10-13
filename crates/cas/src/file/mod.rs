@@ -132,7 +132,7 @@ fn save_atomically(
         Ok(_) => Ok(SaveSummary::Success),
         Err(error)
             if !error.is_published()
-                && error.io_error().kind() == std::io::ErrorKind::AlreadyExists =>
+                && error.source.kind() == std::io::ErrorKind::AlreadyExists =>
         {
             Ok(SaveSummary::AlreadyPresent)
         }
