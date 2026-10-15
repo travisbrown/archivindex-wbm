@@ -113,7 +113,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "archivindex-archiver"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#58a99beafc0080cc3ba3d8d034740641ec4ef584"
+source = "git+https://github.com/travisbrown/archivindex-warc#2976cf4ac20e301da90864dcd795e9f60e8a299e"
 dependencies = [
  "archivindex-http",
  "archivindex-http-client",
@@ -136,9 +136,10 @@ dependencies = [
 [[package]]
 name = "archivindex-cdx"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "archivindex-serde",
+ "bounded-static",
  "chrono",
  "serde",
  "serde_json",
@@ -148,7 +149,7 @@ dependencies = [
 [[package]]
 name = "archivindex-cli-support"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "clap",
  "ctrlc",
@@ -164,7 +165,7 @@ dependencies = [
 [[package]]
 name = "archivindex-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "data-encoding",
  "thiserror",
@@ -192,7 +193,7 @@ dependencies = [
 [[package]]
 name = "archivindex-http"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "thiserror",
 ]
@@ -200,7 +201,7 @@ dependencies = [
 [[package]]
 name = "archivindex-http-client"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "archivindex-http",
  "chrono",
@@ -219,7 +220,7 @@ dependencies = [
 [[package]]
 name = "archivindex-http-client-challenge"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "archivindex-http-client",
  "data-encoding",
@@ -234,7 +235,7 @@ dependencies = [
 [[package]]
 name = "archivindex-lines"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "thiserror",
 ]
@@ -242,7 +243,7 @@ dependencies = [
 [[package]]
 name = "archivindex-publication"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "tempfile",
  "thiserror",
@@ -251,7 +252,7 @@ dependencies = [
 [[package]]
 name = "archivindex-serde"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "serde",
 ]
@@ -259,7 +260,7 @@ dependencies = [
 [[package]]
 name = "archivindex-surt"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "bounded-static",
  "thiserror",
@@ -268,7 +269,7 @@ dependencies = [
 [[package]]
 name = "archivindex-test-support"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex#527867ddf5b1eaaff23413a0a40da4a62d8e360e"
+source = "git+https://github.com/travisbrown/archivindex#e788abfd91c924d915175b32f3c453eba9ede4be"
 dependencies = [
  "futures",
  "proptest",
@@ -279,7 +280,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#58a99beafc0080cc3ba3d8d034740641ec4ef584"
+source = "git+https://github.com/travisbrown/archivindex-warc#2976cf4ac20e301da90864dcd795e9f60e8a299e"
 dependencies = [
  "archivindex-http",
  "archivindex-warc-digest",
@@ -297,7 +298,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#58a99beafc0080cc3ba3d8d034740641ec4ef584"
+source = "git+https://github.com/travisbrown/archivindex-warc#2976cf4ac20e301da90864dcd795e9f60e8a299e"
 dependencies = [
  "data-encoding",
  "md-5",
@@ -310,7 +311,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-identifier"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#58a99beafc0080cc3ba3d8d034740641ec4ef584"
+source = "git+https://github.com/travisbrown/archivindex-warc#2976cf4ac20e301da90864dcd795e9f60e8a299e"
 dependencies = [
  "archivindex-warc",
  "data-encoding",
@@ -322,7 +323,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-revisit-index"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#58a99beafc0080cc3ba3d8d034740641ec4ef584"
+source = "git+https://github.com/travisbrown/archivindex-warc#2976cf4ac20e301da90864dcd795e9f60e8a299e"
 dependencies = [
  "archivindex-http",
  "archivindex-http-client",
@@ -886,9 +887,9 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "combine"
-version = "4.6.8"
+version = "4.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
+checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
 dependencies = [
  "bytes",
  "memchr",
@@ -1144,9 +1145,9 @@ dependencies = [
 
 [[package]]
 name = "equivalent"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "errno"
@@ -2295,9 +2296,9 @@ dependencies = [
 
 [[package]]
 name = "redb"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb338a6c67830a61bed824b78c2bb034ab1ff401a20616bd7957524f4fdc2f22"
+checksum = "39178e0a867f9e3eaa6292a4ab1dd3613f2519c5b564341e1e7b29b270736cc4"
 dependencies = [
  "libc",
 ]
@@ -2469,9 +2470,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -2484,9 +2485,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-native-certs"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
 dependencies = [
  "openssl-probe",
  "rustls-pki-types",
@@ -2948,9 +2949,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.2"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e95f91fcc7a621e8b030f6aa23c71fe9838ae2fb4d8118b75602a328f5144044"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",
@@ -3587,18 +3588,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.62"
+version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86502bf56ac7c77571a32e2647bb2a15894565e981fb2a48d7bde2d91c965a9d"
+checksum = "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.62"
+version = "0.8.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5457206954b06561e2608c7e19cf58b1926586d999c246eebe4502f7e2039d1a"
+checksum = "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f"
 dependencies = [
  "proc-macro2",
  "quote",

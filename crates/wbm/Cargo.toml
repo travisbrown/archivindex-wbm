@@ -28,7 +28,7 @@ validation = []
 archivindex-cdx.workspace = true
 archivindex-digest.workspace = true
 archivindex-serde.workspace = true
-archivindex-surt = { workspace = true, features = ["bounded-static"] }
+archivindex-surt.workspace = true
 bounded-static.workspace = true
 chrono.workspace = true
 data-encoding.workspace = true

@@ -84,7 +84,7 @@ impl<R: Read> Iterator for SnapshotReader<R> {
                 ExactSnapshot::parse(context.content)
                     .map(bounded_static::IntoBoundedStatic::into_static)
                     .map_err(|_| Error::InvalidLine {
-                        context: context.into_owned(),
+                        context: context.into_excerpt(),
                     }),
             ),
             Err(error) => Some(Err(Error::Read(error))),
