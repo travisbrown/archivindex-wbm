@@ -173,6 +173,19 @@ printf '%s\n' \
   archivindex-wbm-cdx-client archive --resume --request-delay 1s --output queries.warc
 ```
 
+The `twitter-cdx` command archives classic, plain-text CDX responses for
+`https://twitter.com/<screen name>/status/*`. It follows resumption keys automatically, requesting
+up to 10,000 rows per response by default. Use `--page-size` to change the per-request limit.
+The WARC session ID is `<screen name>-<epoch second>`, lowercased, with the time taken at startup:
+
+```bash
+archivindex-wbm-cdx-client twitter-cdx ExampleUser --output exampleuser.warc
+```
+
+Supply the screen name without `@`. The command uses the archiver's recorder backend and supports
+the same `--endpoint`, `--gzip`, `--retry-attempts`, and `--request-delay` options as `archive`.
+Existing output files are not overwritten. An incomplete archive produces a nonzero exit status.
+
 The `extract` command reads one or more plain or gzip-compressed WARC files produced by the client
 and prints headerless CSV rows containing original URL, timestamp, digest, MIME type, and status:
 

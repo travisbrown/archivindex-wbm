@@ -47,6 +47,7 @@ pub struct Client {
     endpoint: Url,
     archiver: Archiver,
     follow_resumption_keys: bool,
+    session_id: String,
 }
 
 impl Client {
@@ -68,7 +69,17 @@ impl Client {
             endpoint,
             archiver: Archiver::new(config)?,
             follow_resumption_keys: false,
+            session_id: SESSION_ID.to_owned(),
         })
+    }
+
+    /// Set the identifier recorded in the WARC session metadata. The default is `cdx`.
+    ///
+    /// Archiving rejects an empty identifier or characters outside the URI unreserved set.
+    #[must_use]
+    pub fn session_id(mut self, id: impl Into<String>) -> Self {
+        self.session_id = id.into();
+        self
     }
 
     /// Follow CDX resumption keys until each request has no more results.
@@ -111,7 +122,7 @@ impl Client {
 
         Ok(Session::new(
             self.archiver.clone(),
-            SESSION_ID,
+            &self.session_id,
             driver,
             path.as_ref().to_path_buf(),
         )?
@@ -139,7 +150,7 @@ impl Client {
 
         Ok(Session::new(
             self.archiver.clone(),
-            SESSION_ID,
+            &self.session_id,
             driver,
             path.as_ref().to_path_buf(),
         )?
@@ -385,7 +396,7 @@ mod tests {
     #[test]
     fn archives_a_series_of_query_responses() -> Result<(), Box<dyn std::error::Error>> {
         let (endpoint, server) = serve(&["result-0", "result-1"])?;
-        let client = Client::with_endpoint(Config::default(), &endpoint)?;
+        let client = Client::with_endpoint(Config::default(), &endpoint)?.session_id("queries-123");
         let requests = [
             Request::new("example.org", MatchType::Exact, true, -1),
             Request::new("example.com/docs/", MatchType::Prefix, false, 100),
@@ -398,6 +409,10 @@ mod tests {
         let warc = std::fs::read(&output)?;
 
         assert!(summary.is_complete());
+        assert!(
+            warc.windows(b"isPartOf: queries-123\r\n".len())
+                .any(|part| part == b"isPartOf: queries-123\r\n")
+        );
         assert_eq!(summary.seed_captures.len(), 2);
         assert_eq!(summary.extra_captures, []);
         assert_eq!(

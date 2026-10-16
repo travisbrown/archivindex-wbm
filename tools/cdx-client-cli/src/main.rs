@@ -13,6 +13,7 @@ use archivindex_wbm_cdx_client::{Client, DEFAULT_ENDPOINT};
 use clap::Parser;
 
 mod extract;
+mod twitter;
 
 const DEFAULT_RETRY_ATTEMPTS: usize = 10;
 
@@ -36,6 +37,7 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
     options.verbosity.init_logging();
     match options.command {
         Command::Archive(options) => archive(&options),
+        Command::TwitterCdx(options) => twitter::archive(&options),
         Command::Extract { input } => {
             extract::extract(&input, std::io::stdout().lock())
                 .context("failed to extract CDX rows from the archived responses")?;
@@ -62,9 +64,17 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
 fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
     let requests =
         read_requests(std::io::stdin().lock()).context("failed to read CDX requests as CSV")?;
-    let config = archiver_config(options);
-    let client =
-        Client::with_endpoint(config, &options.endpoint)?.follow_resumption_keys(options.resume);
+    let config = archiver_config(&options.capture);
+    let client = Client::with_endpoint(config, &options.capture.endpoint)?
+        .follow_resumption_keys(options.resume);
+    archive_requests(&client, &requests, &options.capture.output)
+}
+
+fn archive_requests(
+    client: &Client,
+    requests: &[Request],
+    output: &std::path::Path,
+) -> Result<CommandOutcome, anyhow::Error> {
     let mut events = |event: ProgressEvent<'_>| {
         match event {
             ProgressEvent::Started { url, attempt } => {
@@ -81,7 +91,7 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
         }
         ProgressControl::Continue
     };
-    let summary = client.archive_to_path_with_progress(&requests, &options.output, &mut events)?;
+    let summary = client.archive_to_path_with_progress(requests, output, &mut events)?;
 
     for failure in &summary.failures {
         log::warn!("Failed to archive {}: {}", failure.url, failure.error);
@@ -101,7 +111,7 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
         "Archived {} CDX responses for {} requests to {}",
         captured,
         requests.len(),
-        options.output.display()
+        output.display()
     );
 
     if summary.is_complete() {
@@ -116,7 +126,7 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
     }
 }
 
-fn archiver_config(options: &ArchiveOptions) -> Config {
+fn archiver_config(options: &CaptureOptions) -> Config {
     let mut config = Config {
         gzip_warc: options.gzip,
         ..Config::default()
@@ -153,6 +163,8 @@ struct Options {
 enum Command {
     /// Archive CDX query responses in a WARC file.
     Archive(ArchiveOptions),
+    /// Archive classic CDX results for all of a Twitter user's status URLs.
+    TwitterCdx(twitter::Options),
     /// Extract capture metadata from archived CDX responses as headerless CSV.
     Extract {
         /// WARC files to read, in output order; plain and gzip files are detected automatically.
@@ -167,6 +179,16 @@ enum Command {
 
 #[derive(Debug, clap::Args)]
 struct ArchiveOptions {
+    #[command(flatten)]
+    capture: CaptureOptions,
+
+    /// Follow CDX resumption keys until each query is exhausted.
+    #[arg(long)]
+    resume: bool,
+}
+
+#[derive(Debug, clap::Args)]
+struct CaptureOptions {
     /// The WARC file to write; an existing file is not overwritten.
     #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     output: PathBuf,
@@ -178,10 +200,6 @@ struct ArchiveOptions {
     /// Write independently compressed gzip WARC records.
     #[arg(long)]
     gzip: bool,
-
-    /// Follow CDX resumption keys until each query is exhausted.
-    #[arg(long)]
-    resume: bool,
 
     /// Total attempts for transient failures, including the initial request.
     #[arg(long,
@@ -254,8 +272,11 @@ mod tests {
         let Command::Archive(custom) = custom.command else {
             panic!("archive command");
         };
-        assert_eq!(defaults.retry_attempts, super::DEFAULT_RETRY_ATTEMPTS);
-        assert_eq!(custom.retry_attempts, 4);
+        assert_eq!(
+            defaults.capture.retry_attempts,
+            super::DEFAULT_RETRY_ATTEMPTS
+        );
+        assert_eq!(custom.capture.retry_attempts, 4);
     }
 
     #[test]
@@ -279,10 +300,10 @@ mod tests {
         let Command::Archive(with) = with.command else {
             panic!("archive command");
         };
-        assert_eq!(without.request_delay, None);
-        assert_eq!(with.request_delay, Some(Duration::from_millis(250)));
+        assert_eq!(without.capture.request_delay, None);
+        assert_eq!(with.capture.request_delay, Some(Duration::from_millis(250)));
         assert_eq!(
-            super::archiver_config(&with).session.request_delay,
+            super::archiver_config(&with.capture).session.request_delay,
             Duration::from_millis(250)
         );
     }
