@@ -191,6 +191,17 @@ Supply the screen name without `@`. The command uses the archiver's recorder bac
 the same `--endpoint`, `--gzip`, `--retry-attempts`, and `--request-delay` options as `archive`.
 Existing output files are not overwritten. An incomplete archive produces a nonzero exit status.
 
+The `twitter-cdx-all` command accepts the same options, but reads screen names from standard input,
+exactly one per line, and archives all query responses in one WARC. Its session ID is
+`twitter-status-<epoch second>`, which also determines the default filename:
+
+```bash
+archivindex-wbm-cdx-client twitter-cdx-all --gzip --output tmp/ < screen-names.txt
+```
+
+Names are queried in input order, following each name's resumption keys before starting the next.
+Empty input, blank lines, and invalid screen names are rejected before any requests are made.
+
 The `extract` command reads one or more plain or gzip-compressed WARC files produced by the client
 and prints headerless CSV rows containing original URL, timestamp, digest, MIME type, and status:
 

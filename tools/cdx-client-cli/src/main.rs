@@ -30,7 +30,7 @@ fn main() -> ExitCode {
 ///
 /// # Errors
 ///
-/// Returns an error if the input is not valid request CSV, the CDX client cannot be configured or
+/// Returns an error if the input is invalid, the CDX client cannot be configured or
 /// cannot publish the WARC, or archived responses cannot be extracted.
 fn run() -> Result<CommandOutcome, anyhow::Error> {
     let options = Options::parse();
@@ -38,6 +38,7 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
     match options.command {
         Command::Archive(options) => archive(&options),
         Command::TwitterCdx(options) => twitter::archive(&options),
+        Command::TwitterCdxAll(options) => twitter::archive_all(&options),
         Command::Extract { input } => {
             extract::extract(&input, std::io::stdout().lock())
                 .context("failed to extract CDX rows from the archived responses")?;
@@ -165,6 +166,8 @@ enum Command {
     Archive(ArchiveOptions),
     /// Archive classic CDX results for all of a Twitter user's status URLs.
     TwitterCdx(twitter::Options),
+    /// Archive classic CDX results for Twitter screen names read one per line from stdin.
+    TwitterCdxAll(twitter::ArchiveOptions),
     /// Extract capture metadata from archived CDX responses as headerless CSV.
     Extract {
         /// WARC files to read, in output order; plain and gzip files are detected automatically.
