@@ -182,6 +182,10 @@ The WARC session ID is `<screen name>-<epoch second>`, lowercased, with the time
 archivindex-wbm-cdx-client twitter-cdx ExampleUser --output exampleuser.warc
 ```
 
+If `--output` is omitted, the filename is `<session ID>.warc` in the current directory, or
+`<session ID>.warc.gz` with `--gzip`. If `--output` names an existing directory, the same filename
+is used inside that directory. An explicit filename is used as given.
+
 Supply the screen name without `@`. The command uses the archiver's recorder backend and supports
 the same `--endpoint`, `--gzip`, `--retry-attempts`, and `--request-delay` options as `archive`.
 Existing output files are not overwritten. An incomplete archive produces a nonzero exit status.

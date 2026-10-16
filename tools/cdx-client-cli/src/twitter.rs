@@ -1,5 +1,6 @@
 //! Archive the classic CDX results for one Twitter user's status URLs.
 
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use archivindex_cdx::query::{MatchType, Request};
@@ -13,6 +14,11 @@ pub struct Options {
     /// Twitter screen name, without a leading @.
     #[arg(value_parser = screen_name)]
     screen_name: String,
+
+    /// Output file or directory; defaults to <session ID>.warc in the current directory.
+    /// With --gzip, the default filename ends in .warc.gz. Existing files are not overwritten.
+    #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::AnyPath)]
+    output: Option<PathBuf>,
 
     #[command(flatten)]
     capture: CaptureOptions,
@@ -28,6 +34,17 @@ pub fn archive(options: &Options) -> Result<CommandOutcome, anyhow::Error> {
         "{}-{epoch_second}",
         options.screen_name.to_ascii_lowercase()
     );
+    let output = options.output.as_deref().unwrap_or_else(|| Path::new("."));
+    let output = if output.is_dir() {
+        let extension = if options.capture.gzip {
+            "warc.gz"
+        } else {
+            "warc"
+        };
+        output.join(format!("{session_id}.{extension}"))
+    } else {
+        output.to_path_buf()
+    };
     let client = Client::with_endpoint(
         super::archiver_config(&options.capture),
         &options.capture.endpoint,
@@ -41,7 +58,7 @@ pub fn archive(options: &Options) -> Result<CommandOutcome, anyhow::Error> {
         options.page_size,
     );
 
-    super::archive_requests(&client, &[request], &options.capture.output)
+    super::archive_requests(&client, &[request], &output)
 }
 
 fn screen_name(value: &str) -> Result<String, String> {

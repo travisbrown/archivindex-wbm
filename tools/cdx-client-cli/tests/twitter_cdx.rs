@@ -23,7 +23,7 @@ const SECOND_ROW: &str = concat!(
 );
 const KEY: &str = "com%2Ctwitter%29%2Fexample_user%2Fstatus%2F2+20200103030405%21";
 
-fn command(port: u16, output: &Path) -> Command {
+fn command(port: u16, output: Option<&Path>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_archivindex-wbm-cdx-client"));
     command.args([
         "twitter-cdx",
@@ -32,10 +32,41 @@ fn command(port: u16, output: &Path) -> Command {
         &format!("http://127.0.0.1:{port}/cdx/search/cdx"),
         "--retry-attempts",
         "1",
-        "--output",
     ]);
-    command.arg(output);
+    if let Some(output) = output {
+        command.arg("--output").arg(output);
+    }
     command
+}
+
+fn read_records(
+    path: &Path,
+    gzip: bool,
+) -> Result<Vec<Record<NoExtension>>, Box<dyn std::error::Error>> {
+    let source = BufReader::new(std::fs::File::open(path)?);
+    let reader = if gzip {
+        WarcReader::from_gzip(source)
+    } else {
+        WarcReader::new(source)
+    };
+    Ok(reader
+        .iter_records::<NoExtension>()
+        .records()
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+fn session_id(record: &Record<NoExtension>) -> &str {
+    let Record::Warcinfo { body, .. } = record else {
+        panic!("first record must be warcinfo");
+    };
+    let archivindex_warc::record::FieldsBlock::Fields(fields) = body else {
+        panic!("warcinfo must contain fields");
+    };
+    fields
+        .iter()
+        .find(|(field, _)| field.name() == "isPartOf")
+        .expect("session ID")
+        .1
 }
 
 fn extract(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -69,7 +100,7 @@ fn archives_every_page_with_a_lowercase_timestamped_session_id()
         })?;
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("twitter.warc");
-        let mut command = command(server.port(), &path);
+        let mut command = command(server.port(), Some(&path));
         command.args(["--page-size", "1"]);
         if gzip {
             command.arg("--gzip");
@@ -98,27 +129,8 @@ fn archives_every_page_with_a_lowercase_timestamped_session_id()
         assert!(!targets[0].contains("resumeKey="));
         assert!(targets[1].contains(&format!("resumeKey={KEY}")));
 
-        let source = BufReader::new(std::fs::File::open(&path)?);
-        let reader = if gzip {
-            WarcReader::from_gzip(source)
-        } else {
-            WarcReader::new(source)
-        };
-        let records = reader
-            .iter_records::<NoExtension>()
-            .records()
-            .collect::<Result<Vec<_>, _>>()?;
-        let Record::Warcinfo { body, .. } = &records[0] else {
-            panic!("first record must be warcinfo");
-        };
-        let archivindex_warc::record::FieldsBlock::Fields(fields) = body else {
-            panic!("warcinfo must contain fields");
-        };
-        let (_, session_id) = fields
-            .iter()
-            .find(|(field, _)| field.name() == "isPartOf")
-            .expect("session ID");
-        let epoch_second = session_id
+        let records = read_records(&path, gzip)?;
+        let epoch_second = session_id(&records[0])
             .strip_prefix("example_user-")
             .expect("lowercase screen name")
             .parse::<u64>()?;
@@ -157,7 +169,7 @@ fn archives_an_empty_result_without_requesting_another_page()
     let server = http::serve_with(1, |_| (http::response(200, &[], ""), ()))?;
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("twitter.warc");
-    let result = command(server.port(), &path).output()?;
+    let result = command(server.port(), Some(&path)).output()?;
     assert_eq!(server.finish().len(), 1);
     assert!(
         result.status.success(),
@@ -179,7 +191,7 @@ fn reports_an_incomplete_archive_when_a_continuation_fails()
     let server = http::serve_with(2, move |_| (responses.next().unwrap(), ()))?;
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("twitter.warc");
-    let result = command(server.port(), &path).output()?;
+    let result = command(server.port(), Some(&path)).output()?;
     assert_eq!(server.finish().len(), 2);
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("Incomplete archive"));
@@ -192,8 +204,50 @@ fn preserves_an_existing_output_file() -> Result<(), Box<dyn std::error::Error>>
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("twitter.warc");
     std::fs::write(&path, b"existing archive")?;
-    let result = command(http::dead_port()?, &path).output()?;
+    let result = command(http::dead_port()?, Some(&path)).output()?;
     assert!(!result.status.success());
     assert_eq!(std::fs::read(&path)?, b"existing archive");
+    Ok(())
+}
+
+#[test]
+fn defaults_to_the_session_filename_in_the_current_or_specified_directory()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (gzip, directory_output) in [(false, false), (false, true), (true, false), (true, true)] {
+        let server = http::serve_with(1, |_| (http::response(200, &[], ""), ()))?;
+        let directory = tempfile::tempdir()?;
+        let destination = if directory_output {
+            let destination = directory.path().join("output");
+            std::fs::create_dir(&destination)?;
+            destination
+        } else {
+            directory.path().to_path_buf()
+        };
+        let mut command = command(
+            server.port(),
+            directory_output.then_some(destination.as_path()),
+        );
+        command.current_dir(directory.path());
+        if gzip {
+            command.arg("--gzip");
+        }
+        let result = command.output()?;
+        assert_eq!(server.finish().len(), 1);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let files = std::fs::read_dir(&destination)?.collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(files.len(), 1);
+        let path = files[0].path();
+        let records = read_records(&path, gzip)?;
+        let extension = if gzip { "warc.gz" } else { "warc" };
+        assert_eq!(
+            path,
+            destination.join(format!("{}.{extension}", session_id(&records[0])))
+        );
+    }
     Ok(())
 }

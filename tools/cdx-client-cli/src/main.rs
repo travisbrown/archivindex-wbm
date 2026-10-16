@@ -67,7 +67,7 @@ fn archive(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
     let config = archiver_config(&options.capture);
     let client = Client::with_endpoint(config, &options.capture.endpoint)?
         .follow_resumption_keys(options.resume);
-    archive_requests(&client, &requests, &options.capture.output)
+    archive_requests(&client, &requests, &options.output)
 }
 
 fn archive_requests(
@@ -179,6 +179,10 @@ enum Command {
 
 #[derive(Debug, clap::Args)]
 struct ArchiveOptions {
+    /// The WARC file to write; an existing file is not overwritten.
+    #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+    output: PathBuf,
+
     #[command(flatten)]
     capture: CaptureOptions,
 
@@ -189,10 +193,6 @@ struct ArchiveOptions {
 
 #[derive(Debug, clap::Args)]
 struct CaptureOptions {
-    /// The WARC file to write; an existing file is not overwritten.
-    #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
-    output: PathBuf,
-
     /// The CDX server endpoint.
     #[arg(long, default_value = DEFAULT_ENDPOINT)]
     endpoint: String,
@@ -225,6 +225,11 @@ mod tests {
     #[test]
     fn clap_definition_is_consistent() {
         Options::command().debug_assert();
+    }
+
+    #[test]
+    fn archive_requires_an_explicit_output() {
+        assert!(Options::try_parse_from(["cdx-client", "archive"]).is_err());
     }
 
     #[test]
