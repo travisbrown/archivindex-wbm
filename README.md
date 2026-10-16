@@ -176,7 +176,8 @@ printf '%s\n' \
 The `twitter-cdx` command archives classic, plain-text CDX responses for
 `https://twitter.com/<screen name>/status/*`. It follows resumption keys automatically, requesting
 up to 10,000 rows per response by default. Use `--page-size` to change the per-request limit.
-The WARC session ID is `<screen name>-<epoch second>`, lowercased, with the time taken at startup:
+The WARC session ID is `twitter-status-<screen name>-<epoch second>`, lowercased, with the time
+taken at startup:
 
 ```bash
 archivindex-wbm-cdx-client twitter-cdx ExampleUser --output exampleuser.warc

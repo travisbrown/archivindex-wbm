@@ -31,7 +31,7 @@ pub struct Options {
 pub fn archive(options: &Options) -> Result<CommandOutcome, anyhow::Error> {
     let epoch_second = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let session_id = format!(
-        "{}-{epoch_second}",
+        "twitter-status-{}-{epoch_second}",
         options.screen_name.to_ascii_lowercase()
     );
     let output = options.output.as_deref().unwrap_or_else(|| Path::new("."));

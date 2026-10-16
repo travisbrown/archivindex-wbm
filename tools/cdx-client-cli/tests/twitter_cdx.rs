@@ -131,8 +131,8 @@ fn archives_every_page_with_a_lowercase_timestamped_session_id()
 
         let records = read_records(&path, gzip)?;
         let epoch_second = session_id(&records[0])
-            .strip_prefix("example_user-")
-            .expect("lowercase screen name")
+            .strip_prefix("twitter-status-example_user-")
+            .expect("Twitter status prefix and lowercase screen name")
             .parse::<u64>()?;
         assert!((before..=after).contains(&epoch_second));
 
