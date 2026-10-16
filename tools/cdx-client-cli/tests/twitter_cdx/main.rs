@@ -11,6 +11,8 @@ use archivindex_warc::record::Record;
 use archivindex_warc::record::extension::NoExtension;
 use archivindex_warc::record::fields::Field as _;
 
+mod all;
+
 const FIRST_ROW: &str = concat!(
     "com,twitter)/example_user/status/1 20200102030405 ",
     "https://twitter.com/Example_User/status/1 text/html 200 ",
@@ -81,6 +83,23 @@ fn session_id(record: &Record<NoExtension>) -> &str {
         .1
 }
 
+fn response_payloads(records: &[Record<NoExtension>]) -> Vec<Vec<u8>> {
+    records
+        .iter()
+        .filter_map(|record| {
+            if let Record::Response { body, .. } = record {
+                Some(
+                    archivindex_warc::record::payload::entity_body(body)
+                        .expect("HTTP payload")
+                        .into_owned(),
+                )
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
 fn extract(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let result = Command::new(env!("CARGO_BIN_EXE_archivindex-wbm-cdx-client"))
         .args(["extract", "--input"])
@@ -148,21 +167,10 @@ fn archives_every_page_with_a_lowercase_timestamped_session_id()
             .parse::<u64>()?;
         assert!((before..=after).contains(&epoch_second));
 
-        let payloads = records
-            .iter()
-            .filter_map(|record| {
-                if let Record::Response { body, .. } = record {
-                    Some(
-                        archivindex_warc::record::payload::entity_body(body)
-                            .expect("HTTP payload")
-                            .into_owned(),
-                    )
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(payloads, [first_page.as_bytes(), SECOND_ROW.as_bytes()]);
+        assert_eq!(
+            response_payloads(&records),
+            [first_page.as_bytes(), SECOND_ROW.as_bytes()]
+        );
 
         assert_eq!(
             extract(&path)?,
@@ -223,15 +231,28 @@ fn preserves_an_existing_output_file() -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[test]
-fn defaults_to_the_session_filename_in_the_current_or_specified_directory()
+fn uses_the_session_id_in_metadata_and_generated_filenames()
 -> Result<(), Box<dyn std::error::Error>> {
     for arguments in [
         &["twitter-cdx", "Example_User"][..],
         &["twitter-cdx-all"][..],
     ] {
-        for (gzip, directory_output) in [(false, false), (false, true), (true, false), (true, true)]
-        {
-            let server = http::serve_with(1, |_| (http::response(200, &[], ""), ()))?;
+        for (gzip, directory_output, session) in [
+            (false, false, None),
+            (false, true, None),
+            (true, false, None),
+            (true, true, None),
+            (false, false, Some("Custom.Session_1")),
+            (false, true, Some("Custom.Session_1")),
+            (true, false, Some("Custom.Session_1")),
+            (true, true, Some("Custom.Session_1")),
+        ] {
+            let request_count = if arguments[0] == "twitter-cdx-all" {
+                2
+            } else {
+                1
+            };
+            let server = http::serve_with(request_count, |_| (http::response(200, &[], ""), ()))?;
             let directory = tempfile::tempdir()?;
             let destination = if directory_output {
                 let destination = directory.path().join("output");
@@ -249,10 +270,13 @@ fn defaults_to_the_session_filename_in_the_current_or_specified_directory()
             if gzip {
                 command.arg("--gzip");
             }
+            if let Some(session) = session {
+                command.args(["--session", session]);
+            }
             let before = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
             let result = run_with_names(&mut command, b"Example_User\n")?;
             let after = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-            assert_eq!(server.finish().len(), 1);
+            assert_eq!(server.finish().len(), request_count);
             assert!(
                 result.status.success(),
                 "{}",
@@ -263,16 +287,20 @@ fn defaults_to_the_session_filename_in_the_current_or_specified_directory()
             assert_eq!(files.len(), 1);
             let path = files[0].path();
             let records = read_records(&path, gzip)?;
-            let prefix = if arguments[0] == "twitter-cdx-all" {
-                "twitter-status-"
+            if let Some(session) = session {
+                assert_eq!(session_id(&records[0]), session);
             } else {
-                "twitter-status-example_user-"
-            };
-            let epoch_second = session_id(&records[0])
-                .strip_prefix(prefix)
-                .expect("session prefix")
-                .parse::<u64>()?;
-            assert!((before..=after).contains(&epoch_second));
+                let prefix = if arguments[0] == "twitter-cdx-all" {
+                    "twitter-"
+                } else {
+                    "twitter-status-example_user-"
+                };
+                let epoch_second = session_id(&records[0])
+                    .strip_prefix(prefix)
+                    .expect("session prefix")
+                    .parse::<u64>()?;
+                assert!((before..=after).contains(&epoch_second));
+            }
             let extension = if gzip { "warc.gz" } else { "warc" };
             assert_eq!(
                 path,
@@ -280,66 +308,5 @@ fn defaults_to_the_session_filename_in_the_current_or_specified_directory()
             );
         }
     }
-    Ok(())
-}
-
-#[test]
-fn batch_archives_each_names_pages_in_one_session() -> Result<(), Box<dyn std::error::Error>> {
-    let first_page = format!("{FIRST_ROW}\n{KEY}\n");
-    let mut pages = [first_page, SECOND_ROW.to_owned(), "other-user\n".to_owned()].into_iter();
-    let server = http::serve_with(3, move |request| {
-        (
-            http::response(200, &[], pages.next().unwrap()),
-            request.path().to_owned(),
-        )
-    })?;
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("batch.warc");
-    let mut command = configured_command(&["twitter-cdx-all"], server.port(), Some(&path));
-    command.args(["--page-size", "1", "--request-delay", "1ms"]);
-    let result = run_with_names(&mut command, b"Example_User\r\nOther_User")?;
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let targets = server.finish();
-    assert_eq!(targets.len(), 3);
-    for target in &targets[..2] {
-        assert!(target.contains("twitter.com%2FExample_User%2Fstatus%2F"));
-        assert!(target.contains("limit=1"));
-    }
-    assert!(!targets[0].contains("resumeKey="));
-    assert!(targets[1].contains(&format!("resumeKey={KEY}")));
-    assert!(targets[2].contains("twitter.com%2FOther_User%2Fstatus%2F"));
-    assert!(!targets[2].contains("resumeKey="));
-    let records = read_records(&path, false)?;
-    assert_eq!(
-        records
-            .iter()
-            .filter(|record| matches!(record, Record::Warcinfo { .. }))
-            .count(),
-        1
-    );
-    assert_eq!(
-        records
-            .iter()
-            .filter(|record| matches!(record, Record::Response { .. }))
-            .count(),
-        3
-    );
-    Ok(())
-}
-
-#[test]
-fn batch_rejects_invalid_input_before_creating_an_archive() -> Result<(), Box<dyn std::error::Error>>
-{
-    let directory = tempfile::tempdir()?;
-    let path = directory.path().join("batch.warc");
-    let mut command = configured_command(&["twitter-cdx-all"], http::dead_port()?, Some(&path));
-    let result = run_with_names(&mut command, b"Example_User\n\n")?;
-    assert!(!result.status.success());
-    assert!(String::from_utf8_lossy(&result.stderr).contains("stdin line 2"));
-    assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
     Ok(())
 }

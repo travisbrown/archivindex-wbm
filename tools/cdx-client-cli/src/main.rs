@@ -166,7 +166,7 @@ enum Command {
     Archive(ArchiveOptions),
     /// Archive classic CDX results for all of a Twitter user's status URLs.
     TwitterCdx(twitter::Options),
-    /// Archive classic CDX results for Twitter screen names read one per line from stdin.
+    /// Archive classic CDX results for profiles and statuses of Twitter names read from stdin.
     TwitterCdxAll(twitter::ArchiveOptions),
     /// Extract capture metadata from archived CDX responses as headerless CSV.
     Extract {

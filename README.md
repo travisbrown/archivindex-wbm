@@ -186,6 +186,9 @@ archivindex-wbm-cdx-client twitter-cdx ExampleUser --output exampleuser.warc
 If `--output` is omitted, the filename is `<session ID>.warc` in the current directory, or
 `<session ID>.warc.gz` with `--gzip`. If `--output` names an existing directory, the same filename
 is used inside that directory. An explicit filename is used as given.
+Use `--session ID` to override the session ID in WARC metadata and the generated filename.
+The ID is used as given and must be nonempty, containing only ASCII letters, digits, `-`, `.`,
+`_`, or `~`.
 
 Supply the screen name without `@`. The command uses the archiver's recorder backend and supports
 the same `--endpoint`, `--gzip`, `--retry-attempts`, and `--request-delay` options as `archive`.
@@ -193,13 +196,16 @@ Existing output files are not overwritten. An incomplete archive produces a nonz
 
 The `twitter-cdx-all` command accepts the same options, but reads screen names from standard input,
 exactly one per line, and archives all query responses in one WARC. Its session ID is
-`twitter-status-<epoch second>`, which also determines the default filename:
+`twitter-<epoch second>`, which also determines the default filename:
 
 ```bash
 archivindex-wbm-cdx-client twitter-cdx-all --gzip --output tmp/ < screen-names.txt
 ```
 
-Names are queried in input order, following each name's resumption keys before starting the next.
+Names are queried in input order. For each name, an exact query for
+`https://twitter.com/<screen name>` precedes the prefix query for
+`https://twitter.com/<screen name>/status/*`. Both queries' responses are archived, following
+each query's resumption keys before starting the next query.
 Empty input, blank lines, and invalid screen names are rejected before any requests are made.
 
 The `extract` command reads one or more plain or gzip-compressed WARC files produced by the client

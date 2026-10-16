@@ -1,4 +1,4 @@
-//! Archive classic CDX results for Twitter users' status URLs.
+//! Archive classic CDX results for Twitter profiles and status URLs.
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -28,6 +28,10 @@ pub struct ArchiveOptions {
     #[arg(short, long, value_name = "PATH", value_hint = clap::ValueHint::AnyPath)]
     output: Option<PathBuf>,
 
+    /// Session ID for WARC metadata and the default filename, overriding the generated ID.
+    #[arg(long, value_name = "ID")]
+    session: Option<String>,
+
     #[command(flatten)]
     capture: CaptureOptions,
 
@@ -44,21 +48,27 @@ pub fn archive(options: &Options) -> Result<CommandOutcome, anyhow::Error> {
             "twitter-status-{}",
             options.screen_name.to_ascii_lowercase()
         ),
+        false,
     )
 }
 
 pub fn archive_all(options: &ArchiveOptions) -> Result<CommandOutcome, anyhow::Error> {
     let names = read_screen_names(std::io::stdin().lock())?;
-    archive_names(options, &names, "twitter-status")
+    archive_names(options, &names, "twitter", true)
 }
 
 fn archive_names(
     options: &ArchiveOptions,
     names: &[String],
     prefix: &str,
+    include_profiles: bool,
 ) -> Result<CommandOutcome, anyhow::Error> {
-    let epoch_second = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let session_id = format!("{prefix}-{epoch_second}");
+    let session_id = if let Some(id) = &options.session {
+        id.clone()
+    } else {
+        let epoch_second = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        format!("{prefix}-{epoch_second}")
+    };
     let output = options.output.as_deref().unwrap_or_else(|| Path::new("."));
     let output = if output.is_dir() {
         let extension = if options.capture.gzip {
@@ -78,13 +88,19 @@ fn archive_names(
     .follow_resumption_keys(true);
     let requests = names
         .iter()
-        .map(|name| {
-            Request::new(
-                format!("https://twitter.com/{name}/status/"),
-                MatchType::Prefix,
-                false,
-                options.page_size,
-            )
+        .flat_map(|name| {
+            include_profiles
+                .then_some(("", MatchType::Exact))
+                .into_iter()
+                .chain([("/status/", MatchType::Prefix)])
+                .map(move |(suffix, match_type)| {
+                    Request::new(
+                        format!("https://twitter.com/{name}{suffix}"),
+                        match_type,
+                        false,
+                        options.page_size,
+                    )
+                })
         })
         .collect::<Vec<_>>();
 
