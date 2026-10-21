@@ -24,6 +24,7 @@ use clap::Parser;
 use serde_json::value::RawValue;
 
 mod contexts;
+mod remove_known;
 mod wxj;
 
 fn main() -> ExitCode {
@@ -64,6 +65,11 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
             files,
             dry_run,
         } => clean_flat(&known, &files, dry_run)?,
+        Command::RemoveKnown { files } => {
+            let mut output = std::io::BufWriter::new(std::io::stdout().lock());
+            remove_known::write_script(&files, std::io::stdin().lock(), &mut output)?;
+            output.flush()?;
+        }
         Command::FilterByPrefix { directory, prefix } => filter_by_prefix(&directory, &prefix)?,
         Command::ReconcileCdx(options) => reconcile_cdx(&options)?,
     }
@@ -128,6 +134,15 @@ enum Command {
         /// Log matching files without deleting them.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Print Bash rm commands for files named exactly by Base32 SHA-1 digests from stdin.
+    ///
+    /// Read one digest per line and scan only the given directory. No files are deleted.
+    #[command(name = "remove_known")]
+    RemoveKnown {
+        /// Directory to scan, preserving its spelling in the generated commands.
+        #[arg(long)]
+        files: String,
     },
     /// Migrate a JSONL Zstandard file from the old snapshot format to the new one.
     ///

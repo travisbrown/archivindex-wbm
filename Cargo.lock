@@ -185,6 +185,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "toml",
  "zstd",
