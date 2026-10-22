@@ -105,8 +105,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             requested.sort_unstable();
             requested.dedup();
 
-            let mut context = resolve_context(None, &input)?;
-            archivindex_wbm_json_gzip::register(&mut context);
+            let context = resolve_context(None, &input)?;
             std::fs::create_dir_all(&output)?;
 
             let mut next = 0;
@@ -420,7 +419,8 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             compression,
             skip_unresolved,
         } => {
-            let context = wts::context();
+            let mut context = wts::context();
+            archivindex_wbm_json_gzip::register(&mut context);
             let summary = archivindex_wbm_json_processing::process::compact::compact(
                 &data,
                 &cdx,
@@ -435,7 +435,12 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                     skip_unresolved,
                     cdx_recursive: true,
                 },
-                |_bytes, _resolution| ((), FormatInfo::default()),
+                |bytes, _resolution| {
+                    (
+                        (),
+                        archivindex_wbm_json_gzip::detect(bytes).unwrap_or_default(),
+                    )
+                },
             )?;
 
             write_compact_summary(&summary, &summary_output)?;
@@ -478,7 +483,7 @@ where
 /// Determine the validation context for a file: use the explicitly requested `format` if given,
 /// otherwise infer the closing whitespace from the file itself.
 fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, anyhow::Error> {
-    let context = match format {
+    let mut context = match format {
         Some(Format::Wxj) => wxj::context(),
         Some(Format::Ts) => wts::context(),
         None => Context::infer(zst::reader(path)?, path.display().to_string(), 10)?.map_or_else(
@@ -498,6 +503,7 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, anyh
         ),
     };
 
+    archivindex_wbm_json_gzip::register(&mut context);
     Ok(context)
 }
 
@@ -746,7 +752,7 @@ enum Command {
         compression: u16,
     },
     /// Load Truth Social (WTJ) data files, resolve CDX metadata, and write enriched snapshots to a
-    /// Zstandard-compressed JSONL file.
+    /// Zstandard-compressed JSONL file, preserving reproducible gzip data with its parameters.
     CompactTs {
         /// Directories containing data files (keyed by SHA-1 digest).
         #[arg(long)]
