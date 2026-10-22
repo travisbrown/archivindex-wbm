@@ -113,7 +113,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "archivindex-archiver"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#d97dace005f229630cad017c16f9ad80b85cf996"
+source = "git+https://github.com/travisbrown/archivindex-warc#5e1a02af171d660ae80a9494e470d436422c684b"
 dependencies = [
  "archivindex-http",
  "archivindex-http-client",
@@ -281,7 +281,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#d97dace005f229630cad017c16f9ad80b85cf996"
+source = "git+https://github.com/travisbrown/archivindex-warc#5e1a02af171d660ae80a9494e470d436422c684b"
 dependencies = [
  "archivindex-http",
  "archivindex-warc-digest",
@@ -299,7 +299,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-digest"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#d97dace005f229630cad017c16f9ad80b85cf996"
+source = "git+https://github.com/travisbrown/archivindex-warc#5e1a02af171d660ae80a9494e470d436422c684b"
 dependencies = [
  "data-encoding",
  "md-5",
@@ -312,7 +312,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-identifier"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#d97dace005f229630cad017c16f9ad80b85cf996"
+source = "git+https://github.com/travisbrown/archivindex-warc#5e1a02af171d660ae80a9494e470d436422c684b"
 dependencies = [
  "archivindex-warc",
  "data-encoding",
@@ -324,7 +324,7 @@ dependencies = [
 [[package]]
 name = "archivindex-warc-revisit-index"
 version = "0.1.0"
-source = "git+https://github.com/travisbrown/archivindex-warc#d97dace005f229630cad017c16f9ad80b85cf996"
+source = "git+https://github.com/travisbrown/archivindex-warc#5e1a02af171d660ae80a9494e470d436422c684b"
 dependencies = [
  "archivindex-http",
  "archivindex-http-client",
