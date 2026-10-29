@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: taiki-e/install-action@v2
         with:
-          tool: rumdl@0.2.79
+          tool: rumdl@0.3.2
       - name: Check formatting
         run: rumdl check .
 
@@ -63,7 +63,7 @@ jobs:
       - name: Install the policy checker
         run: >-
           cargo install --locked --git https://github.com/travisbrown/archivindex
-          --rev e788abfd91c924d915175b32f3c453eba9ede4be cargo-archivindex-build
+          --rev 8e94d61c4b8409f9f70aa3b5164f89789665e0c2 cargo-archivindex-build
       - name: Check the workspace
         run: cargo archivindex-build check
 

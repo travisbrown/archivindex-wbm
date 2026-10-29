@@ -84,15 +84,15 @@ humantime = "2"
 indicatif = "0.18"
 # Precise minimum versions (caret requirements, not pins) tested for byte-exact gzip reproduction
 # in `archivindex-wbm-json-gzip`.
-libz-ng-sys = "1.1.29"
-libz-sys = "1.1.29"
+libz-ng-sys = "1.1.31"
+libz-sys = "1.1.31"
 log = "0.4"
 prefix-file-tree = "0.5"
-proptest = { version = "1.11", features = ["attr-macro"] }
+proptest = { version = "1.12", features = ["attr-macro"] }
 rayon = "1"
 redb = "4"
 reqwest = { version = "0.13", features = ["json"] }
-rusqlite = "0.40"
+rusqlite = "0.41"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.11"
