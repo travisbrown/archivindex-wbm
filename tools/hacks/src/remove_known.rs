@@ -64,9 +64,7 @@ fn bash_word(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
-
-    use super::write_script;
+    use super::{bash_word, write_script};
 
     const FIRST: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const SECOND: &str = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
@@ -76,6 +74,7 @@ mod tests {
     #[test]
     fn matches_exact_names_once_and_preserves_relative_paths() -> anyhow::Result<()> {
         let directory = tempfile::tempdir_in(".")?;
+        let root = directory.path().file_name().unwrap().to_str().unwrap();
         for name in [
             FIRST.to_owned(),
             SECOND.to_owned(),
@@ -91,9 +90,9 @@ mod tests {
         for suffix in ["", "/", "//", "/../"] {
             // Resolve the parent traversal back to the same directory while preserving its spelling.
             let files = if suffix == "/../" {
-                format!("{}/{DIRECTORY}/../", directory.path().display())
+                format!("{root}/{DIRECTORY}/../")
             } else {
-                format!("{}{suffix}", directory.path().display())
+                format!("{root}{suffix}")
             };
             let mut output = Vec::new();
             write_script(&files, input.as_bytes(), &mut output)?;
@@ -107,6 +106,16 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn quotes_windows_paths() {
+        assert_eq!(
+            bash_word(r"D:\a\archivindex-wbm\.\files/digest"),
+            r"$'D:\\a\\archivindex-wbm\\.\\files/digest'"
+        );
+    }
+
+    // These filenames are valid on Unix but contain characters forbidden on Windows.
+    #[cfg(unix)]
     #[test]
     fn quotes_bash_paths_and_ends_option_parsing() -> anyhow::Result<()> {
         let directory = tempfile::Builder::new()
@@ -124,7 +133,7 @@ mod tests {
         assert!(script.starts_with("rm -- "));
 
         // Replace rm so Bash can verify argument boundaries and expansions without deleting files.
-        let result = Command::new("bash")
+        let result = std::process::Command::new("bash")
             .args(["--noprofile", "--norc", "-c"])
             .arg(format!("rm() {{ printf '%s\\0' \"$@\"; }}\n{script}"))
             .output()?;
