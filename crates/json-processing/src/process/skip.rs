@@ -22,7 +22,7 @@ pub enum SkipReason {
     NonUtf8,
     /// The content contains internal line breaks, which the JSONL form cannot represent.
     NonSingleLine,
-    /// The chosen format has no codec registered on the context.
+    /// The encoding is unsupported or the chosen format has no codec registered on the context.
     UnsupportedFormat,
     /// The discriminated partition is not one of the configured partitions.
     NoPartition,
@@ -54,7 +54,7 @@ pub struct Skipped {
     pub non_utf8: Vec<PathBuf>,
     /// Files whose content contains internal line breaks.
     pub non_single_line: Vec<PathBuf>,
-    /// Files whose chosen format has no codec registered on the context.
+    /// Files with unsupported encodings or no codec registered for their chosen format.
     pub unsupported_format: Vec<PathBuf>,
     /// Files whose discriminated partition is not one of the configured partitions.
     pub no_partition: Vec<PathBuf>,

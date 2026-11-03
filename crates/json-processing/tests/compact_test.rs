@@ -35,6 +35,7 @@ fn compact_populates_gzip_format() {
         os: OsByte::Unix,
         flushes: Vec::new(),
         extra_flushes: 0,
+        no_final_flush: false,
     };
     let archive = params.reproduce(text.as_bytes());
     common::write_data_file(&data_dir, &archive);
@@ -58,11 +59,11 @@ fn compact_populates_gzip_format() {
         },
         // Plain UTF-8 keeps the default format; gzip archives carry their inferred parameters.
         |bytes, _resolution| {
-            (
+            Ok((
                 (),
                 GzipParams::infer(bytes)
                     .map_or_else(FormatInfo::default, |params| params.format_info()),
-            )
+            ))
         },
     )
     .expect("compact succeeds");

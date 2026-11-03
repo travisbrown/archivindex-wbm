@@ -11,7 +11,7 @@ use archivindex_cli_support::{CommandOutcome, Verbosity};
 use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
-use archivindex_wbm_json::format::FormatInfo;
+use archivindex_wbm_json::format::{Format as SnapshotFormat, FormatInfo};
 use archivindex_wbm_json_processing::io::read::SnapshotReader;
 use archivindex_wbm_json_processing::io::write::SnapshotWriter;
 use archivindex_wbm_json_processing::io::zst;
@@ -382,7 +382,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                         WxjPartition::Other
                     };
                     // WXJ content is always the default UTF-8 format (no metadata).
-                    (partition, FormatInfo::default())
+                    Ok((partition, FormatInfo::default()))
                 },
             )?;
 
@@ -436,10 +436,14 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                     cdx_recursive: true,
                 },
                 |bytes, _resolution| {
-                    (
-                        (),
-                        archivindex_wbm_json_gzip::detect(bytes).unwrap_or_default(),
-                    )
+                    let format = if bytes.starts_with(&[0x1f, 0x8b]) {
+                        archivindex_wbm_json_gzip::detect(bytes).ok_or_else(|| {
+                            SnapshotFormat::from(archivindex_wbm_json_gzip::FORMAT)
+                        })?
+                    } else {
+                        FormatInfo::default()
+                    };
+                    Ok(((), format))
                 },
             )?;
 

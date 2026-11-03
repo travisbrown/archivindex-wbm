@@ -12,7 +12,7 @@ use archivindex_wbm::digest::Sha1Digest;
 use archivindex_wbm_invalid_log::Database;
 use archivindex_wbm_json::context::Context;
 use archivindex_wbm_json::exact::ExactSnapshot;
-use archivindex_wbm_json::format::FormatInfo;
+use archivindex_wbm_json::format::{Format, FormatInfo};
 use bounded_static::IntoBoundedStatic;
 use rayon::prelude::*;
 
@@ -153,7 +153,7 @@ fn apply_resolution(
 /// * `cdx_directories` - Directories containing CDX JSON files
 /// * `config` - The output partitions and the options controlling how they are written
 /// * `discriminator` - Chooses the partition and [`FormatInfo`] for a snapshot from its raw bytes
-///   and resolution
+///   and resolution, or returns the format whose encoding is unsupported
 ///
 /// # Errors
 ///
@@ -171,7 +171,7 @@ where
     P: PartialEq + Sync,
     D: AsRef<Path>,
     X: AsRef<Path>,
-    F: Fn(&[u8], Option<&Resolution>) -> (P, FormatInfo) + Sync,
+    F: Fn(&[u8], Option<&Resolution>) -> Result<(P, FormatInfo), Format> + Sync,
 {
     let options = CompactOptions {
         invalid_db: config.invalid_db,
@@ -217,6 +217,9 @@ where
 /// discriminator need not supply it.) Files are read, hashed, and decoded in parallel batches;
 /// snapshots are written in digest order.
 ///
+/// If the discriminator returns `Err(format)`, the file is logged as an unsupported encoding for
+/// that format and recorded in [`Skipped::unsupported_format`] without attempting to decode it.
+///
 /// A file whose selected partition is absent from `partitions` is recorded in
 /// [`Skipped::no_partition`]. Once processing begins, every writer is finished (see [`Finish`])
 /// even if processing fails. Successful finalization publishes readable partial output; failures
@@ -241,7 +244,7 @@ where
     D: AsRef<Path>,
     X: AsRef<Path>,
     W: Finish,
-    F: Fn(&[u8], Option<&Resolution>) -> (P, FormatInfo) + Sync,
+    F: Fn(&[u8], Option<&Resolution>) -> Result<(P, FormatInfo), Format> + Sync,
 {
     // Load data directories.
     let mut data = super::data::Data::default();
@@ -280,10 +283,19 @@ where
         // Look up the CDX resolution (if any), then pick the partition and format from the raw
         // bytes.
         let resolution = resolver.lookup(digest);
-        let (partition, format) = discriminator(
+        let (partition, format) = match discriminator(
             &bytes,
             resolution.as_ref().map(|(resolution, _)| resolution),
-        );
+        ) {
+            Ok(detected) => detected,
+            Err(format) => {
+                log::warn!(
+                    "Could not determine a supported encoding for format {format}: {}",
+                    path.display()
+                );
+                return Prepared::Skipped(SkipReason::UnsupportedFormat);
+            }
+        };
 
         let Some(index) = keys.iter().position(|key| *key == partition) else {
             log::warn!(
@@ -403,7 +415,7 @@ mod tests {
                 skip_unresolved: false,
                 cdx_recursive: true,
             },
-            |_bytes, _resolution| ((), FormatInfo::default()),
+            |_bytes, _resolution| Ok(((), FormatInfo::default())),
         )
         .expect("compact succeeds");
 

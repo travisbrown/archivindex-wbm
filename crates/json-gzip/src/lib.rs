@@ -11,7 +11,7 @@
 //!
 //! - **Go**: Go's `compress/flate` at levels 4–9, with `OS = 255` and mtime 0. Reproduced by
 //!   the Rust port in `go_flate`.
-//! - **zlib** / **zlib-ng**: a streaming gzip wrapper (`deflate`, `Z_SYNC_FLUSH`, and `Z_FINISH`),
+//! - **zlib** / **zlib-ng**: a gzip wrapper with optional sync flushes before `Z_FINISH`,
 //!   as emitted by, for example, a web server gzipping an HTTP response (possibly flushing
 //!   mid-response, which leaves interior sync markers at content offsets recorded in
 //!   [`GzipParams::flushes`]). Reproduced via FFI to the vendored C libraries (see `zlib_stream`),
@@ -132,7 +132,8 @@ impl<'de> serde::Deserialize<'de> for OsByte {
 /// the `gzip` [`type`](archivindex_wbm_json::format::FormatInfo::name)). For example:
 /// `{"compressor":"zlib","level":5,"mtime":1660840129,"os":3}`, or with a mid-stream flush,
 /// `{"compressor":"zlib-ng","flushes":[104508],"level":8,"os":3}`. The `mtime` (0), `os` (255),
-/// `flushes` (empty), and `extra_flushes` (0) defaults are omitted from serialization.
+/// `flushes` (empty), `extra_flushes` (0), and `no_final_flush` (false) defaults are omitted from
+/// serialization.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GzipParams {
     /// The deflate implementation.
@@ -154,6 +155,12 @@ pub struct GzipParams {
     /// [`Compressor::GoFlate`]).
     #[serde(default, skip_serializing_if = "crate::is_default")]
     pub extra_flushes: u8,
+    /// Finish zlib or zlib-ng content without a final `Z_SYNC_FLUSH` (false for Go).
+    ///
+    /// Mid-stream flushes are still allowed, but `extra_flushes` must be zero. Omitted metadata
+    /// keeps the final sync flush used by existing zlib snapshots.
+    #[serde(default, skip_serializing_if = "crate::is_default")]
+    pub no_final_flush: bool,
 }
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {
@@ -184,6 +191,7 @@ impl GzipParams {
                 os: OsByte::Unknown,
                 flushes: Vec::new(),
                 extra_flushes: 0,
+                no_final_flush: false,
             })
             .or_else(|| infer_zlib(content, archive))
     }
@@ -207,6 +215,7 @@ impl GzipParams {
                 self.level >= 4
                     && self.level <= 9
                     && self.extra_flushes == 0
+                    && !self.no_final_flush
                     && self.flushes.is_empty()
             }
             // zlib and zlib-ng accept levels 0..=9, but only when the `zlib` feature provides their
@@ -216,6 +225,7 @@ impl GzipParams {
             #[cfg(feature = "zlib")]
             Compressor::Zlib | Compressor::ZlibNg => {
                 self.level <= 9
+                    && (!self.no_final_flush || self.extra_flushes == 0)
                     && self.flushes.first() != Some(&0)
                     && self.flushes.windows(2).all(|pair| pair[0] < pair[1])
             }
@@ -260,7 +270,8 @@ impl GzipParams {
     /// # Panics
     ///
     /// Panics when the `level` is outside the range the `compressor` supports, when the `flushes`
-    /// offsets are not ascending or lie outside the content, or when a [`Compressor::Zlib`] /
+    /// offsets are not ascending or lie outside the content, when extra flushes are requested
+    /// without a final sync flush, or when a [`Compressor::Zlib`] /
     /// [`Compressor::ZlibNg`] `content` is too long for zlib's 32-bit counters (about 2 GiB).
     /// Also panics for zlib or zlib-ng when the `zlib` feature is disabled.
     /// [`codec`] screens these conditions and falls back to the uncompressed content bytes.
@@ -296,7 +307,7 @@ impl GzipParams {
     /// [`metadata`](Self::metadata)) or `None` if the map does not describe a supported archive.
     ///
     /// Keys that are not [`GzipParams`] fields are ignored, and the omitted defaults (`mtime`,
-    /// `os`, `flushes`, and `extra_flushes`) are filled in.
+    /// `os`, `flushes`, `extra_flushes`, and `no_final_flush`) are filled in.
     #[must_use]
     pub fn from_metadata(metadata: &Map<String, Value>) -> Option<Self> {
         // Deserializing straight from the borrowed entries avoids cloning the map into a `Value`.
@@ -430,7 +441,7 @@ fn infer_zlib(content: &[u8], archive: &[u8]) -> Option<GzipParams> {
     let mtime = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
     let xfl = header[8];
     let os = OsByte::from_u8(header[9])?;
-    let (flushes, extra_flushes) = flush_layout(archive, content.len())?;
+    let (flushes, extra_flushes, no_final_flush) = flush_layout(archive, content.len())?;
 
     [Compressor::Zlib, Compressor::ZlibNg]
         .into_iter()
@@ -445,6 +456,7 @@ fn infer_zlib(content: &[u8], archive: &[u8]) -> Option<GzipParams> {
                         os,
                         flushes: flushes.clone(),
                         extra_flushes,
+                        no_final_flush,
                     };
                     (params.reproduce(content) == archive).then_some(params)
                 })
@@ -460,7 +472,8 @@ const fn infer_zlib(_content: &[u8], _archive: &[u8]) -> Option<GzipParams> {
 
 /// Recovers the sync-flush layout of `archive`'s deflate body: the content offsets of mid-stream
 /// `00 00 ff ff` markers ([`GzipParams::flushes`]) and the count of trailing empty markers beyond
-/// the content-end one ([`GzipParams::extra_flushes`]), for content of `content_len` bytes.
+/// the content-end one ([`GzipParams::extra_flushes`]), and whether the content-end marker is absent
+/// ([`GzipParams::no_final_flush`]), for content of `content_len` bytes.
 ///
 /// One incremental raw-inflate pass over the body reads the content offset reached at each marker;
 /// offsets short of `content_len` are mid-stream flush boundaries, and offsets at `content_len` are
@@ -472,7 +485,7 @@ const fn infer_zlib(_content: &[u8], _archive: &[u8]) -> Option<GzipParams> {
 /// bytes, so a mistaken boundary can reject an otherwise reproducible archive but cannot cause a
 /// false match.
 #[cfg(feature = "zlib")]
-fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8)> {
+fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8, bool)> {
     let body = archive.get(HEADER_LEN..archive.len().checked_sub(FOOTER_LEN)?)?;
 
     let mut inflater = flate2::Decompress::new(false);
@@ -525,7 +538,11 @@ fn flush_layout(archive: &[u8], content_len: usize) -> Option<(Vec<u32>, u8)> {
             flushes.push(offset);
         }
     }
-    Some((flushes, u8::try_from(trailing.saturating_sub(1)).ok()?))
+    Some((
+        flushes,
+        u8::try_from(trailing.saturating_sub(1)).ok()?,
+        trailing == 0,
+    ))
 }
 
 /// Builds the gzip [`Codec`]: *decode* decompresses an archive to its text; *encode* reproduces the
@@ -583,6 +600,7 @@ mod tests {
             os: OsByte::Unknown,
             flushes: Vec::new(),
             extra_flushes: 0,
+            no_final_flush: false,
         }
     }
 
@@ -626,6 +644,50 @@ mod tests {
             codec().encode(content, &case.metadata()).as_ref(),
             content.as_bytes(),
         );
+
+        case.flushes.clear();
+        case.no_final_flush = true;
+        assert!(!case.is_reproducible());
+        assert_eq!(
+            codec().encode(content, &case.metadata()).as_ref(),
+            content.as_bytes(),
+        );
+    }
+
+    /// Omitting the final sync flush cannot be combined with extra trailing sync flushes.
+    #[test]
+    fn rejects_extra_flushes_without_final_flush() {
+        for compressor in [Compressor::Zlib, Compressor::ZlibNg] {
+            let case = GzipParams {
+                no_final_flush: true,
+                extra_flushes: 1,
+                ..params(compressor, 6)
+            };
+            assert!(!case.is_reproducible());
+            assert_eq!(codec().encode("{}", &case.metadata()).as_ref(), b"{}");
+        }
+    }
+
+    /// Both zlib implementations support direct finish, including after interior flushes. Empty
+    /// streams have no content-end marker either and must remain inferable.
+    #[test]
+    #[cfg(feature = "zlib")]
+    fn round_trips_without_final_flush() {
+        for compressor in [Compressor::Zlib, Compressor::ZlibNg] {
+            for (content, flushes) in [("", vec![]), ("{}", vec![]), ("{\"x\":1}", vec![3])] {
+                let case = GzipParams {
+                    no_final_flush: true,
+                    flushes,
+                    ..params(compressor, 6)
+                };
+                let archive = case.reproduce(content.as_bytes());
+                assert_eq!(decompress(&archive).as_deref(), Some(content));
+                let inferred = GzipParams::infer(&archive).expect("infer direct finish");
+                assert!(inferred.no_final_flush);
+                assert_eq!(inferred.flushes, case.flushes);
+                assert_eq!(inferred.reproduce(content.as_bytes()), archive);
+            }
+        }
     }
 
     /// Untrusted metadata may carry mid-stream flush offsets that are unordered, zero, or outside
@@ -687,6 +749,7 @@ mod tests {
                 os: OsByte::Unknown,
                 flushes: Vec::new(),
                 extra_flushes: u8::MAX,
+                no_final_flush: false,
             };
             let encoded = codec().encode(content, &case.metadata());
             assert_eq!(
@@ -913,6 +976,7 @@ mod tests {
                 os: OsByte::Unix,
                 flushes: Vec::new(),
                 extra_flushes: 0,
+                no_final_flush: false,
             },
             params(Compressor::Zlib, 6),
             GzipParams {
@@ -922,6 +986,7 @@ mod tests {
                 os: OsByte::Unix,
                 flushes: Vec::new(),
                 extra_flushes: 1,
+                no_final_flush: false,
             },
             GzipParams {
                 compressor: Compressor::ZlibNg,
@@ -930,6 +995,7 @@ mod tests {
                 os: OsByte::Unix,
                 flushes: Vec::new(),
                 extra_flushes: 0,
+                no_final_flush: false,
             },
             // A producer that flushed twice mid-response before finishing, as observed in real
             // Wayback Machine captures.
@@ -940,6 +1006,7 @@ mod tests {
                 os: OsByte::Unix,
                 flushes: vec![100, 5000],
                 extra_flushes: 0,
+                no_final_flush: false,
             },
         ]
     }

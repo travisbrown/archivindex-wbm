@@ -4,15 +4,15 @@
 //! Archives in this family were produced by a streaming gzip wrapper (e.g. a web server gzipping an
 //! HTTP response): `deflate(chunk)` → `Z_SYNC_FLUSH` for each written chunk, then `Z_FINISH`, with
 //! an `OS = 3` (Unix) or `255` (unknown) header and a recorded mtime. A producer that wrote
-//! everything at once leaves a single sync marker at the content's end; one that flushed
-//! mid-response leaves interior markers at the content offsets recorded in `GzipParams::flushes`.
+//! everything at once may finish directly or leave a sync marker at the content's end; one that
+//! flushed mid-response leaves interior markers at the offsets recorded in `GzipParams::flushes`.
 //! Reproducing either byte-for-byte requires the original C deflate implementation (`miniz_oxide`
 //! and pure-Rust ports diverge) so we link both stock zlib ([`libz_sys`]) and zlib-ng
 //! ([`libz_ng_sys`]) and drive `deflate` directly.
 //!
 //! Every observed archive uses the C defaults `memLevel = 8`, `windowBits = 15`, and the default
-//! strategy; only the library, level, mtime, flush boundaries, and a rare trailing empty flush
-//! vary.
+//! strategy; the library, level, mtime, flush boundaries, presence of a final sync flush, and a rare
+//! trailing empty flush vary.
 //!
 //! The casts between the FFI integer types (`usize` / `u32` / `c_int` / `z_size`) are inherent to
 //! the zlib C API, whose single-shot counters (`avail_in` / `avail_out`) are 32-bit. Each raw
@@ -94,20 +94,26 @@ unsafe extern "C" fn zfree(_opaque: *mut c_void, address: *mut c_void) {
 
 /// Generate a raw-deflate function for one C library: deflate each chunk of `chunks` followed by
 /// one `Z_SYNC_FLUSH`, then `extra_flushes` additional empty sync flushes, then `Z_FINISH`.
+/// With `no_final_flush`, the last chunk goes directly to `Z_FINISH`.
 ///
 /// The two libraries share an identical `z_stream` layout and call sequence; only the stream type,
 /// the init expression, and the `deflate` / `deflateEnd` symbols differ.
 macro_rules! raw_deflate_fn {
     ($name:ident, $stream:ty, $init:expr, $deflate:path, $deflate_end:path) => {
         /// Raw-deflate `chunks` at `level`, each chunk ending in a sync flush, with `extra_flushes`
-        /// trailing empty sync flushes.
+        /// trailing empty sync flushes, or the last chunk finished directly with `no_final_flush`.
         ///
         /// # Panics
         ///
         /// Panics if the total content length and flush count exceed what [`fits`] accepts, or if a
         /// chunk other than the first is empty (an empty sync flush directly after another is a
         /// zlib no-op; `reproduce` never produces such chunks from screened parameters).
-        fn $name(chunks: &[&[u8]], level: c_int, extra_flushes: u8) -> Vec<u8> {
+        fn $name(
+            chunks: &[&[u8]],
+            level: c_int,
+            extra_flushes: u8,
+            no_final_flush: bool,
+        ) -> Vec<u8> {
             let content_len: usize = chunks.iter().map(|chunk| chunk.len()).sum();
             // Guard the 32-bit `avail_in` / `avail_out` counters: casting a longer length below
             // would wrap modulo `2 ^ 32` and silently compress only part of the content.
@@ -140,7 +146,9 @@ macro_rules! raw_deflate_fn {
                 ];
                 stream.next_out = out.as_mut_ptr();
                 stream.avail_out = out.len() as u32;
-                for chunk in chunks {
+                let (last, preceding) = chunks.split_last().expect("at least one content chunk");
+                let flushed = if no_final_flush { preceding } else { chunks };
+                for chunk in flushed {
                     stream.next_in = chunk.as_ptr().cast_mut();
                     stream.avail_in = chunk.len() as u32;
                     assert_eq!(
@@ -164,7 +172,12 @@ macro_rules! raw_deflate_fn {
                     );
                 }
 
-                stream.avail_in = 0;
+                if no_final_flush {
+                    stream.next_in = last.as_ptr().cast_mut();
+                    stream.avail_in = last.len() as u32;
+                } else {
+                    stream.avail_in = 0;
+                }
                 assert_eq!(
                     $deflate(&mut stream, Z_FINISH),
                     Z_STREAM_END,
@@ -219,19 +232,24 @@ raw_deflate_fn!(
 /// `params.compressor` selects the C library; `params.mtime` and `params.os` are copied into the
 /// gzip header; `params.flushes` are the content offsets of mid-stream `Z_SYNC_FLUSH` markers; and
 /// `params.extra_flushes` is the number of trailing empty `Z_SYNC_FLUSH` markers between the
-/// content's final marker and the final block.
+/// content's final marker and the final block. With `params.no_final_flush`, the last chunk goes
+/// directly to `Z_FINISH` and `params.extra_flushes` must be zero.
 ///
 /// # Panics
 ///
 /// Panics if `params.level` is not a level the selected library accepts (`0..=9`), if
 /// `params.flushes` offsets are not ascending and inside the content, if the content and flush
-/// counts exceed what [`fits`] accepts, or if `params.compressor` is
+/// counts exceed what [`fits`] accepts, if extra flushes are requested without a final sync flush,
+/// or if `params.compressor` is
 /// <code>[Compressor](super::Compressor)::GoFlate</code> (its archives are reproduced by the
 /// `go_flate` port; `GzipParams::reproduce` never routes them here).
 pub fn reproduce(params: &super::GzipParams, content: &[u8]) -> Vec<u8> {
+    assert!(
+        !params.no_final_flush || params.extra_flushes == 0,
+        "extra flushes require a final sync flush"
+    );
     let level = c_int::from(params.level);
-    // Split the content at the mid-stream flush offsets; every chunk (including the last) ends in a
-    // sync marker, matching the source stream's write-then-flush boundaries.
+    // Split at the mid-stream flush offsets; the last chunk's flush is optional.
     let mut chunks = Vec::with_capacity(params.flushes.len() + 1);
     let mut start = 0;
     for &offset in &params.flushes {
@@ -241,8 +259,12 @@ pub fn reproduce(params: &super::GzipParams, content: &[u8]) -> Vec<u8> {
     }
     chunks.push(&content[start..]);
     let body = match params.compressor {
-        super::Compressor::Zlib => zlib_raw(&chunks, level, params.extra_flushes),
-        super::Compressor::ZlibNg => zlibng_raw(&chunks, level, params.extra_flushes),
+        super::Compressor::Zlib => {
+            zlib_raw(&chunks, level, params.extra_flushes, params.no_final_flush)
+        }
+        super::Compressor::ZlibNg => {
+            zlibng_raw(&chunks, level, params.extra_flushes, params.no_final_flush)
+        }
         super::Compressor::GoFlate => {
             unreachable!("`GzipParams::reproduce` routes Go archives to `go_flate`, never here")
         }
