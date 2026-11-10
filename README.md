@@ -154,6 +154,10 @@ The CSV input has no header and contains `URL,timestamp,expected digest` rows. A
 overrides system proxy settings and bypass lists. Omitting `--proxy` preserves the default proxy
 behavior. Library callers can set `client::Configuration::proxy` to the same URI.
 
+Use `--user-agent "MyDownloader/1.0"` to set the User-Agent header on all requests, including
+retries, redirects, and the optional public IP lookup. Omitting it preserves the default behavior.
+Library callers can set `client::Configuration::user_agent` to the same value.
+
 Add `--show-ip` to query `https://api.ipify.org` at startup and log the public IP address at warn
 level, before reading the input or downloading captures. The lookup uses `--proxy` when set. A
 failed lookup stops the command.

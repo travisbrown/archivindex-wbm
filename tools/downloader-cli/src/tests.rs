@@ -42,19 +42,24 @@ fn download_proxy_and_show_ip_are_optional() {
 }
 
 #[tokio::test]
-async fn public_ip_uses_configured_proxy() {
+async fn public_ip_uses_configured_proxy_and_user_agent() {
     let proxy = MockServer::start().await;
     Mock::given(method("GET"))
         .and(header("host", "ipify.invalid"))
+        .and(header("user-agent", "MyDownloader/1.0"))
         .respond_with(ResponseTemplate::new(200).set_body_string("203.0.113.42\n"))
         .expect(1)
         .mount(&proxy)
         .await;
 
     // The reserved hostname cannot resolve locally, so this succeeds only through the proxy.
-    let ip = public_ip(Some(&proxy.uri()), "http://ipify.invalid")
-        .await
-        .unwrap();
+    let ip = public_ip(
+        Some(&proxy.uri()),
+        Some("MyDownloader/1.0"),
+        "http://ipify.invalid",
+    )
+    .await
+    .unwrap();
     assert_eq!(ip.to_string(), "203.0.113.42");
 }
 
@@ -67,7 +72,7 @@ async fn public_ip_accepts_ipv6() {
         .mount(&server)
         .await;
 
-    let ip = public_ip(None, &server.uri()).await.unwrap();
+    let ip = public_ip(None, None, &server.uri()).await.unwrap();
     assert_eq!(ip.to_string(), "2001:db8::1");
 }
 
@@ -88,7 +93,36 @@ async fn public_ip_rejects_failed_status_and_invalid_body() {
             .mount(&server)
             .await;
 
-        let error = public_ip(None, &server.uri()).await.unwrap_err();
+        let error = public_ip(None, None, &server.uri()).await.unwrap_err();
         assert_eq!(error.to_string(), message);
+    }
+}
+
+#[test]
+fn download_user_agent_is_optional() {
+    for user_agent in [None, Some("MyDownloader/1.0 (archive project)")] {
+        let mut args = vec![
+            "downloader",
+            "download",
+            "--output",
+            "snapshots",
+            "--invalid-db",
+            "invalid.db",
+        ];
+        if let Some(user_agent) = user_agent {
+            args.extend(["--user-agent", user_agent]);
+        }
+        let Opts {
+            command:
+                Command::Download {
+                    user_agent: actual_user_agent,
+                    ..
+                },
+            ..
+        } = Opts::try_parse_from(args).unwrap()
+        else {
+            panic!("Expected download command");
+        };
+        assert_eq!(actual_user_agent.as_deref(), user_agent);
     }
 }

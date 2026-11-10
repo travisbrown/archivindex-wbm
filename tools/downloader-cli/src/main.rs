@@ -44,9 +44,10 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             invalid_db,
             workers,
             proxy,
+            user_agent,
             show_ip,
         } => {
-            download(output, invalid_db, workers, proxy, show_ip).await?;
+            download(output, invalid_db, workers, proxy, user_agent, show_ip).await?;
         }
         Command::Verify { base } => {
             let store = archivindex_wbm_cas::file::Store::<
@@ -96,10 +97,16 @@ async fn download(
     invalid_db: PathBuf,
     workers: usize,
     proxy: Option<String>,
+    user_agent: Option<String>,
     show_ip: bool,
 ) -> Result<(), anyhow::Error> {
     if show_ip {
-        let ip = public_ip(proxy.as_deref(), "https://api.ipify.org").await?;
+        let ip = public_ip(
+            proxy.as_deref(),
+            user_agent.as_deref(),
+            "https://api.ipify.org",
+        )
+        .await?;
         log::warn!("Public IP address: {ip}");
     }
 
@@ -124,6 +131,7 @@ async fn download(
             invalid_log_path: invalid_db,
             client_configuration: archivindex_wbm_downloader::client::Configuration {
                 proxy,
+                user_agent,
                 ..Default::default()
             },
             worker_count: workers,
@@ -167,11 +175,18 @@ async fn download(
     Ok(())
 }
 
-/// Looks up the public IP address through the same proxy settings as the downloads.
-async fn public_ip(proxy: Option<&str>, endpoint: &str) -> Result<IpAddr, anyhow::Error> {
+/// Looks up the public IP address using the same proxy and user agent as the downloads.
+async fn public_ip(
+    proxy: Option<&str>,
+    user_agent: Option<&str>,
+    endpoint: &str,
+) -> Result<IpAddr, anyhow::Error> {
     let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(30));
     if let Some(proxy) = proxy {
         builder = builder.proxy(reqwest::Proxy::all(proxy).context("invalid proxy URI")?);
+    }
+    if let Some(user_agent) = user_agent {
+        builder = builder.user_agent(user_agent);
     }
     let response = builder
         .build()
@@ -217,6 +232,9 @@ enum Command {
         /// Proxy URI for all requests (use socks5h://host:port for DNS through the proxy).
         #[arg(long, value_name = "URI")]
         proxy: Option<String>,
+        /// User-Agent header for downloads and the optional public IP lookup.
+        #[arg(long, value_name = "VALUE")]
+        user_agent: Option<String>,
         /// Log the public IP address from ipify at warn level before downloading, using --proxy
         /// when set. A failed lookup stops the command.
         #[arg(long)]

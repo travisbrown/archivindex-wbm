@@ -37,6 +37,9 @@ pub struct Configuration {
     /// resolve destination hostnames through a SOCKS5 proxy. An explicit proxy overrides system
     /// proxy settings and bypass lists; `None` preserves reqwest's default proxy behavior.
     pub proxy: Option<String>,
+    /// User-Agent header for all requests, including retries and redirects. `None` preserves
+    /// reqwest's default behavior.
+    pub user_agent: Option<String>,
     /// Idle time before TCP keepalive probes begin.
     pub tcp_keepalive: Duration,
     /// Deadline for a single request, from sending the headers to receiving the full body.
@@ -61,6 +64,7 @@ impl Default for Configuration {
         Self {
             base_url: Cow::Borrowed(DEFAULT_BASE_URL),
             proxy: None,
+            user_agent: None,
             tcp_keepalive: DEFAULT_TCP_KEEPALIVE_DURATION,
             request_timeout: DEFAULT_REQUEST_TIMEOUT_DURATION,
             max_retries: DEFAULT_MAX_RETRIES,
@@ -201,7 +205,8 @@ impl Client {
     /// Any trailing slashes on [`Configuration::base_url`] are stripped here, so that request URLs
     /// can be built by plain concatenation.
     ///
-    /// Returns an error if the proxy URI cannot be parsed or the HTTP client cannot be built.
+    /// Returns an error if the proxy URI or user-agent header is invalid, or the HTTP client cannot
+    /// be built.
     pub fn new(mut configuration: Configuration) -> Result<Self, reqwest::Error> {
         let trimmed = configuration.base_url.trim_end_matches('/');
 
@@ -218,6 +223,9 @@ impl Client {
 
         if let Some(proxy) = &configuration.proxy {
             builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
+        if let Some(user_agent) = &configuration.user_agent {
+            builder = builder.user_agent(user_agent);
         }
 
         Ok(Self {
