@@ -71,7 +71,7 @@ archivindex-wbm-json-processing = { version = "0.1.0", path = "crates/json-proce
 archivindex-wbm-test-data = { version = "0.1.0", path = "crates/test-data" }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
-cel = "0.15"
+cel = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 csv = "1"
@@ -92,7 +92,7 @@ proptest = { version = "1.12", features = ["attr-macro"] }
 rayon = "1"
 redb = "4"
 reqwest = { version = "0.13", features = ["json"] }
-rusqlite = "0.41"
+rusqlite = "0.43"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.11"
