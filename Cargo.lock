@@ -472,6 +472,7 @@ dependencies = [
  "log",
  "reqwest",
  "serde",
+ "tempfile",
  "tokio",
  "wiremock",
 ]

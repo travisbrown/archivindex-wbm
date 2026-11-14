@@ -13,6 +13,7 @@ use archivindex_wbm_downloader::DownloadResult;
 use clap::Parser;
 
 mod invalid_log;
+mod verify_zstd;
 
 /// Capacity of the channel that the downloader reports results through.
 const DOWNLOAD_RESULT_BUFFER: usize = 4096;
@@ -72,6 +73,9 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             if !verification_result.errors.is_empty() {
                 return Ok(CommandOutcome::ReportedProblems);
             }
+        }
+        Command::VerifyZstd { base } => {
+            verify_zstd::run(&base, &mut std::io::stdout().lock())?;
         }
         Command::InvalidLog { command } => match command {
             InvalidLogCommand::Merge { source, target } => {
@@ -245,6 +249,14 @@ enum Command {
     /// standard error.
     Verify {
         /// Base directory of the content-addressed store to verify.
+        #[arg(long)]
+        base: PathBuf,
+    },
+    /// Verify every file in a zstd store with two two-character digest prefix directories.
+    /// Print uppercase Base32 digests in decoded byte order after all files pass validation.
+    /// Stop on the first invalid path, unreadable file, decompression error, or digest mismatch.
+    VerifyZstd {
+        /// Base directory containing paths such as 6Z/22/6Z222ATVRWYKROLHY3IIJQRZSNZ545SC.zst.
         #[arg(long)]
         base: PathBuf,
     },
