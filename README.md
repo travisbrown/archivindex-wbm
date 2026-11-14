@@ -162,6 +162,19 @@ Add `--show-ip` to query `https://api.ipify.org` at startup and log the public I
 level, before reading the input or downloading captures. The lookup uses `--proxy` when set. A
 failed lookup stops the command.
 
+Use `find-prefix-zstd` to find captures whose decompressed bytes start with a literal UTF-8 prefix:
+
+```bash
+archivindex-wbm-downloader find-prefix-zstd --base snapshots --prefix '<!DOCTYPE html>'
+```
+
+It expects the same layout as `verify-zstd`, with two two-character digest directories and
+uppercase Base32 SHA-1 filenames ending in `.zst`. Files are checked in lexicographic path order.
+Each matching absolute path is printed and flushed immediately; nonmatching files produce no
+output. Matching is case-sensitive, and an empty prefix matches every file. Only the content needed
+to compare the prefix is read, so digests and file tails are not verified. Invalid paths or errors
+encountered while reading stop the command; earlier results remain on standard output.
+
 The CDX client's `archive` command reads CSV rows from standard input in
 `URL,matchType,fastLatest,limit` order, without a header. `matchType` accepts `exact`, `prefix`,
 `host`, or `domain`; a negative `limit` requests the last N results. The `limit` field is optional

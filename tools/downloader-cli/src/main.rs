@@ -1,4 +1,4 @@
-//! Command-line tool to download Wayback Machine captures, verify a content-addressed store, and
+//! Command-line tool to download Wayback Machine captures, search or verify a content store, and
 //! manage the invalid digest log database (merge, import, export, and dump operations).
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ use archivindex_wbm_downloader::DownloadResult;
 use clap::Parser;
 
 mod invalid_log;
-mod verify_zstd;
+mod zstd_store;
 
 /// Capacity of the channel that the downloader reports results through.
 const DOWNLOAD_RESULT_BUFFER: usize = 4096;
@@ -75,7 +75,10 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             }
         }
         Command::VerifyZstd { base } => {
-            verify_zstd::run(&base, &mut std::io::stdout().lock())?;
+            zstd_store::verify(&base, &mut std::io::stdout().lock())?;
+        }
+        Command::FindPrefixZstd { base, prefix } => {
+            zstd_store::find_prefix(&base, prefix.as_bytes(), &mut std::io::stdout().lock())?;
         }
         Command::InvalidLog { command } => match command {
             InvalidLogCommand::Merge { source, target } => {
@@ -259,6 +262,18 @@ enum Command {
         /// Base directory containing paths such as 6Z/22/6Z222ATVRWYKROLHY3IIJQRZSNZ545SC.zst.
         #[arg(long)]
         base: PathBuf,
+    },
+    /// Find files whose decompressed content starts with a literal UTF-8 prefix.
+    /// Check files in lexicographic path order and print each matching absolute path immediately.
+    /// Read only enough content to compare the prefix, without verifying digests or file tails.
+    /// Stop on invalid paths, unreadable files, or decompression errors encountered while reading.
+    FindPrefixZstd {
+        /// Base directory containing paths such as 6Z/22/6Z222ATVRWYKROLHY3IIJQRZSNZ545SC.zst.
+        #[arg(long)]
+        base: PathBuf,
+        /// Literal prefix to match, case-sensitively. An empty prefix matches every file.
+        #[arg(long)]
+        prefix: String,
     },
     /// Operate on an invalid-digest log database.
     InvalidLog {
