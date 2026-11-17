@@ -152,7 +152,8 @@ fn rejects_symlinks_including_directories_and_dangling_links() {
     }
 }
 
-#[cfg(unix)]
+// macOS filesystems can reject non-UTF-8 names before the verifier can inspect them.
+#[cfg(target_os = "linux")]
 #[test]
 fn rejects_non_utf8_filenames() {
     use std::os::unix::ffi::OsStrExt as _;

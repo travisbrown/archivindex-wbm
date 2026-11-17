@@ -144,6 +144,20 @@ mod tests {
 
     use super::starts_with;
 
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_filenames_without_filesystem_access() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let base = std::path::Path::new("store");
+        let path = base.join(std::ffi::OsStr::from_bytes(b"\xff.zst"));
+        let error = super::entry(base, &path).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "expected an uppercase Base32 SHA-1 filename with a .zst extension"
+        );
+    }
+
     #[test]
     fn prefix_comparison_spans_buffers_and_leaves_the_tail_unread() {
         let mut reader = Cursor::new(vec![b'a'; 20_000]);
