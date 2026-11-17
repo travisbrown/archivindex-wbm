@@ -25,8 +25,8 @@ archivindex-wbm.workspace = true
 archivindex-wbm-invalid-log.workspace = true
 bounded-static.workspace = true
 bytes.workspace = true
-chrono.workspace = true
 http.workspace = true
+jiff.workspace = true
 log.workspace = true
 reqwest = { workspace = true, features = ["socks"] }
 rusqlite.workspace = true

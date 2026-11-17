@@ -72,7 +72,6 @@ archivindex-wbm-test-data = { version = "0.1.0", path = "crates/test-data" }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
 cel = "0.16"
-chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 data-encoding = "2"
@@ -80,8 +79,8 @@ digest-io = "0.1"
 flate2 = "1"
 futures = "0.3"
 http = "1"
-humantime = "2"
 indicatif = "0.18"
+jiff = { version = "1", default-features = false, features = ["std"] }
 # Precise minimum versions (caret requirements, not pins) tested for byte-exact gzip reproduction
 # in `archivindex-wbm-json-gzip`.
 libz-ng-sys = "1.1.31"
@@ -102,6 +101,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-retry = "0.3"
 tokio-stream = "0.1"
 toml = "1"
+# Preserve log diagnostics through the shared tracing initializer until the logging migration.
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["tracing-log"] }
 url = { version = "2", features = ["serde"] }
 wiremock = "0.6"
 zstd = "0.14"

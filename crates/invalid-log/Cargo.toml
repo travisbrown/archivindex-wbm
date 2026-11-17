@@ -21,6 +21,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 archivindex-wbm.workspace = true
 bounded-static.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

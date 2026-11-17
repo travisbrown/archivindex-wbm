@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::ItemInfo;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use rusqlite::{Connection, params};
 
 pub mod types;
@@ -74,7 +74,7 @@ impl bounded_static::IntoBoundedStatic for Entry<'_> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InvalidDigestRecord<'a> {
     /// When the invalidity was observed.
-    pub observed: DateTime<Utc>,
+    pub observed: Timestamp,
     /// The observed entry (archived item plus the actual digest).
     pub entry: Entry<'a>,
 }
@@ -83,7 +83,7 @@ pub struct InvalidDigestRecord<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithheldRecord {
     /// When the withheld status was observed.
-    pub observed: DateTime<Utc>,
+    pub observed: Timestamp,
     /// The withheld URL.
     pub url: String,
 }
@@ -154,7 +154,7 @@ const SELECT_WITHHELD_URLS_FROM: &str = "
 /// afterwards.
 fn select_observed<T>(
     connection: &Connection,
-    from: Option<DateTime<Utc>>,
+    from: Option<Timestamp>,
     all: &str,
     bounded: &str,
     map_row: fn(&rusqlite::Row<'_>) -> Result<T, rusqlite::Error>,
@@ -173,7 +173,7 @@ fn select_observed<T>(
 /// Maps one `invalid_digest` row to its observation time and [`Entry`].
 fn invalid_digest_row(
     row: &rusqlite::Row<'_>,
-) -> Result<(DateTime<Utc>, Entry<'static>), rusqlite::Error> {
+) -> Result<(Timestamp, Entry<'static>), rusqlite::Error> {
     let timestamp: types::TimestampSecond = row.get(0)?;
     let url: String = row.get(1)?;
     let archive_timestamp: archivindex_wbm::timestamp::Timestamp = row.get(2)?;
@@ -186,7 +186,7 @@ fn invalid_digest_row(
 }
 
 /// Maps one `withheld_url` row to its observation time and URL.
-fn withheld_url_row(row: &rusqlite::Row<'_>) -> Result<(DateTime<Utc>, String), rusqlite::Error> {
+fn withheld_url_row(row: &rusqlite::Row<'_>) -> Result<(Timestamp, String), rusqlite::Error> {
     let timestamp: types::TimestampSecond = row.get(0)?;
     let url: String = row.get(1)?;
 
@@ -200,7 +200,7 @@ fn withheld_url_row(row: &rusqlite::Row<'_>) -> Result<(DateTime<Utc>, String), 
 /// URL, archive timestamp, expected digest, actual digest.
 fn execute_invalid_digest(
     statement: &mut rusqlite::Statement<'_>,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
     entry: &Entry<'_>,
 ) -> Result<usize, rusqlite::Error> {
     statement.execute(params![
@@ -286,7 +286,7 @@ impl Database {
     pub fn insert_invalid_digest(
         &self,
         entry: &Entry<'_>,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     ) -> Result<bool, rusqlite::Error> {
         let connection = self.lock();
 
@@ -308,7 +308,7 @@ impl Database {
     pub fn insert_withheld(
         &self,
         url: &str,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     ) -> Result<bool, rusqlite::Error> {
         let connection = self.lock();
 
@@ -326,8 +326,8 @@ impl Database {
     /// the connection lock is released before returning.
     pub fn invalid_digests(
         &self,
-        from: Option<DateTime<Utc>>,
-    ) -> Result<Vec<(DateTime<Utc>, Entry<'static>)>, rusqlite::Error> {
+        from: Option<Timestamp>,
+    ) -> Result<Vec<(Timestamp, Entry<'static>)>, rusqlite::Error> {
         select_observed(
             &self.lock(),
             from,
@@ -344,8 +344,8 @@ impl Database {
     /// the connection lock is released before returning.
     pub fn withheld_urls(
         &self,
-        from: Option<DateTime<Utc>>,
-    ) -> Result<Vec<(DateTime<Utc>, String)>, rusqlite::Error> {
+        from: Option<Timestamp>,
+    ) -> Result<Vec<(Timestamp, String)>, rusqlite::Error> {
         select_observed(
             &self.lock(),
             from,
@@ -457,7 +457,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use archivindex_wbm::item::{ItemInfo, UrlParts};
-    use chrono::{SubsecRound, Utc};
+    use jiff::Timestamp;
 
     use super::{Database, Entry};
 
@@ -491,8 +491,8 @@ mod tests {
     fn test_insert_invalid_digest() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        let timestamp_01 = Utc::now();
-        let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
+        let timestamp_01 = Timestamp::now();
+        let timestamp_02 = timestamp_01 + jiff::SignedDuration::from_secs(10);
 
         assert!(database.insert_invalid_digest(&example_entry_01(), timestamp_01)?);
         assert!(!(database.insert_invalid_digest(&example_entry_01(), timestamp_02)?));
@@ -505,8 +505,8 @@ mod tests {
         let database = Database::in_memory()?;
 
         let url = "https://twitter.com/example/status/1234567890";
-        let timestamp_01 = Utc::now();
-        let timestamp_02 = timestamp_01 + chrono::Duration::seconds(10);
+        let timestamp_01 = Timestamp::now();
+        let timestamp_02 = timestamp_01 + jiff::SignedDuration::from_secs(10);
 
         // First observation is inserted.
         assert!(database.insert_withheld(url, timestamp_01)?);
@@ -522,10 +522,10 @@ mod tests {
     fn test_invalid_digests_iterator() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        let base_time = Utc::now();
+        let base_time = Timestamp::now();
         let timestamp_01 = base_time;
-        let timestamp_02 = base_time + chrono::Duration::seconds(10);
-        let timestamp_03 = base_time + chrono::Duration::seconds(20);
+        let timestamp_02 = base_time + jiff::SignedDuration::from_secs(10);
+        let timestamp_03 = base_time + jiff::SignedDuration::from_secs(20);
 
         // Insert three entries at different times.
         database.insert_invalid_digest(&example_entry_01(), timestamp_01)?;
@@ -543,7 +543,7 @@ mod tests {
         assert!(all_entries[0].0 <= all_entries[1].0);
 
         // Test iterating from a specific timestamp.
-        let from_timestamp = base_time + chrono::Duration::seconds(5);
+        let from_timestamp = base_time + jiff::SignedDuration::from_secs(5);
         let filtered_entries = database.invalid_digests(Some(from_timestamp))?;
 
         assert_eq!(filtered_entries.len(), 1);
@@ -567,10 +567,10 @@ mod tests {
     fn test_withheld_urls_iterator() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
 
-        let base_time = Utc::now();
+        let base_time = Timestamp::now();
         let timestamp_01 = base_time;
-        let timestamp_02 = base_time + chrono::Duration::seconds(10);
-        let timestamp_03 = base_time + chrono::Duration::seconds(20);
+        let timestamp_02 = base_time + jiff::SignedDuration::from_secs(10);
+        let timestamp_03 = base_time + jiff::SignedDuration::from_secs(20);
 
         let url_01 = "https://twitter.com/example1/status/1111111111";
         let url_02 = "https://twitter.com/example2/status/2222222222";
@@ -594,7 +594,7 @@ mod tests {
         assert!(all_entries[1].0 <= all_entries[2].0);
 
         // Test iterating from a specific timestamp (excludes the first observation).
-        let from_timestamp = base_time + chrono::Duration::seconds(5);
+        let from_timestamp = base_time + jiff::SignedDuration::from_secs(5);
         let filtered_entries = database.withheld_urls(Some(from_timestamp))?;
 
         assert_eq!(filtered_entries.len(), 2);
@@ -621,9 +621,9 @@ mod tests {
         let db2 = Database::in_memory()?;
 
         // Truncated to whole seconds so the values compare equal to their database round-trips.
-        let base_time = Utc::now().trunc_subsecs(0);
-        let older_time = base_time - chrono::Duration::seconds(100);
-        let newer_time = base_time + chrono::Duration::seconds(100);
+        let base_time = Timestamp::from_second(Timestamp::now().as_second()).unwrap();
+        let older_time = base_time - jiff::SignedDuration::from_secs(100);
+        let newer_time = base_time + jiff::SignedDuration::from_secs(100);
 
         // Add entry to `db1` with base_time.
         db1.insert_invalid_digest(&example_entry_01(), base_time)?;
@@ -688,9 +688,9 @@ mod tests {
         let db2 = Database::in_memory()?;
 
         // Truncated to whole seconds so the values compare equal to their database round-trips.
-        let base_time = Utc::now().trunc_subsecs(0);
-        let older_time = base_time - chrono::Duration::seconds(100);
-        let newer_time = base_time + chrono::Duration::seconds(100);
+        let base_time = Timestamp::from_second(Timestamp::now().as_second()).unwrap();
+        let older_time = base_time - jiff::SignedDuration::from_secs(100);
+        let newer_time = base_time + jiff::SignedDuration::from_secs(100);
 
         // Add entry to `db1` with older_time.
         db1.insert_invalid_digest(&example_entry_01(), older_time)?;
@@ -713,14 +713,17 @@ mod tests {
     #[test]
     fn export_import_round_trip() -> Result<(), rusqlite::Error> {
         let source = Database::in_memory()?;
-        let base = Utc::now();
+        let base = Timestamp::now();
 
         source.insert_invalid_digest(&example_entry_01(), base)?;
-        source.insert_invalid_digest(&example_entry_02(), base + chrono::Duration::seconds(5))?;
+        source.insert_invalid_digest(
+            &example_entry_02(),
+            base + jiff::SignedDuration::from_secs(5),
+        )?;
         let url = "https://twitter.com/example/status/42";
         source.insert_withheld(url, base)?;
         // Same URL observed at a different time: a distinct withheld row.
-        source.insert_withheld(url, base + chrono::Duration::seconds(10))?;
+        source.insert_withheld(url, base + jiff::SignedDuration::from_secs(10))?;
 
         let export = source.export()?;
         assert_eq!(export.invalid_digests.len(), 2);
@@ -737,7 +740,7 @@ mod tests {
     #[test]
     fn test_merge_with_self_is_a_no_op() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        database.insert_invalid_digest(&example_entry_01(), Utc::now())?;
+        database.insert_invalid_digest(&example_entry_01(), Timestamp::now())?;
 
         // Merging a database into itself (via a clone sharing the connection) must not deadlock or
         // duplicate rows.
@@ -764,7 +767,7 @@ mod tests {
             "3GLCSCLXQ4NPRKRPEZCI55PGUG472WGE".parse().unwrap(),
         );
 
-        database.insert_invalid_digest(&entry, Utc::now())?;
+        database.insert_invalid_digest(&entry, Timestamp::now())?;
 
         let read = database.invalid_digests(None)?;
         assert_eq!(read.len(), 1);
@@ -776,8 +779,8 @@ mod tests {
     #[test]
     fn test_import_keeps_existing_timestamps_unlike_merge() -> Result<(), rusqlite::Error> {
         // Truncated to whole seconds so the values compare equal to their database round-trips.
-        let older = Utc::now().trunc_subsecs(0);
-        let newer = older + chrono::Duration::seconds(100);
+        let older = Timestamp::from_second(Timestamp::now().as_second()).unwrap();
+        let newer = older + jiff::SignedDuration::from_secs(100);
 
         let source = Database::in_memory()?;
         source.insert_invalid_digest(&example_entry_01(), older)?;
@@ -803,14 +806,14 @@ mod tests {
     #[test]
     fn test_from_timestamp_boundary_is_inclusive() -> Result<(), rusqlite::Error> {
         let database = Database::in_memory()?;
-        let timestamp = Utc::now();
+        let timestamp = Timestamp::now();
 
         database.insert_invalid_digest(&example_entry_01(), timestamp)?;
 
         assert_eq!(database.invalid_digests(Some(timestamp))?.len(), 1);
         assert_eq!(
             database
-                .invalid_digests(Some(timestamp + chrono::Duration::seconds(1)))?
+                .invalid_digests(Some(timestamp + jiff::SignedDuration::from_secs(1)))?
                 .len(),
             0
         );

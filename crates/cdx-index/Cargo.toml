@@ -20,7 +20,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 archivindex-wbm.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 redb.workspace = true
 thiserror.workspace = true
 

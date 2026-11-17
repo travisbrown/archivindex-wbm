@@ -25,13 +25,14 @@ archivindex-wbm-cas = { workspace = true, features = ["zstd"] }
 archivindex-wbm-downloader.workspace = true
 archivindex-wbm-invalid-log.workspace = true
 bounded-static.workspace = true
-chrono.workspace = true
 clap.workspace = true
 csv.workspace = true
+jiff.workspace = true
 log.workspace = true
 reqwest = { workspace = true, features = ["socks"] }
 serde.workspace = true
 tokio.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

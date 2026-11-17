@@ -3,7 +3,8 @@
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use jiff::SignedDuration;
+use jiff::civil::{DateTime, date};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
@@ -18,13 +19,15 @@ pub enum Error {
     InvalidTimestampI64(i64),
     /// The date-time has subsecond precision, which a timestamp cannot represent.
     #[error("subsecond timestamp input: {0}")]
-    SubsecondDateTime(DateTime<Utc>),
+    SubsecondDateTime(DateTime),
     /// The value is not a valid timestamp representation.
     #[error("invalid value: {0}")]
     InvalidValue(String),
 }
 
 /// Represents a Wayback Machine URL timestamp.
+///
+/// Conversions to and from [`DateTime`] interpret the civil datetime as UTC.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Timestamp(archivindex_cdx::timestamp::Timestamp);
 
@@ -36,32 +39,31 @@ impl Display for Timestamp {
 
 impl Debug for Timestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Timestamp")
-            .field(&self.0.datetime())
-            .finish()
+        write!(f, "Timestamp({}Z)", self.0.datetime())
     }
 }
 
-impl TryFrom<DateTime<Utc>> for Timestamp {
+impl TryFrom<DateTime> for Timestamp {
     type Error = Error;
 
-    fn try_from(value: DateTime<Utc>) -> Result<Self, Self::Error> {
-        // The nanosecond count is checked directly rather than via `trunc_subsecs`, which preserves
-        // leap-second nanoseconds: chrono represents a leap second as second 59 plus a full second
-        // of nanoseconds, and such an instant would break the second-precision integer round trips.
-        if value.timestamp_subsec_nanos() == 0 {
-            Self::try_from(value.timestamp())
+    fn try_from(value: DateTime) -> Result<Self, Self::Error> {
+        if value.subsec_nanosecond() == 0 {
+            Self::try_from(value.duration_since(UNIX_EPOCH).as_secs())
         } else {
             Err(Error::SubsecondDateTime(value))
         }
     }
 }
 
-impl From<Timestamp> for DateTime<Utc> {
+impl From<Timestamp> for DateTime {
     fn from(value: Timestamp) -> Self {
         value.0.datetime()
     }
 }
+
+// Civil arithmetic preserves the full four-digit year range, including the end of year 9999,
+// which lies beyond the maximum instant representable by `jiff::Timestamp`.
+const UNIX_EPOCH: DateTime = date(1970, 1, 1).at(0, 0, 0, 0);
 
 /// Unix-second bounds of the supported date range: `1000-01-01` through `9999-12-31`.
 const MIN_TIMESTAMP_SECS: i64 = -30_610_224_000;
@@ -72,7 +74,7 @@ impl TryFrom<i64> for Timestamp {
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         if (MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&value) {
             archivindex_cdx::timestamp::Timestamp::new(
-                DateTime::from_timestamp(value, 0).ok_or(Error::InvalidTimestampI64(value))?,
+                UNIX_EPOCH + SignedDuration::from_secs(value),
             )
             .map(Self)
             .map_err(|_| Error::InvalidTimestampI64(value))
@@ -84,7 +86,7 @@ impl TryFrom<i64> for Timestamp {
 
 impl From<Timestamp> for i64 {
     fn from(value: Timestamp) -> Self {
-        DateTime::<Utc>::from(value).timestamp()
+        DateTime::from(value).duration_since(UNIX_EPOCH).as_secs()
     }
 }
 
@@ -98,17 +100,12 @@ impl FromStr for Timestamp {
             return Err(Error::InvalidLength(s.to_string()));
         }
 
-        // The CDX parser rejects a leap second (`%S` = 60), which chrono reads as second 59 plus a
-        // full second of nanoseconds and which would not survive the second-precision integer round
-        // trips.
+        // The CDX parser rejects leap seconds instead of constraining them to second 59.
         let parsed = archivindex_cdx::timestamp::Timestamp::from_str(s)
             .map_err(|_| Error::InvalidValue(s.to_string()))?;
 
-        // chrono's `%Y` zero-pads, so a fourteen-digit string can name a year below 1000 (as in
-        // `"09990101000000"`); such an instant falls outside the crate's integer bounds and could
-        // never be recovered via `TryFrom<i64>`, so it is rejected to keep the two paths in
-        // agreement.
-        if !(MIN_TIMESTAMP_SECS..=MAX_TIMESTAMP_SECS).contains(&parsed.datetime().timestamp()) {
+        // A zero-padded year below 1000 falls outside the integer bounds.
+        if parsed.datetime().year() < 1000 {
             return Err(Error::InvalidValue(s.to_string()));
         }
 
@@ -150,28 +147,30 @@ impl rusqlite::types::FromSql for Timestamp {
 #[cfg(feature = "sqlite")]
 impl rusqlite::ToSql for Timestamp {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(rusqlite::types::ToSqlOutput::from(
-            self.0.datetime().timestamp(),
-        ))
+        Ok(rusqlite::types::ToSqlOutput::from(i64::from(*self)))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::{SubsecRound, Utc};
+    use jiff::tz::Offset;
     use proptest::prelude::*;
     use proptest::property_test;
 
     use super::Timestamp;
 
     fn arb_timestamp() -> impl Strategy<Value = Timestamp> {
-        any::<u32>().prop_map(|timestamp_s| Timestamp::try_from(i64::from(timestamp_s)).unwrap())
+        (super::MIN_TIMESTAMP_SECS..=super::MAX_TIMESTAMP_SECS)
+            .prop_map(|seconds| Timestamp::try_from(seconds).unwrap())
     }
 
     #[test]
     fn round_trip() {
         let timestamp = Timestamp(
-            archivindex_cdx::timestamp::Timestamp::new(Utc::now().trunc_subsecs(0)).unwrap(),
+            archivindex_cdx::timestamp::Timestamp::new(
+                Offset::UTC.to_datetime(jiff::Timestamp::now()),
+            )
+            .unwrap(),
         );
 
         let timestamp_str = timestamp.to_string();
@@ -197,7 +196,7 @@ mod tests {
             [],
         )?;
 
-        let now = Utc::now();
+        let now = Offset::UTC.to_datetime(jiff::Timestamp::now());
         let timestamp = Timestamp(archivindex_cdx::timestamp::Timestamp::new(now).unwrap());
 
         // Test `ToSql` implementation.
@@ -208,7 +207,10 @@ mod tests {
             conn.query_row("SELECT ts FROM test WHERE id = 1", [], |row| row.get(0))?;
 
         // Compare timestamps (seconds only).
-        assert_eq!(retrieved.0.datetime().timestamp(), now.timestamp());
+        assert_eq!(
+            i64::from(retrieved),
+            now.duration_since(super::UNIX_EPOCH).as_secs()
+        );
         assert_eq!(timestamp.0.datetime(), retrieved.0.datetime());
 
         Ok(())
@@ -222,7 +224,7 @@ mod tests {
 
         assert!(result.is_ok());
         let timestamp = result.unwrap();
-        assert_eq!(timestamp.0.datetime().timestamp(), 1_704_067_200);
+        assert_eq!(i64::from(timestamp), 1_704_067_200);
     }
 
     #[cfg(feature = "sqlite")]
@@ -271,9 +273,7 @@ mod tests {
 
     #[test]
     fn from_str_rejects_years_before_1000() {
-        // chrono's `%Y` zero-pads, so these are well-formed fourteen-digit strings, but their
-        // instants are below `MIN_TIMESTAMP_SECS` and could never be recovered from the integer
-        // representation, so parsing must reject them.
+        // Zero-padded years below 1000 must be rejected by both text and integer conversions.
         assert!("09990101000000".parse::<Timestamp>().is_err());
         assert!("00010101000000".parse::<Timestamp>().is_err());
     }
@@ -331,13 +331,30 @@ mod tests {
             super::MIN_TIMESTAMP_SECS - 1,
             super::MIN_TIMESTAMP_SECS,
             super::MAX_TIMESTAMP_SECS,
-            super::MAX_TIMESTAMP_SECS + 1,
         ] {
-            let datetime = chrono::DateTime::from_timestamp(seconds, 0).unwrap();
+            let datetime = super::UNIX_EPOCH + jiff::SignedDuration::from_secs(seconds);
             assert_eq!(
                 Timestamp::try_from(datetime).ok(),
                 Timestamp::try_from(seconds).ok()
             );
+        }
+    }
+
+    #[test]
+    fn datetime_conversion_rejects_subseconds_on_either_side_of_the_epoch() {
+        for text in ["1969-12-31T23:59:59.5", "2024-01-01T00:00:00.5"] {
+            let datetime = text.parse::<jiff::civil::DateTime>().unwrap();
+            assert!(matches!(
+                Timestamp::try_from(datetime),
+                Err(super::Error::SubsecondDateTime(value)) if value == datetime
+            ));
+        }
+    }
+
+    #[test]
+    fn parsing_rejects_leap_seconds_and_millisecond_forms() {
+        for text in ["20161231235960", "20240101000000000", "20240101000000123"] {
+            assert!(text.parse::<Timestamp>().is_err(), "accepted {text}");
         }
     }
 }

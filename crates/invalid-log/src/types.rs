@@ -1,42 +1,47 @@
 //! Shared column types for the invalid log, including a timestamp wrapper that stores values as
 //! Unix-epoch seconds in SQLite.
-use chrono::{DateTime, SubsecRound, Utc};
+use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
-/// A wrapper around `DateTime<Utc>` that implements `FromSql` and `ToSql`.
+/// A [`Timestamp`] stored as whole Unix seconds in SQLite.
 ///
-/// This type stores timestamps as Unix epoch seconds in the database and converts them to and from
-/// `DateTime<Utc>` when reading from or writing to SQLite. The wrapped value always has
-/// whole-second precision: sub-second precision is truncated on construction, matching what the
-/// database can represent, so a value compares equal to its own database round-trip.
+/// Values are rounded down to whole seconds on construction, so database round trips preserve
+/// equality.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct TimestampSecond(DateTime<Utc>);
+pub struct TimestampSecond(Timestamp);
 
 impl FromSql for TimestampSecond {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let timestamp_secs = value.as_i64()?;
 
-        DateTime::from_timestamp(timestamp_secs, 0)
+        Timestamp::from_second(timestamp_secs)
             .map(Self)
-            .ok_or_else(|| FromSqlError::OutOfRange(timestamp_secs))
+            .map_err(|_| FromSqlError::OutOfRange(timestamp_secs))
     }
 }
 
 impl ToSql for TimestampSecond {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(self.0.timestamp()))
+        Ok(ToSqlOutput::from(self.0.as_second()))
     }
 }
 
-impl From<DateTime<Utc>> for TimestampSecond {
-    fn from(datetime: DateTime<Utc>) -> Self {
-        // Chrono represents a timestamp as whole seconds plus a non-negative nanosecond offset, so
-        // dropping the sub-second component is exactly the truncation `to_sql` would apply.
-        Self(datetime.trunc_subsecs(0))
+impl From<Timestamp> for TimestampSecond {
+    fn from(datetime: Timestamp) -> Self {
+        // Round down so pre-epoch observations retain the same Unix seconds as the stored format.
+        Self(
+            datetime
+                .round(
+                    TimestampRound::new()
+                        .smallest(Unit::Second)
+                        .mode(RoundMode::Floor),
+                )
+                .expect("rounding down to whole seconds stays within the timestamp range"),
+        )
     }
 }
 
-impl From<TimestampSecond> for DateTime<Utc> {
+impl From<TimestampSecond> for Timestamp {
     fn from(timestamp: TimestampSecond) -> Self {
         timestamp.0
     }
@@ -57,7 +62,7 @@ mod tests {
             [],
         )?;
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let timestamp = TimestampSecond::from(now);
 
         // Test ToSql implementation
@@ -82,7 +87,7 @@ mod tests {
             [],
         )?;
 
-        let subsecond = DateTime::from_timestamp(1_704_067_200, 123_456_789).unwrap();
+        let subsecond = Timestamp::new(1_704_067_200, 123_456_789).unwrap();
         let timestamp = TimestampSecond::from(subsecond);
 
         conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
@@ -102,12 +107,12 @@ mod tests {
 
         assert!(result.is_ok());
         let timestamp = result.unwrap();
-        assert_eq!(timestamp.0.timestamp(), 1_704_067_200);
+        assert_eq!(timestamp.0.as_second(), 1_704_067_200);
     }
 
     #[test]
     fn test_timestamp_from_sql_out_of_range() {
-        // Test with a value that's out of range for `DateTime`
+        // Test with a value that's out of range for `Timestamp`
         let value = ValueRef::Integer(i64::MAX);
         let result = TimestampSecond::column_result(value);
 
@@ -123,7 +128,7 @@ mod tests {
             [],
         )?;
 
-        let timestamp = TimestampSecond::from(DateTime::from_timestamp(1_704_067_200, 0).unwrap());
+        let timestamp = TimestampSecond::from(Timestamp::new(1_704_067_200, 0).unwrap());
 
         conn.execute("INSERT INTO test (ts) VALUES (?1)", [&timestamp])?;
 
@@ -137,14 +142,46 @@ mod tests {
 
     #[test]
     fn test_timestamp_conversions() {
-        let now = Utc::now();
+        let now = Timestamp::now();
 
-        // Test `From<DateTime<Utc>>` for `Timestamp`: sub-second precision is truncated.
+        // Construction discards fractional seconds.
         let timestamp = TimestampSecond::from(now);
-        assert_eq!(timestamp.0, now.trunc_subsecs(0));
+        assert_eq!(
+            timestamp.0,
+            Timestamp::from_second(now.as_second()).unwrap()
+        );
 
-        // Test `From<Timestamp>` for `DateTime<Utc>`
-        let datetime: DateTime<Utc> = timestamp.into();
-        assert_eq!(datetime, now.trunc_subsecs(0));
+        let datetime: Timestamp = timestamp.into();
+        assert_eq!(datetime, Timestamp::from_second(now.as_second()).unwrap());
+    }
+
+    #[test]
+    fn rounds_pre_epoch_observations_down() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        for (instant, seconds) in [
+            ("1969-12-31T23:59:59.5Z", -1),
+            ("1969-12-31T23:59:58.5Z", -2),
+            ("1970-01-01T00:00:00.5Z", 0),
+        ] {
+            let timestamp = TimestampSecond::from(instant.parse::<Timestamp>().unwrap());
+            let stored: i64 = conn.query_row("SELECT ?1", [&timestamp], |row| row.get(0))?;
+            let retrieved: TimestampSecond =
+                conn.query_row("SELECT ?1", [seconds], |row| row.get(0))?;
+            assert_eq!(stored, seconds);
+            assert_eq!(retrieved, timestamp);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn timestamp_bounds_round_trip() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        for instant in [Timestamp::MIN, Timestamp::MAX] {
+            let timestamp = TimestampSecond::from(instant);
+            let retrieved: TimestampSecond =
+                conn.query_row("SELECT ?1", [&timestamp], |row| row.get(0))?;
+            assert_eq!(retrieved, timestamp);
+        }
+        Ok(())
     }
 }

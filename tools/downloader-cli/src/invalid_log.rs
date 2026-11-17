@@ -11,7 +11,6 @@ use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_invalid_log::{Database, Entry, Export, InvalidDigestRecord, WithheldRecord};
 use bounded_static::IntoBoundedStatic;
-use chrono::{DateTime, Utc};
 
 /// CSV file (within an export directory) holding the `invalid_digest` rows.
 const INVALID_DIGESTS_CSV: &str = "invalid-digests.csv";
@@ -113,9 +112,9 @@ fn reader(directory: &Path, name: &str) -> Result<csv::Reader<std::fs::File>, an
     csv::Reader::from_path(&path).with_context(|| format!("failed to read {}", path.display()))
 }
 
-/// Convert a Unix-second observation timestamp into a [`DateTime`], the form the database expects.
-fn observation_time(seconds: i64) -> Result<DateTime<Utc>, anyhow::Error> {
-    DateTime::from_timestamp(seconds, 0)
+/// Convert Unix seconds into the observation timestamp the database expects.
+fn observation_time(seconds: i64) -> Result<jiff::Timestamp, anyhow::Error> {
+    jiff::Timestamp::from_second(seconds)
         .with_context(|| format!("invalid observation timestamp: {seconds}"))
 }
 
@@ -139,7 +138,7 @@ struct InvalidDigestRow {
 impl From<&InvalidDigestRecord<'_>> for InvalidDigestRow {
     fn from(record: &InvalidDigestRecord<'_>) -> Self {
         Self {
-            observed: record.observed.timestamp(),
+            observed: record.observed.as_second(),
             url: record.entry.item_info.url_parts.url.to_string(),
             archive_timestamp: record.entry.item_info.url_parts.timestamp.to_string(),
             expected_digest: record.entry.item_info.expected_digest.to_string(),
@@ -177,7 +176,7 @@ struct WithheldRow {
 impl From<&WithheldRecord> for WithheldRow {
     fn from(record: &WithheldRecord) -> Self {
         Self {
-            observed: record.observed.timestamp(),
+            observed: record.observed.as_second(),
             url: record.url.clone(),
         }
     }
@@ -189,5 +188,52 @@ impl WithheldRow {
             observed: observation_time(self.observed)?,
             url: self.url,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InvalidDigestRow, WithheldRow, observation_time};
+
+    #[test]
+    fn csv_records_preserve_unix_seconds_and_capture_timestamps() {
+        let invalid_csv = concat!(
+            "observed,url,archive_timestamp,expected_digest,actual_digest\n",
+            "-1,https://example.com/,99991231235959,",
+            "VL2MMHO4YXUKFWV63YHTWSBM3GXKSQ2N,3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ\n"
+        );
+        let row = csv::Reader::from_reader(invalid_csv.as_bytes())
+            .deserialize::<InvalidDigestRow>()
+            .next()
+            .unwrap()
+            .unwrap();
+        let record = row.into_record().unwrap();
+        assert_eq!(record.observed.to_string(), "1969-12-31T23:59:59Z");
+        let mut writer = csv::Writer::from_writer(Vec::new());
+        writer.serialize(InvalidDigestRow::from(&record)).unwrap();
+        assert_eq!(writer.into_inner().unwrap(), invalid_csv.as_bytes());
+
+        let withheld_csv = "observed,url\n-1,https://example.com/\n";
+        let row = csv::Reader::from_reader(withheld_csv.as_bytes())
+            .deserialize::<WithheldRow>()
+            .next()
+            .unwrap()
+            .unwrap();
+        let record = row.into_record().unwrap();
+        assert_eq!(record.observed.to_string(), "1969-12-31T23:59:59Z");
+        let mut writer = csv::Writer::from_writer(Vec::new());
+        writer.serialize(WithheldRow::from(&record)).unwrap();
+        assert_eq!(writer.into_inner().unwrap(), withheld_csv.as_bytes());
+    }
+
+    #[test]
+    fn observation_times_reject_seconds_outside_the_instant_range() {
+        for seconds in [i64::MIN, i64::MAX, jiff::Timestamp::MAX.as_second() + 1] {
+            let error = observation_time(seconds).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("invalid observation timestamp: {seconds}")
+            );
+        }
     }
 }

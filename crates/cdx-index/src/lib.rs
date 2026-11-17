@@ -14,7 +14,7 @@ use archivindex_wbm::cdx::item::Item;
 use archivindex_wbm::digest::{Digest, Sha1Digest};
 use archivindex_wbm::item::UrlParts;
 use archivindex_wbm::timestamp::Timestamp;
-use chrono::{DateTime, Duration, Utc};
+use jiff::SignedDuration;
 use redb::{Database, ReadableDatabase, ReadableTableMetadata, TableDefinition};
 
 /// Key and value type of every table here: raw bytes, which redb orders lexicographically. All
@@ -71,7 +71,7 @@ pub enum ItemStatus {
         /// Instant after which the claim lapses. [`CdxIndex::get_status`] resolves a stored claim
         /// whose `timeout` is in the past to [`Available`](ItemStatus::Available) without rewriting
         /// the stored value.
-        timeout: DateTime<Utc>,
+        timeout: jiff::Timestamp,
     },
     /// Processing complete.
     Done,
@@ -177,7 +177,7 @@ pub enum Error {
     /// An in-progress status value carries fewer than eight bytes of timeout after its tag.
     #[error("not enough bytes to read timeout")]
     DecodeTruncatedTimeout,
-    /// A stored in-progress timeout is not a representable [`DateTime<Utc>`](chrono::DateTime).
+    /// A stored in-progress timeout is not a representable [`jiff::Timestamp`].
     #[error("invalid Unix timestamp for timeout: {0}")]
     DecodeInvalidTimeoutSecs(i64),
     /// A stored capture timestamp cannot be converted to a Wayback Machine `Timestamp`, which
@@ -433,7 +433,9 @@ fn encode_status(status: &ItemStatus) -> Vec<u8> {
         ItemStatus::Available => vec![0],
         ItemStatus::InProgress { timeout } => {
             let mut encoded = vec![1];
-            encoded.extend_from_slice(&timeout.timestamp().to_be_bytes());
+            // Stored Unix seconds round down, including for fractional pre-epoch timestamps.
+            let seconds = timeout.as_second() - i64::from(timeout.subsec_nanosecond() < 0);
+            encoded.extend_from_slice(&seconds.to_be_bytes());
             encoded
         }
         ItemStatus::Done => vec![2],
@@ -441,7 +443,7 @@ fn encode_status(status: &ItemStatus) -> Vec<u8> {
 }
 
 fn decode_status(raw: &[u8]) -> Result<ItemStatus, Error> {
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     match raw.first().copied() {
         Some(0) => Ok(ItemStatus::Available),
         Some(1) => {
@@ -453,8 +455,8 @@ fn decode_status(raw: &[u8]) -> Result<ItemStatus, Error> {
                 .try_into()
                 .map_err(|_| Error::DecodeTruncatedTimeout)?;
             let timeout_unix_secs = i64::from_be_bytes(timeout_bytes);
-            let timeout = DateTime::from_timestamp(timeout_unix_secs, 0)
-                .ok_or(Error::DecodeInvalidTimeoutSecs(timeout_unix_secs))?;
+            let timeout = jiff::Timestamp::from_second(timeout_unix_secs)
+                .map_err(|_| Error::DecodeInvalidTimeoutSecs(timeout_unix_secs))?;
             if timeout <= now {
                 Ok(ItemStatus::Available)
             } else {
@@ -754,8 +756,13 @@ impl CdxIndex {
     /// This is a blind write, not an atomic check-and-set: it overwrites any existing status, and
     /// checking [`get_status`](Self::get_status) first does not close the race window. Concurrent
     /// claimers must coordinate externally (e.g. behind a mutex).
-    pub fn claim(&self, surt: &str, timestamp_secs: i64, duration: Duration) -> Result<(), Error> {
-        let timeout = Utc::now() + duration;
+    pub fn claim(
+        &self,
+        surt: &str,
+        timestamp_secs: i64,
+        duration: SignedDuration,
+    ) -> Result<(), Error> {
+        let timeout = jiff::Timestamp::now() + duration;
         self.set_status(surt, timestamp_secs, &ItemStatus::InProgress { timeout })
     }
 
@@ -966,7 +973,7 @@ mod tests {
         );
 
         index
-            .claim(surt, 0, Duration::seconds(3600))
+            .claim(surt, 0, SignedDuration::from_secs(3600))
             .expect("claim");
         assert!(matches!(
             index.get_status(surt, 0).expect("status"),
@@ -979,7 +986,7 @@ mod tests {
                 surt,
                 0,
                 &ItemStatus::InProgress {
-                    timeout: Utc::now() - Duration::seconds(10),
+                    timeout: jiff::Timestamp::now() - SignedDuration::from_secs(10),
                 },
             )
             .expect("set status");
@@ -998,6 +1005,22 @@ mod tests {
             index.get_status(surt, 0).expect("status"),
             ItemStatus::Available
         );
+    }
+
+    #[test]
+    fn timeout_encoding_preserves_unix_second_rounding() {
+        for (text, seconds) in [
+            ("1969-12-31T23:59:59.5Z", -1_i64),
+            ("1969-12-31T23:59:58.5Z", -2),
+            ("1970-01-01T00:00:00.5Z", 0),
+            ("2024-01-01T00:00:00.5Z", 1_704_067_200),
+        ] {
+            let encoded = encode_status(&ItemStatus::InProgress {
+                timeout: text.parse().unwrap(),
+            });
+            assert_eq!(encoded[0], 1);
+            assert_eq!(encoded[1..], seconds.to_be_bytes());
+        }
     }
 
     #[test]

@@ -47,7 +47,7 @@ fn insert_invalid_digest(
         actual,
     );
     database
-        .insert_invalid_digest(&entry, chrono::Utc::now())
+        .insert_invalid_digest(&entry, jiff::Timestamp::now())
         .expect("insert invalid digest");
 }
 

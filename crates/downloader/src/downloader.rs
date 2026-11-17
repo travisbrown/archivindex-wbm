@@ -5,7 +5,6 @@ use archivindex_wbm::item::{ItemInfo, UrlParts};
 use archivindex_wbm::timestamp::Timestamp;
 use archivindex_wbm_invalid_log::{Database, Entry};
 use bounded_static::ToBoundedStatic;
-use chrono::Utc;
 
 use crate::client::{Client, Download, FailedDownload};
 
@@ -65,7 +64,7 @@ impl Downloader {
         timestamp: Timestamp,
         expected_digest: &Digest<'_>,
     ) -> Result<Option<VerifiedDownload<'static>>, Error> {
-        let now = Utc::now();
+        let now = jiff::Timestamp::now();
 
         // We're checking the digest, so we always want the original archive snapshot (not the
         // rewritten one).

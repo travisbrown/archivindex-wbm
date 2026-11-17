@@ -591,7 +591,7 @@ mod tests {
                     ),
                     actual,
                 ),
-                chrono::Utc::now(),
+                jiff::Timestamp::now(),
             )
             .expect("insert invalid digest");
 

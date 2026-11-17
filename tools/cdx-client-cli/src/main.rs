@@ -139,6 +139,10 @@ fn archiver_config(options: &CaptureOptions) -> Config {
     config
 }
 
+fn parse_request_delay(value: &str) -> Result<Duration, jiff::Error> {
+    jiff::fmt::friendly::SpanParser::new().parse_unsigned_duration(value)
+}
+
 /// Read CSV records with `url`, `matchType`, `fastLatest`, and optional `limit`, in that order.
 fn read_requests(reader: impl Read) -> Result<Vec<Request>, csv::Error> {
     csv::ReaderBuilder::new()
@@ -211,8 +215,8 @@ struct CaptureOptions {
     )]
     retry_attempts: usize,
 
-    /// Delay between successive requests in the session.
-    #[arg(long, value_name = "DURATION", value_parser = humantime::parse_duration)]
+    /// Delay between successive requests, using hours or smaller units (e.g. 250ms or 1m).
+    #[arg(long, value_name = "DURATION", value_parser = parse_request_delay)]
     request_delay: Option<Duration>,
 }
 
@@ -314,6 +318,24 @@ mod tests {
             super::archiver_config(&with.capture).session.request_delay,
             Duration::from_millis(250)
         );
+    }
+
+    #[test]
+    fn request_delays_use_nonnegative_fixed_durations() {
+        for (text, expected) in [
+            ("0s", Duration::ZERO),
+            ("250ms", Duration::from_millis(250)),
+            ("2s", Duration::from_secs(2)),
+            ("1m", Duration::from_mins(1)),
+            ("1m 30s", Duration::from_secs(90)),
+            ("24h", Duration::from_hours(24)),
+            ("18446744073709551615s 999ms 999us 999ns", Duration::MAX),
+        ] {
+            assert_eq!(super::parse_request_delay(text).unwrap(), expected);
+        }
+        for text in ["-1s", "1d", "1mo", "invalid", "18446744073709551616s"] {
+            assert!(super::parse_request_delay(text).is_err(), "accepted {text}");
+        }
     }
 
     #[test]

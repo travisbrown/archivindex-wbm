@@ -181,7 +181,8 @@ The CDX client's `archive` command reads CSV rows from standard input in
 and may be omitted or left empty. Pass `--resume` to follow CDX resumption keys until every query
 is exhausted. Transient failures get up to ten attempts, including the initial request, by default;
 use `--retry-attempts` to change that limit. `--request-delay` accepts a duration such as `250ms`,
-`2s`, or `1m` and waits that long between session requests:
+`2s`, or `1m` and waits that long between session requests. Durations use hours or smaller units;
+use `24h` for a day:
 
 ```bash
 printf '%s\n' \

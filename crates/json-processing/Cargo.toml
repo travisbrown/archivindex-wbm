@@ -44,6 +44,6 @@ zstd.workspace = true
 # Go port, so the feature is requested explicitly instead of relying on defaults.
 archivindex-wbm-json-gzip = { workspace = true, features = ["zlib"] }
 # `ops_test` timestamps the invalid-digest log entries it inserts.
-chrono.workspace = true
+jiff.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
