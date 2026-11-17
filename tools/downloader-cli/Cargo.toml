@@ -28,11 +28,10 @@ bounded-static.workspace = true
 clap.workspace = true
 csv.workspace = true
 jiff.workspace = true
-log.workspace = true
 reqwest = { workspace = true, features = ["socks"] }
 serde.workspace = true
 tokio.workspace = true
-tracing-subscriber.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

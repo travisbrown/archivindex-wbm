@@ -67,8 +67,8 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                 );
             }
 
-            log::info!("Verified: {}", verification_result.verified_count);
-            log::info!("Mismatched: {}", verification_result.errors.len());
+            tracing::info!("Verified: {}", verification_result.verified_count);
+            tracing::info!("Mismatched: {}", verification_result.errors.len());
 
             if !verification_result.errors.is_empty() {
                 return Ok(CommandOutcome::ReportedProblems);
@@ -114,7 +114,7 @@ async fn download(
             "https://api.ipify.org",
         )
         .await?;
-        log::warn!("Public IP address: {ip}");
+        tracing::warn!("Public IP address: {ip}");
     }
 
     let items = csv::ReaderBuilder::new()
@@ -156,22 +156,22 @@ async fn download(
                     actual_digest: Some(actual_digest),
                     ..
                 } => {
-                    log::warn!("Downloaded {url} (invalid digest: {actual_digest})");
+                    tracing::warn!("Downloaded {url} (invalid digest: {actual_digest})");
                 }
                 DownloadResult::Success {
                     url,
                     actual_digest: None,
                     ..
                 } => {
-                    log::info!("Downloaded {url}");
+                    tracing::info!("Downloaded {url}");
                 }
                 DownloadResult::NotFound { url, .. } => {
-                    log::warn!("Missing or withheld: {url}");
+                    tracing::warn!("Missing or withheld: {url}");
                 }
                 DownloadResult::Error {
                     url, error_type, ..
                 } => {
-                    log::error!("Error: {url} ({error_type:?})");
+                    tracing::error!("Error: {url} ({error_type:?})");
                 }
             }
         }

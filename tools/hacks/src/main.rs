@@ -274,7 +274,7 @@ fn wxj_urls(input: &Path, include_timestamped: bool) -> Result<(), anyhow::Error
                 writeln!(output, "{},{url}", snapshot.digest)?;
             } else {
                 writeln!(output, "{},", snapshot.digest)?;
-                log::error!("No canonical URL: {}", snapshot.digest);
+                tracing::error!("No canonical URL: {}", snapshot.digest);
             }
         }
     }
@@ -308,20 +308,20 @@ fn wxj_enhance(options: &WxjEnhanceOptions) -> Result<(), anyhow::Error> {
     } = options;
 
     let url_paths = wxj::read_url_paths(urls)?;
-    log::info!("{} URL path entries", url_paths.len());
+    tracing::info!("{} URL path entries", url_paths.len());
 
     let mut digest_metadata = wxj::read_cdx(cdx, &url_paths)?;
-    log::info!("{} digest metadata entries", digest_metadata.len());
+    tracing::info!("{} digest metadata entries", digest_metadata.len());
 
     wxj::read_invalid_digests(invalid_digests, &url_paths, &mut digest_metadata)?;
-    log::info!("{} digest metadata entries", digest_metadata.len());
+    tracing::info!("{} digest metadata entries", digest_metadata.len());
 
     let inferred_urls = digest_metadata
         .values()
         .filter(|digest_metadata| digest_metadata.url_path.is_none())
         .count();
 
-    log::info!(
+    tracing::info!(
         "{} inferred ({}%)",
         inferred_urls,
         (inferred_urls as f64) * 100.0 / digest_metadata.len() as f64
@@ -345,7 +345,7 @@ fn wxj_enhance(options: &WxjEnhanceOptions) -> Result<(), anyhow::Error> {
                     .zip(replacement_digest.as_ref())
                     .filter(|(previous, replacement)| previous != replacement)
                 {
-                    log::warn!("Replacing expected digest: {previous}, {replacement}");
+                    tracing::warn!("Replacing expected digest: {previous}, {replacement}");
                 }
 
                 snapshot_line.expected_digest = replacement_digest;
@@ -354,7 +354,7 @@ fn wxj_enhance(options: &WxjEnhanceOptions) -> Result<(), anyhow::Error> {
                     .timestamp
                     .filter(|previous| *previous != metadata.timestamp)
                 {
-                    log::warn!("Replacing metadata: {previous}, {}", metadata.timestamp);
+                    tracing::warn!("Replacing metadata: {previous}, {}", metadata.timestamp);
                 }
 
                 snapshot_line.timestamp = Some(metadata.timestamp);
@@ -366,7 +366,7 @@ fn wxj_enhance(options: &WxjEnhanceOptions) -> Result<(), anyhow::Error> {
                     .zip(new_url.as_ref())
                     .filter(|(previous, replacement)| previous != *replacement)
                 {
-                    log::warn!("Replacing URL: {previous}, {replacement}");
+                    tracing::warn!("Replacing URL: {previous}, {replacement}");
                 }
 
                 snapshot_line.url = new_url;
@@ -479,7 +479,7 @@ fn find_unused(cdx: &[PathBuf]) -> Result<(), anyhow::Error> {
         let is_unused = if invalid_digests.is_empty() {
             valid_digests.is_subset(&seen_valid_digests)
         } else {
-            log::warn!(
+            tracing::warn!(
                 "Invalid digests in {}: {invalid_digests:?}",
                 cdx_path.display()
             );
@@ -537,7 +537,7 @@ fn migrate(input: &Path, output: &Path, compression_level: i32) -> Result<(), an
     }
 
     writer.do_finish()?;
-    log::info!("{changed} of {count} lines changed");
+    tracing::info!("{changed} of {count} lines changed");
 
     Ok(())
 }
@@ -588,9 +588,9 @@ fn clean_flat(known: &Path, files: &Path, dry_run: bool) -> Result<(), anyhow::E
                     count_deleted += 1;
 
                     if dry_run {
-                        log::warn!("Would delete: {}", entry.path().display());
+                        tracing::warn!("Would delete: {}", entry.path().display());
                     } else {
-                        log::warn!("Deleting: {}", entry.path().display());
+                        tracing::warn!("Deleting: {}", entry.path().display());
                         std::fs::remove_file(entry.path())?;
                     }
                 }
@@ -600,7 +600,7 @@ fn clean_flat(known: &Path, files: &Path, dry_run: bool) -> Result<(), anyhow::E
 
     let action = if dry_run { "Would delete" } else { "Deleted" };
 
-    log::info!(
+    tracing::info!(
         "{action} {count_deleted} of {count_total} files ({count_valid} valid digest names)"
     );
 
@@ -675,7 +675,7 @@ fn collect_referenced_digests(input: &Path) -> Result<HashSet<String>, anyhow::E
             referenced.insert(expected.to_owned());
         }
     }
-    log::info!(
+    tracing::info!(
         "First pass complete: {} distinct digests referenced",
         referenced.len()
     );
@@ -714,7 +714,7 @@ fn read_referenced_cdx(
         let items = match serde_json::from_str::<ItemList<'_>>(&content) {
             Ok(items) => items,
             Err(error) => {
-                log::warn!("Skipping unparseable CDX file {}: {error}", path.display());
+                tracing::warn!("Skipping unparseable CDX file {}: {error}", path.display());
                 continue;
             }
         };
@@ -742,7 +742,7 @@ fn read_referenced_cdx(
             }
         }
     }
-    log::info!(
+    tracing::info!(
         "CDX read: {} of {} referenced digests found",
         cdx_map.len(),
         referenced.len()
@@ -894,7 +894,7 @@ fn check_surts(input: &Path) -> Result<(), anyhow::Error> {
         let items = match serde_json::from_str::<ItemList<'_>>(&contents) {
             Ok(items) => items,
             Err(error) => {
-                log::error!("At {}: {error:?}", path.display());
+                tracing::error!("At {}: {error:?}", path.display());
                 continue;
             }
         };
@@ -906,7 +906,7 @@ fn check_surts(input: &Path) -> Result<(), anyhow::Error> {
                 if converted_surt == item.key {
                     success_count += 1;
                 } else {
-                    log::error!(
+                    tracing::error!(
                         "Invalid conversion in {}:\nConverted: {converted_surt}\nOriginal:  {}",
                         path.display(),
                         item.key
@@ -918,7 +918,7 @@ fn check_surts(input: &Path) -> Result<(), anyhow::Error> {
         }
     }
 
-    log::info!("Good: {success_count}; bad: {failure_count}");
+    tracing::info!("Good: {success_count}; bad: {failure_count}");
 
     Ok(())
 }

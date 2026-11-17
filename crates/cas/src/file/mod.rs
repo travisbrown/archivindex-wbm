@@ -322,7 +322,7 @@ impl<C: Copy> Iterator for Iter<'_, C> {
                     path,
                     extension: Some(extension),
                 }) if extension == TEMP_EXTENSION => {
-                    log::warn!(
+                    tracing::warn!(
                         "Skipping stale temporary file during store iteration: {}",
                         path.display()
                     );

@@ -79,14 +79,14 @@ fn archive_requests(
     let mut events = |event: ProgressEvent<'_>| {
         match event {
             ProgressEvent::Started { url, attempt } => {
-                log::info!("Requesting {url} (attempt {attempt})");
+                tracing::info!("Requesting {url} (attempt {attempt})");
             }
             ProgressEvent::Retrying {
                 url,
                 attempt,
                 delay,
             } => {
-                log::info!("Retrying {url} in {delay:?} (attempt {attempt})");
+                tracing::info!("Retrying {url} in {delay:?} (attempt {attempt})");
             }
             _ => {}
         }
@@ -95,20 +95,20 @@ fn archive_requests(
     let summary = client.archive_to_path_with_progress(requests, output, &mut events)?;
 
     for failure in &summary.failures {
-        log::warn!("Failed to archive {}: {}", failure.url, failure.error);
+        tracing::warn!("Failed to archive {}: {}", failure.url, failure.error);
     }
     for capture in summary.seed_captures.iter().chain(&summary.extra_captures) {
         if capture.is_partial() {
-            log::warn!("Archived only part of {}", capture.url);
+            tracing::warn!("Archived only part of {}", capture.url);
         }
     }
     if let Some(error) = &summary.fatal_error {
-        log::warn!("Stopped the CDX session early: {error}");
+        tracing::warn!("Stopped the CDX session early: {error}");
     }
 
     let captured = summary.seed_captures.len() + summary.extra_captures.len();
 
-    log::info!(
+    tracing::info!(
         "Archived {} CDX responses for {} requests to {}",
         captured,
         requests.len(),
@@ -118,7 +118,7 @@ fn archive_requests(
     if summary.is_complete() {
         Ok(CommandOutcome::Success)
     } else {
-        log::error!(
+        tracing::error!(
             "Incomplete archive: captured {captured} CDX responses for {} requests",
             requests.len()
         );

@@ -142,6 +142,11 @@ cargo install --path tools/downloader-cli  # Installs the `archivindex-wbm-downl
 
 ## Usage
 
+Library diagnostics use `tracing`; applications must install a subscriber to receive them. The
+command-line tools do this automatically and write warnings and errors to standard error. Use `-v`
+for informational messages, `-vv` for debug output, `-vvv` for trace output, or `--quiet` for errors
+only.
+
 The downloader's `download` command accepts `--proxy URI` to send all requests through a proxy.
 Use a `socks5h` URI to resolve destination hostnames through the proxy as well:
 

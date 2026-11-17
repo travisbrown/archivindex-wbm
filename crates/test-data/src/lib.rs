@@ -9,7 +9,7 @@
 //! - every later run reads the saved file and verifies its digest (a corrupted file is downloaded
 //!   again);
 //! - a snapshot that cannot be downloaded (or whose content does not match the expected digest) is
-//!   reported with a [`log`] warning and returned as `None`, so the test can skip its assertions
+//!   reported with a [`tracing`] warning and returned as `None`, so the test can skip its assertions
 //!   instead of failing; the download is attempted again on the next run.
 //!
 //! File system access is synchronous, which is acceptable in the test context this crate is meant
@@ -124,7 +124,7 @@ impl Cache {
     ///
     /// `Ok(None)` means the snapshot is unavailable: the download failed, the archive declined to
     /// serve it, or its content did not match `expected_digest`. Each case is reported with a
-    /// [`log`] warning, nothing is saved, and the next call tries the download again. Tests should
+    /// [`tracing`] warning, nothing is saved, and the next call tries the download again. Tests should
     /// treat `None` as "skip", not as a failure.
     ///
     /// # Errors
@@ -144,7 +144,7 @@ impl Cache {
 
             let path = self.file_path(expected_digest);
 
-            log::warn!(
+            tracing::warn!(
                 "Snapshot file {} does not match its digest; downloading it again",
                 path.display()
             );
@@ -188,14 +188,14 @@ impl Cache {
         let download = match self.client.download(url, timestamp, true).await {
             Ok(Ok(download)) => download,
             Ok(Err(failure)) => {
-                log::warn!(
+                tracing::warn!(
                     "The archive declined to serve the snapshot for {url} at {timestamp} ({failure:?})"
                 );
 
                 return Ok(None);
             }
             Err(error) => {
-                log::warn!("Cannot download the snapshot for {url} at {timestamp}: {error:?}");
+                tracing::warn!("Cannot download the snapshot for {url} at {timestamp}: {error:?}");
 
                 return Ok(None);
             }
@@ -204,7 +204,7 @@ impl Cache {
         let actual_digest = Sha1Digest::compute(&download.bytes);
 
         if actual_digest != expected_digest {
-            log::warn!(
+            tracing::warn!(
                 "The snapshot for {url} at {timestamp} has digest {actual_digest} instead of {expected_digest}"
             );
 

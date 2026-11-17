@@ -155,7 +155,7 @@ pub fn read_cdx<P: AsRef<Path>>(
                 match entry {
                     Entry::Occupied(entry) => {
                         if entry.get() != &digest_metadata {
-                            log::error!("Multiple entries for {digest}: {digest_metadata:?}");
+                            tracing::error!("Multiple entries for {digest}: {digest_metadata:?}");
                         }
                     }
                     Entry::Vacant(entry) => {
@@ -201,7 +201,7 @@ pub fn read_invalid_digests<P: AsRef<Path>>(
             .with_expected_digest(invalid_digest.expected_digest);
 
             if let Entry::Vacant(entry) = digest_metadata_map.entry(invalid_digest.digest) {
-                log::info!(
+                tracing::info!(
                     "Only invalid: {}, {}",
                     invalid_digest.expected_digest,
                     digest_metadata.timestamp

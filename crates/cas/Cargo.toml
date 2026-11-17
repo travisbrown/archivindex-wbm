@@ -28,9 +28,9 @@ archivindex-publication.workspace = true
 archivindex-wbm.workspace = true
 bytes.workspace = true
 flate2.workspace = true
-log.workspace = true
 prefix-file-tree.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 zstd = { workspace = true, optional = true }
 
 [dev-dependencies]

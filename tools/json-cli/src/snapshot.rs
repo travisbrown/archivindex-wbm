@@ -31,7 +31,7 @@ impl SnapshotImport {
             let duplicate = digest == kept;
 
             if duplicate {
-                log::info!(
+                tracing::info!(
                     "Skipping duplicate path for digest {digest}: {}",
                     path.display()
                 );

@@ -59,7 +59,7 @@ fn run() -> Result<CommandOutcome, anyhow::Error> {
             sort,
         } => {
             let excluded = collect_excluded_digests(&snapshot, &digest_file)?;
-            log::info!("Loaded {} excluded digests", excluded.len());
+            tracing::info!("Loaded {} excluded digests", excluded.len());
 
             let index = open_index(&db)?;
             // Locking once avoids re-acquiring the standard output lock for every record written.
@@ -136,7 +136,7 @@ fn for_each_item_list(
             Ok(list) => list,
             Err(error) => {
                 // `suspend` hides the progress bar while the warning is printed.
-                progress.suspend(|| log::warn!("Skipping {}: {error}", path.display()));
+                progress.suspend(|| tracing::warn!("Skipping {}: {error}", path.display()));
                 skipped += 1;
                 continue;
             }
@@ -172,7 +172,7 @@ fn fill_index(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
                     Err(error) => {
                         // `suspend` hides the progress bar while the warning is printed.
                         progress.suspend(|| {
-                            log::warn!("Skipping item in {}: {error}", path.display());
+                            tracing::warn!("Skipping item in {}: {error}", path.display());
                         });
                         invalid += 1;
                         false
@@ -183,7 +183,7 @@ fn fill_index(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
             Ok(())
         })?;
 
-    log::info!(
+    tracing::info!(
         "Done: {} files read, {inserted} items inserted, {invalid} invalid items and {skipped} files skipped",
         file_count - skipped
     );
@@ -217,7 +217,7 @@ fn import_metadata(db: &Path, index: &Path) -> Result<(), anyhow::Error> {
     }
 
     progress.finish_and_clear();
-    log::info!(
+    tracing::info!(
         "Done: {inserted} captures inserted, {skipped} items without a valid digest skipped"
     );
 
@@ -249,7 +249,7 @@ fn fill_metadata(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
                 if u16::try_from(item.original.len()).is_err() {
                     // `suspend` hides the progress bar while the warning is printed.
                     progress.suspend(|| {
-                        log::warn!(
+                        tracing::warn!(
                             "Skipping item with overlong URL ({} bytes) in {}",
                             item.original.len(),
                             path.display()
@@ -267,7 +267,7 @@ fn fill_metadata(db: &Path, input: &[PathBuf]) -> Result<(), anyhow::Error> {
         },
     )?;
 
-    log::info!(
+    tracing::info!(
         "Done: {inserted} captures inserted, {invalid} invalid items and {skipped} files skipped"
     );
 
@@ -304,7 +304,7 @@ fn collect_excluded_digests(
     let mut excluded: HashSet<Sha1Digest> = HashSet::new();
 
     for path in snapshots {
-        log::info!("Reading snapshot: {}", path.display());
+        tracing::info!("Reading snapshot: {}", path.display());
         let file = File::open(path)
             .with_context(|| format!("failed to open snapshot file {}", path.display()))?;
         let reader = BufReader::new(zstd::Decoder::new(file)?);
@@ -314,13 +314,13 @@ fn collect_excluded_digests(
             if let Ok(snapshot) = ExactSnapshot::parse(&line) {
                 excluded.insert(snapshot.digest);
             } else {
-                log::warn!("Skipping unparseable snapshot line in {}", path.display());
+                tracing::warn!("Skipping unparseable snapshot line in {}", path.display());
             }
         }
     }
 
     for path in digest_files {
-        log::info!("Reading digest file: {}", path.display());
+        tracing::info!("Reading digest file: {}", path.display());
         let file = File::open(path)
             .with_context(|| format!("failed to open digest file {}", path.display()))?;
         let reader = BufReader::new(file);
@@ -335,7 +335,7 @@ fn collect_excluded_digests(
                     excluded.insert(digest);
                 }
                 Err(_) => {
-                    log::warn!("Skipping invalid digest in {}: {trimmed}", path.display());
+                    tracing::warn!("Skipping invalid digest in {}: {trimmed}", path.display());
                 }
             }
         }

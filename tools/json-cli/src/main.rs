@@ -61,18 +61,18 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             let mut hasher = sha1::Sha1::default();
 
             for path in &input {
-                log::info!("Reading file: {}", path.as_os_str().to_string_lossy());
+                tracing::info!("Reading file: {}", path.as_os_str().to_string_lossy());
                 let context = resolve_context(format.as_ref(), path)?;
                 verify_file(path, &context, &mut hasher, &mut counts)?;
             }
 
-            log::info!("{} verified", counts.verified);
+            tracing::info!("{} verified", counts.verified);
 
             // Every problem has already been logged line by line; reporting them here makes the
             // exit code reflect them, so scripts gating on it do not treat corrupt files as
             // verified.
             if counts.invalid > 0 || counts.out_of_order > 0 {
-                log::error!(
+                tracing::error!(
                     "Verification failed: {} invalid digests, {} out-of-order snapshots",
                     counts.invalid,
                     counts.out_of_order
@@ -117,7 +117,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
 
                 // Any requested digests we have passed are not present in the input.
                 while next < requested.len() && requested[next] < snapshot.digest {
-                    log::warn!("Digest not found: {}", requested[next]);
+                    tracing::warn!("Digest not found: {}", requested[next]);
                     next += 1;
                 }
 
@@ -128,7 +128,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             }
 
             for missing in &requested[next..] {
-                log::warn!("Digest not found: {missing}");
+                tracing::warn!("Digest not found: {missing}");
             }
         }
         Command::Incomplete { input } => {
@@ -136,7 +136,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
 
             for path in input {
                 let reader = zst::reader(&path)?;
-                log::info!("Reading file: {}", path.as_os_str().to_string_lossy());
+                tracing::info!("Reading file: {}", path.as_os_str().to_string_lossy());
 
                 for line in reader.lines() {
                     let line = line?;
@@ -151,7 +151,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                 }
             }
 
-            log::info!("{count} incomplete");
+            tracing::info!("{count} incomplete");
         }
         Command::MergeOld {
             input,
@@ -165,11 +165,11 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             let mut import = snapshot::snapshot_import(&snapshots)?;
 
             for path in &import.skipped {
-                log::info!("Skipped: {}", path.as_os_str().to_string_lossy());
+                tracing::info!("Skipped: {}", path.as_os_str().to_string_lossy());
             }
 
             for (expected, found) in &import.invalid_digests {
-                log::warn!("Invalid digest: {found} instead of {expected}");
+                tracing::warn!("Invalid digest: {found} instead of {expected}");
             }
 
             // A digest present in two snapshot directories (or stored both plain and compressed)
@@ -177,7 +177,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             // content is not appended a second time, out of order.
             import.dedup_paths();
 
-            log::info!("Prepared {} files", import.paths.len());
+            tracing::info!("Prepared {} files", import.paths.len());
 
             let mut flat_input = SnapshotReader::open(input.join(FLAT_FILE_NAME))?.peekable();
             let mut data_input = SnapshotReader::open(input.join(DATA_FILE_NAME))?.peekable();
@@ -203,17 +203,17 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                             let trimmed = content.trim();
 
                             if trimmed.contains(['\n', '\r']) {
-                                log::info!("Internal line break, skipping: {digest}");
+                                tracing::info!("Internal line break, skipping: {digest}");
                             } else if content.starts_with("{\"created_at\":") {
                                 flat_output.write(digest, bytes)?;
                             } else if content.starts_with("{\"data\":") {
                                 data_output.write(digest, bytes)?;
                             } else {
-                                log::info!("Skipped: {digest}");
+                                tracing::info!("Skipped: {digest}");
                             }
                         }
                         Err(error) => {
-                            log::error!("File I/O error: {error:?}");
+                            tracing::error!("File I/O error: {error:?}");
                         }
                     }
                 }
@@ -235,7 +235,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
 
             let read = data_info.load_data_directories(&data)?;
 
-            log::info!(
+            tracing::info!(
                 "{} files ({} stray entries skipped), {} distinct digests",
                 read.files,
                 read.skipped,
@@ -244,7 +244,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
 
             let duplicates = data_info.duplicates().collect::<Vec<_>>();
 
-            log::info!(
+            tracing::info!(
                 "{} digests with duplicates ({} total files)",
                 duplicates.len(),
                 duplicates
@@ -256,7 +256,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             let invalid_duplicates = data_info.verify_duplicates()?;
 
             for invalid_duplicate in invalid_duplicates {
-                log::warn!(
+                tracing::warn!(
                     "Invalid digest: {}",
                     invalid_duplicate.as_os_str().to_string_lossy()
                 );
@@ -273,7 +273,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             let mut data_info = archivindex_wbm_json_processing::process::data::Data::default();
             let read = data_info.load_data_directories(&data)?;
 
-            log::info!(
+            tracing::info!(
                 "{} data files ({} stray entries skipped), {} distinct digests",
                 read.files,
                 read.skipped,
@@ -281,7 +281,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             );
 
             for invalid_duplicate in data_info.verify_duplicates()? {
-                log::warn!(
+                tracing::warn!(
                     "Invalid digest: {}",
                     invalid_duplicate.as_os_str().to_string_lossy()
                 );
@@ -297,10 +297,10 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                     )
                 })?;
             let invalid_count = resolver.read_invalid_digests(&database)?;
-            log::info!("Read {invalid_count} invalid digest entries");
+            tracing::info!("Read {invalid_count} invalid digest entries");
 
             let cdx_count = resolver.resolve(&cdx, true)?;
-            log::info!("Resolved across {cdx_count} CDX files");
+            tracing::info!("Resolved across {cdx_count} CDX files");
 
             let mut csv_writer = csv::Writer::from_path(&output)?;
             let mut warnings_file = std::io::BufWriter::new(File::create(&warnings)?);
@@ -333,9 +333,9 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
             }
 
             missing_file.flush()?;
-            log::info!("{missing_count} missing digests");
+            tracing::info!("{missing_count} missing digests");
 
-            log::info!(
+            tracing::info!(
                 "{resolved_count} resolved, \
                  {warning_count} warnings"
             );
@@ -401,7 +401,7 @@ async fn run() -> Result<CommandOutcome, anyhow::Error> {
                 compression,
             )?;
 
-            log::info!(
+            tracing::info!(
                 "First: {}, second: {}, both: {}",
                 summary.counts.first,
                 summary.counts.second,
@@ -492,11 +492,11 @@ fn resolve_context(format: Option<&Format>, path: &Path) -> Result<Context, anyh
         Some(Format::Ts) => wts::context(),
         None => Context::infer(zst::reader(path)?, path.display().to_string(), 10)?.map_or_else(
             || {
-                log::warn!("Could not infer closing whitespace; assuming none");
+                tracing::warn!("Could not infer closing whitespace; assuming none");
                 Context::default()
             },
             |context| {
-                log::info!(
+                tracing::info!(
                     "Inferred closing whitespace: \"{}\"",
                     archivindex_wbm_json::exact::format_closing_whitespace(
                         context.default_closing_whitespace()
@@ -518,7 +518,7 @@ fn write_compact_summary(
     summary: &archivindex_wbm_json_processing::process::compact::Summary,
     summary_output: &Path,
 ) -> Result<(), anyhow::Error> {
-    log::info!(
+    tracing::info!(
         "{} resolved, {} unresolved, {} skipped, {} warnings",
         summary.resolved_count,
         summary.unresolved_count,
@@ -554,7 +554,7 @@ fn export_snapshot(
         snapshot.digest
     );
 
-    log::info!("Exported {}", snapshot.digest);
+    tracing::info!("Exported {}", snapshot.digest);
 
     Ok(())
 }
@@ -587,13 +587,13 @@ fn verify_file(
         let snapshot = ExactSnapshot::parse(&line)?;
 
         if last_digest.is_some_and(|last| snapshot.digest <= last) {
-            log::error!("Out of order: {}", snapshot.digest);
+            tracing::error!("Out of order: {}", snapshot.digest);
             counts.out_of_order += 1;
         }
         last_digest = Some(snapshot.digest);
 
         if let Err(error) = context.verify(&snapshot, hasher) {
-            log::error!("Invalid {}: {error}", snapshot.digest);
+            tracing::error!("Invalid {}: {error}", snapshot.digest);
             counts.invalid += 1;
         } else {
             counts.verified += 1;

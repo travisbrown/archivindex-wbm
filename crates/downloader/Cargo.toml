@@ -27,12 +27,12 @@ bounded-static.workspace = true
 bytes.workspace = true
 http.workspace = true
 jiff.workspace = true
-log.workspace = true
 reqwest = { workspace = true, features = ["socks"] }
 rusqlite.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-retry.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

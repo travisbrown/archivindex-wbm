@@ -100,7 +100,7 @@ impl Skipped {
 pub fn read_verified(path: &Path, digest: Sha1Digest) -> Result<Vec<u8>, SkipReason> {
     match std::fs::read(path) {
         Err(error) => {
-            log::warn!(
+            tracing::warn!(
                 "Read error ({error:?}): {}",
                 path.as_os_str().to_string_lossy()
             );
@@ -113,7 +113,7 @@ pub fn read_verified(path: &Path, digest: Sha1Digest) -> Result<Vec<u8>, SkipRea
             if actual_digest == digest {
                 Ok(bytes)
             } else {
-                log::warn!(
+                tracing::warn!(
                     "Digest mismatch (named {digest}, contents hash to {actual_digest}): {}",
                     path.as_os_str().to_string_lossy()
                 );
@@ -144,7 +144,7 @@ pub(crate) fn build_snapshot<'a>(
             Ok(snapshot)
         }
         Err(error) => {
-            log::warn!("{error}: {}", path.as_os_str().to_string_lossy());
+            tracing::warn!("{error}: {}", path.as_os_str().to_string_lossy());
             Err(SkipReason::from(&error))
         }
     }

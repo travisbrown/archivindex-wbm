@@ -24,8 +24,8 @@ archivindex-wbm.workspace = true
 archivindex-wbm-cas = { workspace = true, default-features = false }
 archivindex-wbm-downloader.workspace = true
 bytes.workspace = true
-log.workspace = true
 reqwest.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

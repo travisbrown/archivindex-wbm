@@ -57,7 +57,7 @@ impl Data {
                     .and_then(|file_name| file_name.to_str())
                     .and_then(|file_name| file_name.parse::<Sha1Digest>().ok())
                 else {
-                    log::warn!(
+                    tracing::warn!(
                         "Not a digest-named file, skipping: {}",
                         path.as_os_str().to_string_lossy()
                     );

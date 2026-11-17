@@ -280,7 +280,7 @@ impl Manager {
                             }
                             Ok(None) => DownloadResult::NotFound { url, timestamp },
                             Err(error) => {
-                                log::error!("Error downloading {url}: {error:?}");
+                                tracing::error!("Error downloading {url}: {error:?}");
 
                                 DownloadResult::Error {
                                     url,
@@ -345,7 +345,7 @@ impl Manager {
             };
 
             match result {
-                Ok(count) => log::info!("Task {index}: {count} downloads"),
+                Ok(count) => tracing::info!("Task {index}: {count} downloads"),
                 Err(error) => {
                     first_error.get_or_insert(error);
                 }

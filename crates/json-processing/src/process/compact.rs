@@ -289,7 +289,7 @@ where
         ) {
             Ok(detected) => detected,
             Err(format) => {
-                log::warn!(
+                tracing::warn!(
                     "Could not determine a supported encoding for format {format}: {}",
                     path.display()
                 );
@@ -298,7 +298,7 @@ where
         };
 
         let Some(index) = keys.iter().position(|key| *key == partition) else {
-            log::warn!(
+            tracing::warn!(
                 "No matching partition: {}",
                 path.as_os_str().to_string_lossy()
             );

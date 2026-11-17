@@ -409,7 +409,7 @@ where
             // No merge data has been sent. Drop the first writer's owned temporary file instead of
             // publishing an empty output and unlinking a destination we no longer own.
             if let Err(abort_error) = first_sink.abort().await {
-                log::warn!(
+                tracing::warn!(
                     "Error discarding first output after second output failure: {abort_error}"
                 );
             }
@@ -498,7 +498,7 @@ where
                 // would otherwise be written under it, silently breaking output ordering.
                 let actual_digest = Sha1Digest::compute(content.as_bytes());
                 if actual_digest != digest {
-                    log::warn!(
+                    tracing::warn!(
                         "Digest mismatch (named {digest}, contents hash to {actual_digest})"
                     );
                     stats.skipped += 1;
@@ -507,7 +507,7 @@ where
                 // a leading line break through to the writer, which rejects it and fails the whole
                 // merge rather than skipping the one file.
                 } else if content.trim_end().contains(['\n', '\r']) {
-                    log::warn!("Internal line break, skipping: {digest}");
+                    tracing::warn!("Internal line break, skipping: {digest}");
                     stats.skipped += 1;
                 } else {
                     match classify(&content) {
@@ -526,7 +526,7 @@ where
                 }
             }
             Err(error) => {
-                log::warn!("Read error ({error:?}), skipping: {digest}");
+                tracing::warn!("Read error ({error:?}), skipping: {digest}");
                 stats.skipped += 1;
             }
         }

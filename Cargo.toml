@@ -85,7 +85,6 @@ jiff = { version = "1", default-features = false, features = ["std"] }
 # in `archivindex-wbm-json-gzip`.
 libz-ng-sys = "1.1.31"
 libz-sys = "1.1.31"
-log = "0.4"
 prefix-file-tree = "0.5"
 proptest = { version = "1.12", features = ["attr-macro"] }
 rayon = "1"
@@ -101,8 +100,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-retry = "0.3"
 tokio-stream = "0.1"
 toml = "1"
-# Preserve log diagnostics through the shared tracing initializer until the logging migration.
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["tracing-log"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 url = { version = "2", features = ["serde"] }
 wiremock = "0.6"
 zstd = "0.14"

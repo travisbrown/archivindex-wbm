@@ -29,12 +29,11 @@ archivindex-wbm-json-processing.workspace = true
 clap.workspace = true
 csv.workspace = true
 flate2.workspace = true
-log.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 tokio.workspace = true
 toml.workspace = true
-tracing-subscriber.workspace = true
+tracing.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
