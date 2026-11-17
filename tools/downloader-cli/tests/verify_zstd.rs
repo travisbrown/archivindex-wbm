@@ -47,6 +47,8 @@ fn prints_verified_digests_in_byte_order() {
 #[test]
 fn rejects_invalid_paths_anywhere_in_the_tree() {
     let digest = Sha1Digest::compute(b"hello").to_string();
+    let source = tempfile::tempdir().unwrap();
+    let compressed = std::fs::read(save(source.path(), b"hello")).unwrap();
     for relative in [
         format!("{digest}.zst"),
         format!("VL/{digest}.zst"),
@@ -63,10 +65,12 @@ fn rejects_invalid_paths_anywhere_in_the_tree() {
         ".hidden/arbitrary/deep/path/file".to_owned(),
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let original = save(directory.path(), b"hello");
-        let target = directory.path().join(relative);
+        let target = directory
+            .path()
+            .join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+        // Create the requested spelling directly, even on case-insensitive filesystems.
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::rename(original, &target).unwrap();
+        std::fs::write(&target, &compressed).unwrap();
         assert_failure(directory.path(), &target, "failed to verify");
     }
 }

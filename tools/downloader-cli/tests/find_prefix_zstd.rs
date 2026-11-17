@@ -74,7 +74,14 @@ fn relative_base_still_prints_absolute_paths() {
         .output()
         .unwrap();
     assert!(output.status.success(), "{:?}", output.stderr);
-    assert_paths(&output, &[expected]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let actual = Path::new(stdout.strip_suffix('\n').unwrap());
+    assert!(actual.is_absolute());
+    // The working directory may resolve symlinks such as macOS's /var -> /private/var.
+    assert_eq!(
+        actual.canonicalize().unwrap(),
+        expected.canonicalize().unwrap()
+    );
 }
 
 #[test]
