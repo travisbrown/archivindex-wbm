@@ -285,6 +285,8 @@ impl Context {
     ///
     /// The query is evaluated with the parsed content bound to the variable `content` and must
     /// produce a string. During serialization a `url` field equal to the inferred URL is omitted.
+    /// Regular expressions are supported. Optional CEL timestamp, duration, and Base64 features
+    /// are disabled.
     ///
     /// # Errors
     ///
@@ -812,6 +814,21 @@ mod tests {
             Some("https://truthsocial.com/api/v1/statuses/42")
         );
         assert_eq!(Context::default().infer_url(r#"{"id":"42"}"#), None);
+    }
+
+    #[test]
+    fn infer_url_via_cel_regex() {
+        let context = Context::default()
+            .with_url_query(
+                "content.id.matches('^[0-9]+$') ? 'https://example.com/' + content.id : null",
+            )
+            .unwrap();
+
+        assert_eq!(
+            context.infer_url(r#"{"id":"42"}"#).as_deref(),
+            Some("https://example.com/42")
+        );
+        assert_eq!(context.infer_url(r#"{"id":"invalid"}"#), None);
     }
 
     #[test]

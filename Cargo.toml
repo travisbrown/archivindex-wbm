@@ -71,7 +71,7 @@ archivindex-wbm-json-processing = { version = "0.1.0", path = "crates/json-proce
 archivindex-wbm-test-data = { version = "0.1.0", path = "crates/test-data" }
 bounded-static = { version = "0.8", features = ["derive"] }
 bytes = "1"
-cel = "0.16"
+cel = { version = "0.16", default-features = false, features = ["regex"] }
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 data-encoding = "2"
