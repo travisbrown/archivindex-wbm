@@ -88,7 +88,7 @@ libz-sys = "1.1.31"
 prefix-file-tree = "0.5"
 proptest = { version = "1.12", features = ["attr-macro"] }
 rayon = "1"
-redb = "4"
+redb = "5"
 reqwest = { version = "0.13", features = ["json"] }
 rusqlite = "0.43"
 serde = { version = "1", features = ["derive"] }
